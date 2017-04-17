@@ -1,0 +1,23 @@
+[package]
+name = "tokio-kafka"
+version = "0.1.0"
+authors = ["Flier Lu <flier.lu@gmail.com>"]
+
+[dependencies]
+log = "0.3"
+error-chain = "0.10"
+bytes = "0.4"
+nom = "2.2"
+crc = "1.4"
+xxhash2 = "0.1"
+time = "0.1"
+
+futures = "0.1"
+tokio-core = "0.1"
+tokio-io = "0.1"
+tokio-proto = { git = "https://github.com/tokio-rs/tokio-proto" }
+tokio-tls = "0.1"
+native-tls = "0.1"
+
+[dev-dependencies]
+env_logger = "0.4"
