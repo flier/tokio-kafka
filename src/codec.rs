@@ -69,14 +69,17 @@ pub trait WriteExt: BufMut {
         }
     }
 
-    fn put_array<T: ByteOrder, E: Encodable>(&mut self, items: &[E]) -> Result<()> {
+    fn put_array<T, E, F>(&mut self, items: &[E], mut callback: F) -> Result<()>
+        where T: ByteOrder,
+              F: FnMut(&mut Self, &E) -> Result<()>
+    {
         if items.len() > i32::max_value() as usize {
             bail!(ErrorKind::CodecError("Array exceeds the maximum size."))
         } else {
             self.put_i32::<T>(items.len() as i32);
 
             for item in items {
-                self.put_item::<T, _>(item)?;
+                callback(self, item)?;
             }
 
             Ok(())
