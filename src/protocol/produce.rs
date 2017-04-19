@@ -91,7 +91,7 @@ pub struct ProduceResponse {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceTopicStatus {
-    pub topic_name: Option<String>,
+    pub topic_name: String,
     pub partitions: Vec<ProducePartitionStatus>,
 }
 
@@ -181,8 +181,6 @@ named_args!(parse_produce_partition_status(version: u8)<ProducePartitionStatus>,
 mod tests {
     use bytes::BigEndian;
 
-    use nom::IResult;
-
     use super::*;
     use protocol::*;
 
@@ -190,7 +188,7 @@ mod tests {
         static ref TEST_REQUEST_DATA: Vec<u8> = vec![
             // ProduceRequest
                 // RequestHeader
-                0, 1,                               // api_key
+                0, 0,                               // api_key
                 0, 2,                               // api_version
                 0, 0, 0, 123,                       // correlation_id
                 0, 6, 99, 108, 105, 101, 110, 116,  // client_id
@@ -235,7 +233,7 @@ mod tests {
         static ref TEST_RESPONSE: ProduceResponse = ProduceResponse {
             header: ResponseHeader { correlation_id: 123 },
             topics: vec![ProduceTopicStatus {
-                             topic_name: Some("topic".to_owned()),
+                             topic_name: "topic".to_owned(),
                              partitions: vec![ProducePartitionStatus {
                                                   partition: 1,
                                                   error_code: 2,
@@ -248,10 +246,10 @@ mod tests {
     }
 
     #[test]
-    fn test_produce_request() {
+    fn test_produce_request_encoder() {
         let req = ProduceRequest {
             header: RequestHeader {
-                api_key: ApiKeys::Fetch as i16,
+                api_key: ApiKeys::Produce as i16,
                 api_version: 2,
                 correlation_id: 123,
                 client_id: Some("client"),
@@ -280,12 +278,6 @@ mod tests {
         encoder.encode(req, &mut buf).unwrap();
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
-    }
-
-    #[test]
-    fn test_produce_response() {
-        assert_eq!(parse_produce_response(TEST_RESPONSE_DATA.as_slice(), 2),
-                   IResult::Done(&b""[..], TEST_RESPONSE.clone()));
     }
 
     #[test]

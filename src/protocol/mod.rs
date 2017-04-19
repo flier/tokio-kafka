@@ -9,8 +9,9 @@ mod produce;
 mod message;
 
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
-pub use self::metadata::{TopicMetadataRequest, TopicMetadataRequestEncoder, TopicMetadataResponse,
-                         BrokerMetadata, TopicMetadata, PartitionMetadata};
+pub use self::metadata::{TopicMetadataRequest, TopicMetadataResponse, TopicMetadataRequestEncoder,
+                         TopicMetadataResponseDecoder, BrokerMetadata, TopicMetadata,
+                         PartitionMetadata};
 pub use self::produce::{ProduceRequest, ProduceResponse, ProduceRequestEncoder,
                         ProduceResponseDecoder, ProduceTopicData, ProducePartitionData};
 pub use self::message::{Message, MessageSet};
@@ -70,10 +71,10 @@ named!(pub parse_str<Option<Cow<str>>>,
     )
 );
 
-named!(pub parse_string<Option<String>>,
+named!(pub parse_string<String>,
     do_parse!(
         len: be_i16
-     >> s: cond!(len > 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
+     >> s: cond_reduce!(len > 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
      >> (s)
     )
 );
@@ -88,7 +89,7 @@ named!(pub parse_bytes<Option<Cow<[u8]>>>,
 
 #[cfg(test)]
 mod tests {
-    use nom::{IResult, Needed};
+    use nom::{IResult, Needed, ErrorKind};
 
     use super::*;
 
@@ -99,6 +100,16 @@ mod tests {
         assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], None));
         assert_eq!(parse_str(b"\0\x04test"),
                    IResult::Done(&b""[..], Some(Cow::from("test"))));
+    }
+
+    #[test]
+    fn test_parse_string() {
+        assert_eq!(parse_string(b"\0"), IResult::Incomplete(Needed::Size(2)));
+        assert_eq!(parse_string(b"\xff\xff"),
+                   IResult::Error(ErrorKind::CondReduce));
+        assert_eq!(parse_string(b"\0\0"), IResult::Error(ErrorKind::CondReduce));
+        assert_eq!(parse_string(b"\0\x04test"),
+                   IResult::Done(&b""[..], "test".to_owned()));
     }
 
     #[test]
