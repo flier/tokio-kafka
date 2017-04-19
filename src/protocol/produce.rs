@@ -4,98 +4,14 @@ use std::marker::PhantomData;
 
 use bytes::{BytesMut, BufMut, ByteOrder};
 
-use nom::{IResult, be_i32};
-
-use time;
-
-use crc::crc32;
-
-use tokio_io::codec::{Encoder, Decoder};
+use tokio_io::codec::Encoder;
 
 use errors::{Error, Result};
-use codec::{Encodable, WriteExt};
+use codec::WriteExt;
 use compression::Compression;
 
-/// The following are the numeric codes that the ApiKey in the request can take for each of the below request types.
-#[derive(Debug, Copy, Clone)]
-#[repr(i16)]
-pub enum ApiKeys {
-    Produce = 0,
-    Fetch = 1,
-    Offsets = 2,
-    Metadata = 3,
-    LeaderAndIsr = 4,
-    StopReplica = 5,
-    UpdateMetadata = 6,
-    ControlledShutdown = 7,
-    OffsetCommit = 8,
-    OffsetFetch = 9,
-    GroupCoordinator = 10,
-    JoinGroup = 11,
-    Heartbeat = 12,
-    LeaveGroup = 13,
-    SyncGroup = 14,
-    DescribeGroups = 15,
-    ListGroups = 16,
-    SaslHandshake = 17,
-    ApiVersions = 18,
-    CreateTopics = 19,
-    DeleteTopics = 20,
-}
-
-/// Possible choices on acknowledgement requirements when
-/// producing/sending messages to Kafka. See
-/// `KafkaClient::produce_messages`.
-#[derive(Debug, Copy, Clone)]
-#[repr(i16)]
-pub enum RequiredAcks {
-    /// Indicates to the receiving Kafka broker not to acknowlegde
-    /// messages sent to it at all. Sending messages with this
-    /// acknowledgement requirement translates into a fire-and-forget
-    /// scenario which - of course - is very fast but not reliable.
-    None = 0,
-    /// Requires the receiving Kafka broker to wait until the sent
-    /// messages are written to local disk.  Such messages can be
-    /// regarded as acknowledged by one broker in the cluster.
-    One = 1,
-    /// Requires the sent messages to be acknowledged by all in-sync
-    /// replicas of the targeted topic partitions.
-    All = -1,
-}
-
-
-#[derive(Debug)]
-pub struct RequestHeader<'a> {
-    pub api_key: i16,
-    pub api_version: i16,
-    pub correlation_id: i32,
-    pub client_id: Option<&'a str>,
-}
-
-impl<'a> Encodable for RequestHeader<'a> {
-    fn encode<T: ByteOrder, B: BufMut>(&self, mut buf: B) -> Result<()> {
-        buf.put_i16::<T>(self.api_key);
-        buf.put_i16::<T>(self.api_version);
-        buf.put_i32::<T>(self.correlation_id);
-        buf.put_str::<T, _>(self.client_id)
-    }
-}
-
-#[derive(Debug)]
-pub struct ResponseHeader {
-    pub correlation_id: i32,
-}
-
-named!(parse_response_header<ResponseHeader>,
-    do_parse!(
-        correlation_id: be_i32
-     >> (
-            ResponseHeader {
-                correlation_id: correlation_id,
-            }
-        )
-    )
-);
+use protocol::header::{RequestHeader, ResponseHeader};
+use protocol::message::MessageSet;
 
 #[derive(Debug)]
 pub struct ProduceRequest<'a> {
@@ -178,88 +94,12 @@ pub struct ProducePartitionStatus {
     pub timestamp: Option<i64>,
 }
 
-/// Message sets
-///
-/// One structure common to both the produce and fetch requests is the message set format.
-/// A message in kafka is a key-value pair with a small amount of associated metadata.
-/// A message set is just a sequence of messages with offset and size information.
-///  This format happens to be used both for the on-disk storage on the broker and the on-the-wire format.
-///
-/// MessageSet => [Offset MessageSize Message]
-///   Offset => int64
-///   MessageSize => int32
-#[derive(Debug)]
-pub struct MessageSet<'a> {
-    pub messages: Vec<Message<'a>>,
-}
-
-/// Message format
-///
-/// v0
-/// Message => Crc MagicByte Attributes Key Value
-///   Crc => int32
-///   MagicByte => int8
-///   Attributes => int8
-///   Key => bytes
-///   Value => bytes
-///
-/// v1 (supported since 0.10.0)
-/// Message => Crc MagicByte Attributes Key Value
-///   Crc => int32
-///   MagicByte => int8
-///   Attributes => int8
-///   Timestamp => int64
-///   Key => bytes
-///   Value => bytes
-#[derive(Debug)]
-pub struct Message<'a> {
-    pub key: Option<&'a [u8]>,
-    pub value: Option<&'a [u8]>,
-    pub timestamp: Option<i64>,
-}
-
-impl<'a> Message<'a> {
-    fn encode<T: ByteOrder>(&self,
-                            buf: &mut BytesMut,
-                            offset: i64,
-                            version: i8,
-                            compression: Compression)
-                            -> Result<()> {
-        buf.put_i64::<T>(offset);
-        let size_off = buf.len();
-        buf.put_i32::<T>(0);
-        let crc_off = buf.len();
-        buf.put_i32::<T>(0);
-        let data_off = buf.len();
-        buf.put_i8(version);
-        buf.put_i8(compression as i8);
-
-        if version > 0 {
-            buf.put_i64::<T>(self.timestamp
-                                 .unwrap_or_else(|| {
-                                                     let ts = time::now_utc().to_timespec();
-                                                     ts.sec * 1000_000 + ts.nsec as i64 / 1000
-                                                 }));
-        }
-
-        buf.put_bytes::<T, _>(self.key)?;
-        buf.put_bytes::<T, _>(self.value)?;
-
-        let size = buf.len() - crc_off;
-        let crc = crc32::checksum_ieee(&buf[data_off..]);
-
-        T::write_i32(&mut buf[size_off..], size as i32);
-        T::write_i32(&mut buf[crc_off..], crc as i32);
-
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use bytes::BigEndian;
 
     use super::*;
+    use protocol::*;
 
     #[test]
     fn request_header() {
@@ -274,7 +114,8 @@ mod tests {
 
         buf.put_item::<BigEndian, _>(&hdr).unwrap();
 
-        assert_eq!(&buf[..], &[0, 1,            // api_key
+        assert_eq!(&buf[..],
+                   &[0, 1,            // api_key
                                0, 2,            // api_version
                                0, 0, 0, 123,    // correlation_id
                                0, 4, 116, 101, 115, 116]);
@@ -302,18 +143,18 @@ mod tests {
             required_acks: RequiredAcks::All as i16,
             timeout: 123,
             topics: vec![ProduceTopicData {
-                topic_name: "topic",
-                partitions: vec![ProducePartitionData {
-                    partition: 1,
-                    message_set: MessageSet {
-                        messages: vec![Message {
-                            key: Some(b"key"),
-                            value: Some(b"value"),
-                            timestamp: Some(456),
-                        }],
-                    },
-                }],
-            }],
+                             topic_name: "topic",
+                             partitions: vec![ProducePartitionData {
+                                                  partition: 1,
+                                                  message_set: MessageSet {
+                                                      messages: vec![Message {
+                                                                         key: Some(b"key"),
+                                                                         value: Some(b"value"),
+                                                                         timestamp: Some(456),
+                                                                     }],
+                                                  },
+                                              }],
+                         }],
         };
 
         let mut encoder = ProduceRequestEncoder::<BigEndian> {
@@ -327,7 +168,8 @@ mod tests {
 
         encoder.encode(req, &mut buf).unwrap();
 
-        assert_eq!(&buf[..], &[
+        assert_eq!(&buf[..],
+                   &[
             // ProduceRequest
                 // RequestHeader
                 0, 1,                               // api_key
@@ -355,6 +197,7 @@ mod tests {
                         0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
                         0, 0, 0, 3, 107, 101, 121,          // key
                         0, 0, 0, 5, 118, 97, 108, 117, 101  // value
-        ][..]);
+        ]
+                        [..]);
     }
 }

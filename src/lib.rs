@@ -19,7 +19,9 @@ extern crate env_logger;
 pub mod errors;
 mod codec;
 mod compression;
-mod protocol;
+pub mod protocol;
 mod client;
 mod producer;
 mod consumer;
+
+pub use compression::Compression;
