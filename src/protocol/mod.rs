@@ -1,3 +1,7 @@
+use std::str;
+
+use nom::{be_i16, be_i32};
+
 mod header;
 mod message;
 mod produce;
@@ -51,4 +55,46 @@ pub enum RequiredAcks {
     /// Requires the sent messages to be acknowledged by all in-sync
     /// replicas of the targeted topic partitions.
     All = -1,
+}
+
+named!(pub parse_str<Option<&str>>,
+    do_parse!(
+        len: be_i16
+     >> s: cond!(len > 0, map_res!(take!(len), str::from_utf8))
+     >> (s)
+    )
+);
+
+named!(pub parse_bytes<Option<&[u8]>>,
+    do_parse!(
+        len: be_i32
+     >> s: cond!(len > 0, take!(len))
+     >> (s)
+    )
+);
+
+#[cfg(test)]
+mod tests {
+    use nom::{IResult, Needed};
+
+    use super::*;
+
+    #[test]
+    fn test_parse_str() {
+        assert_eq!(parse_str(b"\0"), IResult::Incomplete(Needed::Size(2)));
+        assert_eq!(parse_str(b"\xff\xff"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_str(b"\0\x04test"),
+                   IResult::Done(&b""[..], Some("test")));
+    }
+
+    #[test]
+    fn test_parse_bytes() {
+        assert_eq!(parse_bytes(b"\0"), IResult::Incomplete(Needed::Size(4)));
+        assert_eq!(parse_bytes(b"\xff\xff\xff\xff"),
+                   IResult::Done(&b""[..], None));
+        assert_eq!(parse_bytes(b"\0\0\0\0"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_bytes(b"\0\0\0\x04test"),
+                   IResult::Done(&b""[..], Some(&b"test"[..])));
+    }
 }

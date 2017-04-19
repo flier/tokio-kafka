@@ -18,7 +18,7 @@ use compression::Compression;
 /// MessageSet => [Offset MessageSize Message]
 ///   Offset => int64
 ///   MessageSize => int32
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct MessageSet<'a> {
     pub messages: Vec<Message<'a>>,
 }
@@ -41,7 +41,7 @@ pub struct MessageSet<'a> {
 ///   Timestamp => int64
 ///   Key => bytes
 ///   Value => bytes
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Message<'a> {
     pub key: Option<&'a [u8]>,
     pub value: Option<&'a [u8]>,

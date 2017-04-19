@@ -6,6 +6,7 @@ authors = ["Flier Lu <flier.lu@gmail.com>"]
 [dependencies]
 log = "0.3"
 error-chain = "0.10"
+lazy_static = "0.2"
 bytes = "0.4"
 nom = "2.2"
 crc = "1.4"

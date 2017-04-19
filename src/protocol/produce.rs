@@ -4,16 +4,17 @@ use std::marker::PhantomData;
 
 use bytes::{BytesMut, BufMut, ByteOrder};
 
+use nom::{be_i16, be_i32, be_i64};
+
 use tokio_io::codec::Encoder;
 
 use errors::{Error, Result};
 use codec::WriteExt;
 use compression::Compression;
 
-use protocol::header::{RequestHeader, ResponseHeader};
-use protocol::message::MessageSet;
+use protocol::{RequestHeader, ResponseHeader, MessageSet, parse_str, parse_response_header};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ProduceRequest<'a> {
     pub header: RequestHeader<'a>,
     pub required_acks: i16,
@@ -21,18 +22,19 @@ pub struct ProduceRequest<'a> {
     pub topics: Vec<ProduceTopicData<'a>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ProduceTopicData<'a> {
     pub topic_name: &'a str,
     pub partitions: Vec<ProducePartitionData<'a>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ProducePartitionData<'a> {
     pub partition: i32,
     pub message_set: MessageSet<'a>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct ProduceRequestEncoder<'a, T: 'a> {
     pub offset: i64,
     pub api_version: i8,
@@ -73,20 +75,20 @@ impl<'a, T: 'a + ByteOrder> Encoder for ProduceRequestEncoder<'a, T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ProduceResponse<'a> {
     pub header: ResponseHeader,
     pub topics: Vec<ProduceTopicStatus<'a>>,
     pub throttle_time: Option<i32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ProduceTopicStatus<'a> {
-    pub topic_name: &'a str,
+    pub topic_name: Option<&'a str>,
     pub partitions: Vec<ProducePartitionStatus>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ProducePartitionStatus {
     pub partition: i32,
     pub error_code: i16,
@@ -94,45 +96,58 @@ pub struct ProducePartitionStatus {
     pub timestamp: Option<i64>,
 }
 
+named_args!(pub parse_produce_response(version: u8)<ProduceResponse>,
+    do_parse!(
+        header: parse_response_header
+     >> n: be_i32
+     >> topics: many_m_n!(n as usize, n as usize, apply!(parse_produce_topic_status, version))
+     >> throttle_time: cond!(version > 0, be_i32)
+     >> (ProduceResponse {
+            header: header,
+            topics: topics,
+            throttle_time: throttle_time,
+        })
+    )
+);
+
+named_args!(pub parse_produce_topic_status(version: u8)<ProduceTopicStatus>,
+    do_parse!(
+        name: parse_str
+     >> n: be_i32
+     >> partitions: many_m_n!(n as usize, n as usize, apply!(parse_produce_partition_status, version))
+     >> (ProduceTopicStatus {
+            topic_name: name,
+            partitions: partitions,
+        })
+    )
+);
+
+named_args!(pub parse_produce_partition_status(version: u8)<ProducePartitionStatus>,
+    do_parse!(
+        partition: be_i32
+     >> error_code: be_i16
+     >> offset: be_i64
+     >> timestamp: cond!(version > 1, be_i64)
+     >> (ProducePartitionStatus {
+            partition: partition,
+            error_code: error_code,
+            offset: offset,
+            timestamp: timestamp,
+        })
+    )
+);
+
 #[cfg(test)]
 mod tests {
     use bytes::BigEndian;
+
+    use nom::IResult;
 
     use super::*;
     use protocol::*;
 
     #[test]
-    fn request_header() {
-        let hdr = RequestHeader {
-            api_key: ApiKeys::Fetch as i16,
-            api_version: 2,
-            correlation_id: 123,
-            client_id: Some("test"),
-        };
-
-        let mut buf = vec![];
-
-        buf.put_item::<BigEndian, _>(&hdr).unwrap();
-
-        assert_eq!(&buf[..],
-                   &[0, 1,            // api_key
-                               0, 2,            // api_version
-                               0, 0, 0, 123,    // correlation_id
-                               0, 4, 116, 101, 115, 116]);
-
-        let bytes = &[0, 0, 0, 123];
-        let res = parse_response_header(bytes);
-
-        assert!(res.is_done());
-
-        let (remaning, hdr) = res.unwrap();
-
-        assert_eq!(remaning, b"");
-        assert_eq!(hdr.correlation_id, 123);
-    }
-
-    #[test]
-    fn produce_request() {
+    fn test_produce_request() {
         let req = ProduceRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Fetch as i16,
@@ -199,5 +214,39 @@ mod tests {
                         0, 0, 0, 5, 118, 97, 108, 117, 101  // value
         ]
                         [..]);
+    }
+
+    #[test]
+    fn test_produce_response() {
+        let res = ProduceResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            topics: vec![ProduceTopicStatus {
+                             topic_name: Some("topic"),
+                             partitions: vec![ProducePartitionStatus {
+                                                  partition: 1,
+                                                  error_code: 2,
+                                                  offset: 3,
+                                                  timestamp: Some(4),
+                                              }],
+                         }],
+            throttle_time: Some(5),
+        };
+
+        assert_eq!(parse_produce_response(&[
+            // ResponseHeader
+            0, 0, 0, 123, // correlation_id
+            // topics: [ProduceTopicStatus]
+            0, 0, 0, 1,
+                0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
+                // partitions: [ProducePartitionStatus]
+                0, 0, 0, 1,
+                    0, 0, 0, 1,             // partition
+                    0, 2,                   // error_code
+                    0, 0, 0, 0, 0, 0, 0, 3, // offset
+                    0, 0, 0, 0, 0, 0, 0, 4, // timestamp
+            0, 0, 0, 5 // throttle_time
+        ],
+                                          2),
+                   IResult::Done(&b""[..], res));
     }
 }
