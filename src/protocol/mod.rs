@@ -1,14 +1,19 @@
 use std::str;
+use std::borrow::{Cow, ToOwned};
 
 use nom::{be_i16, be_i32};
 
 mod header;
-mod message;
+mod metadata;
 mod produce;
+mod message;
 
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
+pub use self::metadata::{TopicMetadataRequest, TopicMetadataRequestEncoder, TopicMetadataResponse,
+                         BrokerMetadata, TopicMetadata, PartitionMetadata};
+pub use self::produce::{ProduceRequest, ProduceResponse, ProduceRequestEncoder,
+                        ProduceResponseDecoder, ProduceTopicData, ProducePartitionData};
 pub use self::message::{Message, MessageSet};
-pub use self::produce::{ProduceRequest, ProduceResponse, ProduceTopicData, ProducePartitionData};
 
 /// The following are the numeric codes that the ApiKey in the request can take for each of the below request types.
 #[derive(Debug, Copy, Clone)]
@@ -57,18 +62,26 @@ pub enum RequiredAcks {
     All = -1,
 }
 
-named!(pub parse_str<Option<&str>>,
+named!(pub parse_str<Option<Cow<str>>>,
     do_parse!(
         len: be_i16
-     >> s: cond!(len > 0, map_res!(take!(len), str::from_utf8))
+     >> s: cond!(len > 0, map!(map_res!(take!(len), str::from_utf8), Cow::from))
      >> (s)
     )
 );
 
-named!(pub parse_bytes<Option<&[u8]>>,
+named!(pub parse_string<Option<String>>,
+    do_parse!(
+        len: be_i16
+     >> s: cond!(len > 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
+     >> (s)
+    )
+);
+
+named!(pub parse_bytes<Option<Cow<[u8]>>>,
     do_parse!(
         len: be_i32
-     >> s: cond!(len > 0, take!(len))
+     >> s: cond!(len > 0, map!(take!(len), Cow::from))
      >> (s)
     )
 );
@@ -85,7 +98,7 @@ mod tests {
         assert_eq!(parse_str(b"\xff\xff"), IResult::Done(&b""[..], None));
         assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], None));
         assert_eq!(parse_str(b"\0\x04test"),
-                   IResult::Done(&b""[..], Some("test")));
+                   IResult::Done(&b""[..], Some(Cow::from("test"))));
     }
 
     #[test]
@@ -95,6 +108,6 @@ mod tests {
                    IResult::Done(&b""[..], None));
         assert_eq!(parse_bytes(b"\0\0\0\0"), IResult::Done(&b""[..], None));
         assert_eq!(parse_bytes(b"\0\0\0\x04test"),
-                   IResult::Done(&b""[..], Some(&b"test"[..])));
+                   IResult::Done(&b""[..], Some(Cow::from(&b"test"[..]))));
     }
 }

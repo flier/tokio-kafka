@@ -5,7 +5,7 @@ use nom::be_i32;
 use errors::Result;
 use codec::{Encodable, WriteExt};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RequestHeader<'a> {
     pub api_key: i16,
     pub api_version: i16,
@@ -22,7 +22,7 @@ impl<'a> Encodable for RequestHeader<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ResponseHeader {
     pub correlation_id: i32,
 }
