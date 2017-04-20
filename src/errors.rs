@@ -1,3 +1,5 @@
+use protocol::ApiKeys;
+
 /// Various errors reported by a remote Kafka server.
 ///
 /// We use numeric codes to indicate what problem occurred on the server.
@@ -149,5 +151,6 @@ error_chain!{
 
     errors {
         CodecError(reason: &'static str)
+        UnsupportedApiKey(key: ApiKeys)
     }
 }

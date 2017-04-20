@@ -10,10 +10,14 @@ extern crate nom;
 extern crate crc;
 extern crate xxhash2;
 extern crate time;
+extern crate hexplay;
 
 extern crate futures;
 extern crate tokio_core;
 extern crate tokio_io;
+extern crate tokio_proto;
+extern crate tokio_tls;
+extern crate native_tls;
 
 #[cfg(test)]
 extern crate env_logger;

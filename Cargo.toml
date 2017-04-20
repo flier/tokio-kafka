@@ -12,12 +12,13 @@ nom = "2.2"
 crc = "1.4"
 xxhash2 = "0.1"
 time = "0.1"
+hexplay = "0.1"
 
 futures = "0.1"
 tokio-core = "0.1"
 tokio-io = "0.1"
-tokio-proto = { git = "https://github.com/tokio-rs/tokio-proto" }
-tokio-tls = "0.1"
+tokio-proto = "0.1"
+tokio-tls = { version = "0.1", features = ["tokio-proto"] }
 native-tls = "0.1"
 
 [dev-dependencies]

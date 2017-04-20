@@ -1,51 +1,41 @@
-use std::result;
 use std::marker::PhantomData;
 
 use bytes::{BytesMut, ByteOrder};
 
-use nom::{IResult, be_i16, be_i32};
+use nom::{be_i16, be_i32};
 
-use tokio_io::codec::{Encoder, Decoder};
-
-use errors::{Error, Result};
+use errors::Result;
 use codec::WriteExt;
 use protocol::{RequestHeader, ResponseHeader, parse_response_header, parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TopicMetadataRequest<'a> {
-    pub header: RequestHeader<'a>,
-    pub topic_name: &'a str,
+pub struct MetadataRequest {
+    pub header: RequestHeader,
+    pub topic_name: String,
 }
 
-pub struct TopicMetadataRequestEncoder<'a, T: 'a>(PhantomData<&'a T>);
+pub struct MetadataRequestEncoder<T>(PhantomData<T>);
 
-impl<'a, T: 'a> TopicMetadataRequestEncoder<'a, T> {
+impl<T> MetadataRequestEncoder<T> {
     pub fn new() -> Self {
-        TopicMetadataRequestEncoder(PhantomData)
+        MetadataRequestEncoder(PhantomData)
     }
 }
 
-impl<'a, T: 'a + ByteOrder> Encoder for TopicMetadataRequestEncoder<'a, T> {
-    type Item = TopicMetadataRequest<'a>;
-    type Error = Error;
-
-    fn encode(&mut self, req: Self::Item, dst: &mut BytesMut) -> Result<()> {
-        dst.put_item::<T, _>(&req.header)?;
-        dst.put_str::<T, _>(req.topic_name)
+impl<T: ByteOrder> MetadataRequestEncoder<T> {
+    pub fn encode(&mut self, req: MetadataRequest, dst: &mut BytesMut) -> Result<()> {
+        dst.put_item::<T, _>(req.header)?;
+        dst.put_str::<T, _>(Some(req.topic_name))
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TopicMetadataResponse {
+pub struct MetadataResponse {
     pub header: ResponseHeader,
     pub brokers: Vec<BrokerMetadata>,
     pub topics: Vec<TopicMetadata>,
 }
-/*
-impl<'a> TopicMetadataResponse<'a> {
-    pub fn parse<T: 'a + AsRef<[u8]>>(buf: T) -> Result<TopicMetadataResponse<'a>> {}
-}
-*/
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrokerMetadata {
     pub node_id: i32,
@@ -69,45 +59,14 @@ pub struct PartitionMetadata {
     pub isr: Vec<i32>,
 }
 
-pub struct TopicMetadataResponseDecoder;
-
-impl TopicMetadataResponseDecoder {
-    pub fn new() -> Self {
-        TopicMetadataResponseDecoder {}
-    }
-}
-
-impl Decoder for TopicMetadataResponseDecoder {
-    type Item = TopicMetadataResponse;
-    type Error = Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> result::Result<Option<Self::Item>, Self::Error> {
-        let (off, res) = match parse_topic_metadata_response(src.as_ref()) {
-            IResult::Done(remaining, res) => {
-                let len = src.len() - remaining.len();
-
-                (Some(len), Ok(Some(res)))
-            }
-            IResult::Incomplete(_) => (None, Ok(None)),
-            IResult::Error(err) => (None, Err(err.into())),
-        };
-
-        if let Some(off) = off {
-            src.split_to(off);
-        }
-
-        res
-    }
-}
-
-named!(parse_topic_metadata_response<TopicMetadataResponse>,
+named!(pub parse_metadata_response<MetadataResponse>,
     do_parse!(
         header: parse_response_header
      >> n: be_i32
      >> brokers: many_m_n!(n as usize, n as usize, parse_broker_metadata)
      >> n: be_i32
      >> topics: many_m_n!(n as usize, n as usize, parse_topic_metadata)
-     >> (TopicMetadataResponse {
+     >> (MetadataResponse {
             header: header,
             brokers: brokers,
             topics: topics,
@@ -165,9 +124,10 @@ named!(parse_partition_metadata<PartitionMetadata>,
 mod tests {
     use bytes::BigEndian;
 
+    use nom::IResult;
+
     use super::*;
     use protocol::*;
-
 
     lazy_static!{
         static ref TEST_REQUEST_DATA: Vec<u8> = vec![
@@ -205,7 +165,7 @@ mod tests {
                         0, 0, 0, 7,
         ];
 
-        static ref TEST_RESPONSE: TopicMetadataResponse = TopicMetadataResponse {
+        static ref TEST_RESPONSE: MetadataResponse = MetadataResponse {
             header: ResponseHeader { correlation_id: 123 },
             brokers: vec![BrokerMetadata {
                 node_id: 1,
@@ -227,18 +187,18 @@ mod tests {
     }
 
     #[test]
-    fn test_topic_metadata_request_encoder() {
-        let req = TopicMetadataRequest {
+    fn test_metadata_request_encoder() {
+        let req = MetadataRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Metadata as i16,
                 api_version: 0,
                 correlation_id: 123,
-                client_id: Some("client"),
+                client_id: Some("client".to_owned()),
             },
-            topic_name: "topic",
+            topic_name: "topic".to_owned(),
         };
 
-        let mut encoder = TopicMetadataRequestEncoder::<BigEndian>::new();
+        let mut encoder = MetadataRequestEncoder::<BigEndian>::new();
 
         let mut buf = BytesMut::with_capacity(128);
 
@@ -248,13 +208,8 @@ mod tests {
     }
 
     #[test]
-    fn test_topic_metadata_request_decoder() {
-        let mut buf = BytesMut::from(TEST_RESPONSE_DATA.as_slice());
-        let mut decoder = TopicMetadataResponseDecoder::new();
-
-        assert_eq!(decoder.decode(&mut buf).unwrap().unwrap(), TEST_RESPONSE.clone());
-        assert_eq!(buf.len(), 0);
-
-        assert_eq!(decoder.decode(&mut buf).unwrap(), None);
+    fn test_metadata_request_decoder() {
+        assert_eq!(parse_metadata_response(TEST_RESPONSE_DATA.as_slice()),
+        IResult::Done(&[][..], TEST_RESPONSE.clone()));
     }
 }

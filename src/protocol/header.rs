@@ -6,15 +6,15 @@ use errors::Result;
 use codec::{Encodable, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RequestHeader<'a> {
+pub struct RequestHeader {
     pub api_key: i16,
     pub api_version: i16,
     pub correlation_id: i32,
-    pub client_id: Option<&'a str>,
+    pub client_id: Option<String>,
 }
 
-impl<'a> Encodable for RequestHeader<'a> {
-    fn encode<T: ByteOrder, B: BufMut>(&self, mut buf: B) -> Result<()> {
+impl Encodable for RequestHeader {
+    fn encode<T: ByteOrder, B: BufMut>(self, mut buf: B) -> Result<()> {
         buf.put_i16::<T>(self.api_key);
         buf.put_i16::<T>(self.api_version);
         buf.put_i32::<T>(self.correlation_id);
@@ -50,12 +50,12 @@ mod tests {
             api_key: ApiKeys::Fetch as i16,
             api_version: 2,
             correlation_id: 123,
-            client_id: Some("test"),
+            client_id: Some("test".to_owned()),
         };
 
         let mut buf = vec![];
 
-        buf.put_item::<BigEndian, _>(&hdr).unwrap();
+        buf.put_item::<BigEndian, _>(hdr).unwrap();
 
         assert_eq!(&buf[..],
                    &[0, 1,            // api_key

@@ -3,48 +3,18 @@ use bytes::{BufMut, ByteOrder};
 use errors::{ErrorKind, Result};
 
 pub trait Encodable {
-    fn encode<T: ByteOrder, B: BufMut>(&self, buf: B) -> Result<()>;
-}
-
-pub trait NullableString {
-    fn as_slice(&self) -> Option<&[u8]>;
-}
-
-impl<'a> NullableString for &'a str {
-    fn as_slice(&self) -> Option<&[u8]> {
-        Some(self.as_bytes())
-    }
-}
-
-impl<'a> NullableString for Option<&'a str> {
-    fn as_slice(&self) -> Option<&[u8]> {
-        self.map(|s| s.as_bytes())
-    }
-}
-
-pub trait NullableBytes {
-    fn as_slice(&self) -> Option<&[u8]>;
-}
-
-impl<'a> NullableBytes for &'a [u8] {
-    fn as_slice(&self) -> Option<&[u8]> {
-        Some(self)
-    }
-}
-
-impl<'a> NullableBytes for Option<&'a [u8]> {
-    fn as_slice(&self) -> Option<&[u8]> {
-        *self
-    }
+    fn encode<T: ByteOrder, B: BufMut>(self, buf: B) -> Result<()>;
 }
 
 pub trait WriteExt: BufMut {
-    fn put_str<T: ByteOrder, S: NullableString>(&mut self, s: S) -> Result<()> {
-        match s.as_slice() {
-            Some(s) if s.len() > i16::max_value() as usize => bail!(ErrorKind::CodecError("String exceeds the maximum size.")),
-            Some(s) if s.len() > 0 => {
-                self.put_i16::<T>(s.len() as i16);
-                self.put_slice(s);
+    fn put_str<T: ByteOrder, S: AsRef<str>>(&mut self, s: Option<S>) -> Result<()> {
+        match s.as_ref() {
+            Some(v) if v.as_ref().len() > i16::max_value() as usize => {
+                bail!(ErrorKind::CodecError("String exceeds the maximum size."))
+            }
+            Some(v) if v.as_ref().len() > 0 => {
+                self.put_i16::<T>(v.as_ref().len() as i16);
+                self.put_slice(v.as_ref().as_bytes());
                 Ok(())
             }
             _ => {
@@ -54,12 +24,14 @@ pub trait WriteExt: BufMut {
         }
     }
 
-    fn put_bytes<T: ByteOrder, D: NullableBytes>(&mut self, d: D) -> Result<()> {
-        match d.as_slice() {
-            Some(s) if s.len() > i32::max_value() as usize => bail!(ErrorKind::CodecError("Bytes exceeds the maximum size.")),
-            Some(s) if s.len() > 0 => {
-                self.put_i32::<T>(s.len() as i32);
-                self.put_slice(s);
+    fn put_bytes<T: ByteOrder, D: AsRef<[u8]>>(&mut self, d: Option<D>) -> Result<()> {
+        match d.as_ref() {
+            Some(v) if v.as_ref().len() > i32::max_value() as usize => {
+                bail!(ErrorKind::CodecError("Bytes exceeds the maximum size."))
+            }
+            Some(v) if v.as_ref().len() > 0 => {
+                self.put_i32::<T>(v.as_ref().len() as i32);
+                self.put_slice(v.as_ref());
                 Ok(())
             }
             _ => {
@@ -69,9 +41,9 @@ pub trait WriteExt: BufMut {
         }
     }
 
-    fn put_array<T, E, F>(&mut self, items: &[E], mut callback: F) -> Result<()>
+    fn put_array<T, E, F>(&mut self, items: Vec<E>, mut callback: F) -> Result<()>
         where T: ByteOrder,
-              F: FnMut(&mut Self, &E) -> Result<()>
+              F: FnMut(&mut Self, E) -> Result<()>
     {
         if items.len() > i32::max_value() as usize {
             bail!(ErrorKind::CodecError("Array exceeds the maximum size."))
@@ -86,12 +58,22 @@ pub trait WriteExt: BufMut {
         }
     }
 
-    fn put_item<T: ByteOrder, E: Encodable>(&mut self, item: &E) -> Result<()> {
+    fn put_item<T: ByteOrder, E: Encodable>(&mut self, item: E) -> Result<()> {
         item.encode::<T, _>(self)
     }
 }
 
 impl<T: BufMut> WriteExt for T {}
+
+lazy_static! {
+    pub static ref CODEPAGE_HEX: Vec<char> = (0_u32..256)
+        .map(|c| if 0x20 <= c && c <= 0x7E {
+                ::std::char::from_u32(c).unwrap()
+            } else {
+                '.'
+            })
+        .collect();
+}
 
 #[cfg(test)]
 mod tests {
@@ -108,28 +90,28 @@ mod tests {
         let mut buf = vec![];
 
         // write empty nullable string
-        buf.put_str::<BigEndian, _>("").unwrap();
+        buf.put_str::<BigEndian, _>(Some("")).unwrap();
 
         assert_eq!(buf.as_slice(), &[255, 255]);
 
         buf.clear();
 
         // write null of nullable string
-        buf.put_str::<BigEndian, _>(None).unwrap();
+        buf.put_str::<BigEndian, String>(None).unwrap();
 
         assert_eq!(buf.as_slice(), &[255, 255]);
 
         buf.clear();
 
         // write nullable string
-        buf.put_str::<BigEndian, _>("test").unwrap();
+        buf.put_str::<BigEndian, _>(Some("test")).unwrap();
 
         assert_eq!(buf.as_slice(), &[0, 4, 116, 101, 115, 116]);
 
         buf.clear();
 
         // write encoded nullable string
-        buf.put_str::<BigEndian, _>("测试").unwrap();
+        buf.put_str::<BigEndian, _>(Some("测试")).unwrap();
 
         assert_eq!(buf.as_slice(), &[0, 6, 230, 181, 139, 232, 175, 149]);
 
@@ -140,7 +122,7 @@ mod tests {
             .take(i16::max_value() as usize + 1)
             .collect::<Vec<u8>>();
 
-        assert!(buf.put_str::<BigEndian, _>(str::from_utf8(&s).unwrap())
+        assert!(buf.put_str::<BigEndian, _>(Some(String::from_utf8(s).unwrap()))
                     .err()
                     .is_some());
     }
@@ -150,21 +132,22 @@ mod tests {
         let mut buf = vec![];
 
         // write empty nullable bytes
-        buf.put_bytes::<BigEndian, _>(&b""[..]).unwrap();
+        buf.put_bytes::<BigEndian, _>(Some(&b""[..])).unwrap();
 
         assert_eq!(buf.as_slice(), &[255, 255, 255, 255]);
 
         buf.clear();
 
         // write null of nullable bytes
-        buf.put_bytes::<BigEndian, _>(None).unwrap();
+        buf.put_bytes::<BigEndian, &[u8]>(None).unwrap();
 
         assert_eq!(buf.as_slice(), &[255, 255, 255, 255]);
 
         buf.clear();
 
         // write nullable bytes
-        buf.put_bytes::<BigEndian, _>(&b"test"[..]).unwrap();
+        buf.put_bytes::<BigEndian, _>(Some(&b"test"[..]))
+            .unwrap();
 
         assert_eq!(buf.as_slice(), &[0, 0, 0, 4, 116, 101, 115, 116]);
 
@@ -173,6 +156,6 @@ mod tests {
         // write too long nullable bytes
         let s = unsafe { slice::from_raw_parts(buf.as_ptr(), i32::max_value() as usize + 1) };
 
-        assert!(buf.put_bytes::<BigEndian, _>(s).err().is_some());
+        assert!(buf.put_bytes::<BigEndian, _>(Some(s)).err().is_some());
     }
 }

@@ -1,4 +1,4 @@
-use bytes::{BytesMut, BufMut, ByteOrder};
+use bytes::{Bytes, BytesMut, BufMut, ByteOrder};
 
 use time;
 
@@ -19,8 +19,8 @@ use compression::Compression;
 ///   Offset => int64
 ///   MessageSize => int32
 #[derive(Clone, Debug, PartialEq)]
-pub struct MessageSet<'a> {
-    pub messages: Vec<Message<'a>>,
+pub struct MessageSet {
+    pub messages: Vec<Message>,
 }
 
 /// Message format
@@ -42,14 +42,14 @@ pub struct MessageSet<'a> {
 ///   Key => bytes
 ///   Value => bytes
 #[derive(Clone, Debug, PartialEq)]
-pub struct Message<'a> {
-    pub key: Option<&'a [u8]>,
-    pub value: Option<&'a [u8]>,
+pub struct Message {
+    pub key: Option<Bytes>,
+    pub value: Option<Bytes>,
     pub timestamp: Option<i64>,
 }
 
-impl<'a> Message<'a> {
-    pub fn encode<T: ByteOrder>(&self,
+impl Message {
+    pub fn encode<T: ByteOrder>(self,
                                 buf: &mut BytesMut,
                                 offset: i64,
                                 version: i8,

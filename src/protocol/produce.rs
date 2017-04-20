@@ -1,49 +1,48 @@
-use std::result;
 use std::marker::PhantomData;
 
 use bytes::{BytesMut, BufMut, ByteOrder};
 
-use nom::{IResult, be_i16, be_i32, be_i64};
+use nom::{be_i16, be_i32, be_i64};
 
-use tokio_io::codec::{Encoder, Decoder};
-
-use errors::{Error, Result};
+use errors::Result;
 use codec::WriteExt;
 use compression::Compression;
 use protocol::{RequestHeader, ResponseHeader, MessageSet, parse_string, parse_response_header};
 
+const MAGIC_BYTE: i8 = 1;
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProduceRequest<'a> {
-    pub header: RequestHeader<'a>,
+pub struct ProduceRequest {
+    pub header: RequestHeader,
     pub required_acks: i16,
     pub timeout: i32,
-    pub topics: Vec<ProduceTopicData<'a>>,
+    pub topics: Vec<ProduceTopicData>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProduceTopicData<'a> {
-    pub topic_name: &'a str,
-    pub partitions: Vec<ProducePartitionData<'a>>,
+pub struct ProduceTopicData {
+    pub topic_name: String,
+    pub partitions: Vec<ProducePartitionData>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProducePartitionData<'a> {
+pub struct ProducePartitionData {
     pub partition: i32,
-    pub message_set: MessageSet<'a>,
+    pub message_set: MessageSet,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProduceRequestEncoder<'a, T: 'a> {
+pub struct ProduceRequestEncoder<T> {
     pub offset: i64,
-    pub api_version: i8,
+    pub api_version: i16,
     pub compression: Compression,
-    pub phantom: PhantomData<&'a T>,
+    pub phantom: PhantomData<T>,
 }
 
-impl<'a, T> ProduceRequestEncoder<'a, T> {
-    pub fn new(offset: i64, api_version: i8, compression: Compression) -> Self {
+impl<T> ProduceRequestEncoder<T> {
+    pub fn new(api_version: i16, compression: Compression) -> Self {
         ProduceRequestEncoder {
-            offset: offset,
+            offset: 0,
             api_version: api_version,
             compression: compression,
             phantom: PhantomData,
@@ -62,20 +61,17 @@ impl<'a, T> ProduceRequestEncoder<'a, T> {
     }
 }
 
-impl<'a, T: 'a + ByteOrder> Encoder for ProduceRequestEncoder<'a, T> {
-    type Item = ProduceRequest<'a>;
-    type Error = Error;
-
-    fn encode(&mut self, req: Self::Item, dst: &mut BytesMut) -> Result<()> {
-        dst.put_item::<T, _>(&req.header)?;
+impl<T: ByteOrder> ProduceRequestEncoder<T> {
+    pub fn encode(&mut self, req: ProduceRequest, dst: &mut BytesMut) -> Result<()> {
+        dst.put_item::<T, _>(req.header)?;
         dst.put_i16::<T>(req.required_acks);
         dst.put_i32::<T>(req.timeout);
-        dst.put_array::<T, _, _>(&req.topics[..], |buf, topic| {
-            buf.put_str::<T, _>(topic.topic_name)?;
-            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
+        dst.put_array::<T, _, _>(req.topics, |buf, topic| {
+            buf.put_str::<T, _>(Some(topic.topic_name))?;
+            buf.put_array::<T, _, _>(topic.partitions, |buf, partition| {
                 buf.put_i32::<T>(partition.partition);
-                buf.put_array::<T, _, _>(&partition.message_set.messages, |buf, message| {
-                    message.encode::<T>(buf, self.next_offset(), self.api_version, self.compression)
+                buf.put_array::<T, _, _>(partition.message_set.messages, |buf, message| {
+                    message.encode::<T>(buf, self.next_offset(), MAGIC_BYTE, self.compression)
                 })
             })
         })
@@ -103,45 +99,12 @@ pub struct ProducePartitionStatus {
     pub timestamp: Option<i64>,
 }
 
-pub struct ProduceResponseDecoder {
-    pub version: u8,
-}
-
-impl ProduceResponseDecoder {
-    pub fn new(version: u8) -> Self {
-        ProduceResponseDecoder { version: version }
-    }
-}
-
-impl Decoder for ProduceResponseDecoder {
-    type Item = ProduceResponse;
-    type Error = Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> result::Result<Option<Self::Item>, Self::Error> {
-        let (off, res) = match parse_produce_response(src.as_ref(), self.version) {
-            IResult::Done(remaining, res) => {
-                let len = src.len() - remaining.len();
-
-                (Some(len), Ok(Some(res)))
-            }
-            IResult::Incomplete(_) => (None, Ok(None)),
-            IResult::Error(err) => (None, Err(err.into())),
-        };
-
-        if let Some(off) = off {
-            src.split_to(off);
-        }
-
-        res
-    }
-}
-
-named_args!(parse_produce_response(version: u8)<ProduceResponse>,
+named_args!(pub parse_produce_response(api_version: i16)<ProduceResponse>,
     do_parse!(
         header: parse_response_header
      >> n: be_i32
-     >> topics: many_m_n!(n as usize, n as usize, apply!(parse_produce_topic_status, version))
-     >> throttle_time: cond!(version > 0, be_i32)
+     >> topics: many_m_n!(n as usize, n as usize, apply!(parse_produce_topic_status, api_version))
+     >> throttle_time: cond!(api_version > 0, be_i32)
      >> (ProduceResponse {
             header: header,
             topics: topics,
@@ -150,11 +113,11 @@ named_args!(parse_produce_response(version: u8)<ProduceResponse>,
     )
 );
 
-named_args!(parse_produce_topic_status(version: u8)<ProduceTopicStatus>,
+named_args!(parse_produce_topic_status(api_version: i16)<ProduceTopicStatus>,
     do_parse!(
         topic_name: parse_string
      >> n: be_i32
-     >> partitions: many_m_n!(n as usize, n as usize, apply!(parse_produce_partition_status, version))
+     >> partitions: many_m_n!(n as usize, n as usize, apply!(parse_produce_partition_status, api_version))
      >> (ProduceTopicStatus {
             topic_name: topic_name,
             partitions: partitions,
@@ -162,12 +125,12 @@ named_args!(parse_produce_topic_status(version: u8)<ProduceTopicStatus>,
     )
 );
 
-named_args!(parse_produce_partition_status(version: u8)<ProducePartitionStatus>,
+named_args!(parse_produce_partition_status(api_version: i16)<ProducePartitionStatus>,
     do_parse!(
         partition: be_i32
      >> error_code: be_i16
      >> offset: be_i64
-     >> timestamp: cond!(version > 1, be_i64)
+     >> timestamp: cond!(api_version > 1, be_i64)
      >> (ProducePartitionStatus {
             partition: partition,
             error_code: error_code,
@@ -179,7 +142,9 @@ named_args!(parse_produce_partition_status(version: u8)<ProducePartitionStatus>,
 
 #[cfg(test)]
 mod tests {
-    use bytes::BigEndian;
+    use bytes::{Bytes, BigEndian};
+
+    use nom::IResult;
 
     use super::*;
     use protocol::*;
@@ -208,7 +173,7 @@ mod tests {
                         0, 0, 0, 0, 0, 0, 0, 0,             // offset
                         0, 0, 0, 30,                        // size
                         226, 52, 65, 188,                   // crc
-                        1,                                  // magic
+                        MAGIC_BYTE as u8,                   // magic
                         0,                                  // attributes
                         0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
                         0, 0, 0, 3, 107, 101, 121,          // key
@@ -252,18 +217,18 @@ mod tests {
                 api_key: ApiKeys::Produce as i16,
                 api_version: 2,
                 correlation_id: 123,
-                client_id: Some("client"),
+                client_id: Some("client".to_owned()),
             },
             required_acks: RequiredAcks::All as i16,
             timeout: 123,
             topics: vec![ProduceTopicData {
-                topic_name: "topic",
+                topic_name: "topic".to_owned(),
                 partitions: vec![ProducePartitionData {
                     partition: 1,
                     message_set: MessageSet {
                         messages: vec![Message {
-                            key: Some(b"key"),
-                            value: Some(b"value"),
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
                             timestamp: Some(456),
                         }],
                     },
@@ -271,7 +236,7 @@ mod tests {
             }],
         };
 
-        let mut encoder = ProduceRequestEncoder::<BigEndian>::new(0, 1, Compression::None);
+        let mut encoder = ProduceRequestEncoder::<BigEndian>::new(1, Compression::None);
 
         let mut buf = BytesMut::with_capacity(128);
 
@@ -282,12 +247,7 @@ mod tests {
 
     #[test]
     fn test_produce_response_decoder() {
-        let mut buf = BytesMut::from(TEST_RESPONSE_DATA.as_slice());
-        let mut decoder = ProduceResponseDecoder::new(2);
-
-        assert_eq!(decoder.decode(&mut buf).unwrap().unwrap(), TEST_RESPONSE.clone());
-        assert_eq!(buf.len(), 0);
-
-        assert_eq!(decoder.decode(&mut buf).unwrap(), None);
+        assert_eq!(parse_produce_response(TEST_RESPONSE_DATA.as_slice(), 2),
+                   IResult::Done(&[][..], TEST_RESPONSE.clone()));
     }
 }

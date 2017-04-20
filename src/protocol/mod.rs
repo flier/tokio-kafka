@@ -1,4 +1,5 @@
 use std::str;
+use std::mem;
 use std::borrow::{Cow, ToOwned};
 
 use nom::{be_i16, be_i32};
@@ -9,11 +10,10 @@ mod produce;
 mod message;
 
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
-pub use self::metadata::{TopicMetadataRequest, TopicMetadataResponse, TopicMetadataRequestEncoder,
-                         TopicMetadataResponseDecoder, BrokerMetadata, TopicMetadata,
-                         PartitionMetadata};
-pub use self::produce::{ProduceRequest, ProduceResponse, ProduceRequestEncoder,
-                        ProduceResponseDecoder, ProduceTopicData, ProducePartitionData};
+pub use self::metadata::{MetadataRequest, MetadataResponse, MetadataRequestEncoder,
+                         BrokerMetadata, TopicMetadata, PartitionMetadata, parse_metadata_response};
+pub use self::produce::{ProduceRequest, ProduceResponse, ProduceRequestEncoder, ProduceTopicData,
+                        ProducePartitionData, parse_produce_response};
 pub use self::message::{Message, MessageSet};
 
 /// The following are the numeric codes that the ApiKey in the request can take for each of the below request types.
@@ -43,6 +43,12 @@ pub enum ApiKeys {
     DeleteTopics = 20,
 }
 
+impl From<i16> for ApiKeys {
+    fn from(v: i16) -> Self {
+        unsafe { mem::transmute(v) }
+    }
+}
+
 /// Possible choices on acknowledgement requirements when
 /// producing/sending messages to Kafka. See
 /// `KafkaClient::produce_messages`.
@@ -61,6 +67,12 @@ pub enum RequiredAcks {
     /// Requires the sent messages to be acknowledged by all in-sync
     /// replicas of the targeted topic partitions.
     All = -1,
+}
+
+impl From<i16> for RequiredAcks {
+    fn from(v: i16) -> Self {
+        unsafe { mem::transmute(v) }
+    }
 }
 
 named!(pub parse_str<Option<Cow<str>>>,
