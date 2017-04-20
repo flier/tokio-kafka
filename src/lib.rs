@@ -25,9 +25,10 @@ extern crate env_logger;
 pub mod errors;
 mod codec;
 mod compression;
-pub mod protocol;
+mod protocol;
 mod client;
 mod producer;
 mod consumer;
 
 pub use compression::Compression;
+pub use client::{KafkaConfig, KafkaClient};
