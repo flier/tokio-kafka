@@ -74,7 +74,6 @@ impl BrokerRef {
     }
 }
 
-
 /// A representation of partitions for a single topic.
 #[derive(Debug)]
 pub struct TopicPartitions {

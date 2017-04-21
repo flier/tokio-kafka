@@ -5,9 +5,10 @@ use std::collections::vec_deque::VecDeque;
 
 use std::time::{Instant, Duration};
 
+use futures::future::{self, Future, BoxFuture};
 use tokio_core::reactor::Handle;
 
-use errors::Result;
+use errors::{Error, Result};
 use network::KafkaConnection;
 
 #[derive(Debug)]
@@ -55,6 +56,9 @@ pub struct KafkaConnectionPool {
     state: State,
 }
 
+unsafe impl Send for KafkaConnectionPool {}
+unsafe impl Sync for KafkaConnectionPool {}
+
 impl KafkaConnectionPool {
     pub fn new(max_idle_timeout: Duration, max_pooled_connections: usize) -> Self {
         debug!("connection pool (max_idle={} seconds, max_pooled={})",
@@ -71,7 +75,7 @@ impl KafkaConnectionPool {
         }
     }
 
-    pub fn get(&mut self, addr: &SocketAddr, handle: &Handle) -> Result<KafkaConnection> {
+    pub fn get(&mut self, addr: &SocketAddr, handle: &Handle) -> BoxFuture<KafkaConnection, Error> {
         if let Some(conns) = self.conns.get_mut(&addr) {
             while let Some(conn) = conns.pop_front() {
                 if conn.ts.elapsed() >= self.config.max_idle_timeout {
@@ -79,21 +83,21 @@ impl KafkaConnectionPool {
                 } else {
                     debug!("got pooled connection: {:?}", conn);
 
-                    return Ok(conn.unwrap());
+                    return future::ok(conn.unwrap()).boxed();
                 }
             }
         }
 
-        let conn = KafkaConnection::tcp(self.state.next_connection_id(), &addr, &handle);
+        let id = self.state.next_connection_id();
 
-        debug!("allocate new connection: {:?}", conn);
+        debug!("allocate new connection, id={}, addr={}", id, addr);
 
-        Ok(conn)
+        KafkaConnection::tcp(id, addr.clone(), handle)
     }
 
-    pub fn release(&mut self, addr: &SocketAddr, conn: KafkaConnection) {
+    pub fn release(&mut self, conn: KafkaConnection) {
         let conns = self.conns
-            .entry(addr.clone())
+            .entry(conn.addr().clone())
             .or_insert_with(|| VecDeque::new());
 
         if conns.len() < self.config.max_pooled_connections {

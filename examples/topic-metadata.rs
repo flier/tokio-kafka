@@ -10,6 +10,7 @@ use std::path::Path;
 
 use getopts::Options;
 
+use tokio_core::reactor::Core;
 use tokio_kafka::{KafkaConfig, KafkaClient};
 
 const DEFAULT_BROKER: &'static str = "localhost:9092";
@@ -68,15 +69,16 @@ impl Config {
 fn main() {
     env_logger::init().unwrap();
 
+    let mut core = Core::new().unwrap();
+
     let config = Config::parse_cmdline().unwrap();
 
     let client = KafkaClient::from_hosts(&config.brokers);
 
+    client.load_metadata(core.handle());
     /*
-    let topics = client
+    client
         .topics()
-        .filter(|topic| config.topics.contains(topic.topic_name()));
-
-    for topic in topics {}
-    */
+        .map(|topics| topics.filter(|topic| config.topics.contains(topic.topic_name())));
+        */
 }

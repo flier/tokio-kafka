@@ -18,6 +18,7 @@ futures = "0.1"
 tokio-core = "0.1"
 tokio-io = "0.1"
 tokio-proto = "0.1"
+tokio-timer = "0.1"
 tokio-tls = { version = "0.1", features = ["tokio-proto"] }
 native-tls = "0.1"
 

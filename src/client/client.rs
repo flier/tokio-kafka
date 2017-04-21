@@ -1,17 +1,21 @@
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 
+use futures::future::{self, Future, BoxFuture, select_ok};
 use tokio_core::reactor::Handle;
+use tokio_proto::BindClient;
+use tokio_timer::Timer;
 
 use errors::{Error, ErrorKind, Result};
 use network::KafkaConnectionPool;
-use client::{KafkaOption, KafkaConfig, KafkaState, DEFAULT_MAX_CONNECTION_TIMEOUT,
+use client::{KafkaOption, KafkaConfig, KafkaState, KafkaProto, DEFAULT_MAX_CONNECTION_TIMEOUT,
              DEFAULT_MAX_POOLED_CONNECTIONS};
 
 pub struct KafkaClient {
     config: KafkaConfig,
-    conns: KafkaConnectionPool,
+    conns: Arc<KafkaConnectionPool>,
     state: KafkaState,
 }
 
@@ -40,7 +44,7 @@ impl KafkaClient {
 
         KafkaClient {
             config: config,
-            conns: KafkaConnectionPool::new(max_connection_idle, max_pooled_connections),
+            conns: Arc::new(KafkaConnectionPool::new(max_connection_idle, max_pooled_connections)),
             state: KafkaState::new(),
         }
     }
@@ -49,11 +53,29 @@ impl KafkaClient {
         KafkaClient::from_config(KafkaConfig::from_hosts(hosts))
     }
 
-    fn fetch_metadata<T: AsRef<str>>(&mut self, topic: &[T], handle: &Handle) -> Result<()> {
-        for addr in self.config.brokers().ok_or(ErrorKind::NoHostError)? {
-            let conn = self.conns.get(&addr, handle);
-        }
+    pub fn load_metadata(&mut self, handle: &Handle) -> BoxFuture<(), Error> {
+        self.fetch_metadata::<&str>(&[], handle)
+    }
 
-        Ok(())
+    fn fetch_metadata<T>(&mut self, topics: &[T], handle: &Handle) -> BoxFuture<(), Error>
+        where T: AsRef<str>
+    {
+        let handle = Arc::new(Mutex::new(handle.clone()));
+
+        select_ok(self.config
+                      .brokers()
+                      .unwrap()
+                      .iter()
+                      .map(|addr| self.conns.get(&addr, &handle.clone().lock().unwrap())))
+                .and_then(move |(conn, rest)| {
+                    for conn in rest {
+                        conn.map(|conn| self.conns.release(conn));
+                    }
+
+                    future::ok(KafkaProto::new(0).bind_client(&handle.clone().lock().unwrap(),
+                                                              conn))
+                })
+                .and_then(|service| future::ok(()))
+                .boxed()
     }
 }

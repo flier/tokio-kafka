@@ -10,6 +10,12 @@ pub struct KafkaProto {
     api_version: i16,
 }
 
+impl KafkaProto {
+    pub fn new(api_version: i16) -> Self {
+        KafkaProto { api_version: api_version }
+    }
+}
+
 impl<T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for KafkaProto {
     type Request = KafkaRequest;
     type Response = KafkaResponse;
