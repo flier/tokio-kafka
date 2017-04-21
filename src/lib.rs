@@ -26,9 +26,12 @@ pub mod errors;
 mod codec;
 mod compression;
 mod protocol;
+mod network;
 mod client;
 mod producer;
 mod consumer;
 
 pub use compression::Compression;
 pub use client::{KafkaConfig, KafkaClient};
+pub use producer::KafkaProducer;
+pub use consumer::KafkaConsumer;

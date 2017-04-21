@@ -49,6 +49,20 @@ impl From<i16> for ApiKeys {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+#[repr(i16)]
+pub enum ApiVersion {
+    Kafka_0_8 = 0,
+    Kafka_0_9 = 1,
+    kafka_0_10 = 2,
+}
+
+impl From<i16> for ApiVersion {
+    fn from(v: i16) -> Self {
+        unsafe { mem::transmute(v) }
+    }
+}
+
 /// Possible choices on acknowledgement requirements when
 /// producing/sending messages to Kafka. See
 /// `KafkaClient::produce_messages`.

@@ -1,22 +1,21 @@
-use std::net::ToSocketAddrs;
+use std::ops::{Deref, DerefMut};
+use std::net::{SocketAddr, ToSocketAddrs};
 
 use compression::Compression;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum KafkaProperty<S>
-    where S: ToSocketAddrs + Clone
-{
+pub enum KafkaOption {
+    /// Initial list of brokers (host or host:port)
+    Brokers(Vec<SocketAddr>),
     /// Client identifier.
     ClientId(String),
-    /// Initial list of brokers (host or host:port)
-    Brokers(Vec<S>),
     /// Compression codec to use for compressing message sets.
     CompressionCodec(Compression),
 }
 
 macro_rules! get_property {
-    ($props:ident, $variant:path) => ({
-        $props.0
+    ($opts:ident, $variant:path) => ({
+        $opts.0
             .iter()
             .flat_map(|prop| if let &$variant(ref value) = prop {
                           Some(value.clone())
@@ -28,8 +27,8 @@ macro_rules! get_property {
 }
 
 macro_rules! set_property {
-    ($props:ident, $variant:path => $value:expr) => ({
-        let idx = $props.0
+    ($opts:ident, $variant:path => $value:expr) => ({
+        let idx = $opts.0
             .iter()
             .position(|prop| if let &$variant(..) = prop {
                           true
@@ -38,54 +37,66 @@ macro_rules! set_property {
                       });
 
         if let Some(idx) = idx {
-            $props.0.remove(idx);
+            $opts.0.remove(idx);
         }
 
-        $props.0.push($variant($value));
-        $props
+        $opts.0.push($variant($value));
+        $opts
     })
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct KafkaConfig<S>(Vec<KafkaProperty<S>>) where S: ToSocketAddrs + Clone;
+pub struct KafkaConfig(Vec<KafkaOption>);
 
-impl<'a, S> From<&'a [KafkaProperty<S>]> for KafkaConfig<S>
-    where S: ToSocketAddrs + Clone
+impl<T> From<T> for KafkaConfig
+    where T: Iterator<Item = KafkaOption>
 {
-    fn from(props: &[KafkaProperty<S>]) -> Self {
-        KafkaConfig(Vec::from(props))
+    fn from(opts: T) -> Self {
+        KafkaConfig(opts.collect())
     }
 }
 
-impl<S> KafkaConfig<S>
-    where S: ToSocketAddrs + Clone
-{
-    pub fn new(hosts: &[S]) -> Self {
-        KafkaConfig(vec![KafkaProperty::Brokers(hosts.to_vec())])
+impl Deref for KafkaConfig {
+    type Target = [KafkaOption];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0.as_slice()
+    }
+}
+
+impl DerefMut for KafkaConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut_slice()
+    }
+}
+
+impl KafkaConfig {
+    pub fn from_hosts<A: ToSocketAddrs>(hosts: &[A]) -> Self {
+        KafkaConfig(vec![KafkaOption::Brokers(hosts
+                                                  .iter()
+                                                  .flat_map(|host| host.to_socket_addrs())
+                                                  .flat_map(|addrs| addrs)
+                                                  .collect())])
+    }
+
+    pub fn brokers(&self) -> Option<Vec<SocketAddr>> {
+        get_property!(self, KafkaOption::Brokers)
     }
 
     pub fn client_id(&self) -> Option<String> {
-        get_property!(self, KafkaProperty::ClientId)
+        get_property!(self, KafkaOption::ClientId)
     }
 
     pub fn with_client_id(&mut self, client_id: &str) -> &mut Self {
-        set_property!(self, KafkaProperty::ClientId => client_id.to_owned())
-    }
-
-    pub fn brokers(&self) -> Option<Vec<S>> {
-        get_property!(self, KafkaProperty::Brokers)
-    }
-
-    pub fn with_brokers(&mut self, brokers: &[S]) -> &mut Self {
-        set_property!(self, KafkaProperty::Brokers => brokers.to_vec())
+        set_property!(self, KafkaOption::ClientId => client_id.to_owned())
     }
 
     pub fn compression_codec(&self) -> Option<Compression> {
-        get_property!(self, KafkaProperty::CompressionCodec)
+        get_property!(self, KafkaOption::CompressionCodec)
     }
 
     pub fn with_compression_codec(&mut self, compression: Compression) -> &mut Self {
-        set_property!(self, KafkaProperty::CompressionCodec => compression)
+        set_property!(self, KafkaOption::CompressionCodec => compression)
     }
 }
 
