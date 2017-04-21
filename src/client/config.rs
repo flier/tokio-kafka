@@ -1,7 +1,14 @@
+use std::time::Duration;
 use std::ops::{Deref, DerefMut};
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use compression::Compression;
+
+pub const DEFAULT_MAX_POOLED_CONNECTIONS: usize = 4;
+
+lazy_static!{
+    pub static ref DEFAULT_MAX_CONNECTION_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaOption {
@@ -11,6 +18,10 @@ pub enum KafkaOption {
     ClientId(String),
     /// Compression codec to use for compressing message sets.
     CompressionCodec(Compression),
+    /// Maximum connection idle timeout
+    MaxConnectionIdle(Duration),
+    /// Maximum pooled connections per broker
+    MaxPooledConnections(usize),
 }
 
 macro_rules! get_property {
@@ -97,6 +108,22 @@ impl KafkaConfig {
 
     pub fn with_compression_codec(&mut self, compression: Compression) -> &mut Self {
         set_property!(self, KafkaOption::CompressionCodec => compression)
+    }
+
+    pub fn max_connection_idle(&self) -> Option<Duration> {
+        get_property!(self, KafkaOption::MaxConnectionIdle)
+    }
+
+    pub fn with_max_connection_idle(&mut self, max_connection_idle: Duration) -> &mut Self {
+        set_property!(self, KafkaOption::MaxConnectionIdle => max_connection_idle)
+    }
+
+    pub fn max_pooled_connections(&self) -> Option<usize> {
+        get_property!(self, KafkaOption::MaxPooledConnections)
+    }
+
+    pub fn with_max_pooled_connections(&mut self, max_pooled_connections: usize) -> &mut Self {
+        set_property!(self, KafkaOption::MaxPooledConnections => max_pooled_connections)
     }
 }
 
