@@ -31,14 +31,10 @@ impl<T: Debug> Pooled<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct State(u32);
 
 impl State {
-    fn new() -> State {
-        State(0)
-    }
-
     fn next_connection_id(&mut self) -> u32 {
         let id = self.0;
         self.0 = self.0.wrapping_add(1);
@@ -49,7 +45,7 @@ impl State {
 #[derive(Debug)]
 struct Config {
     max_idle_timeout: Duration,
-    max_pool_connections: usize,
+    max_pooled_connections: usize,
 }
 
 #[derive(Debug)]
@@ -60,14 +56,18 @@ pub struct KafkaConnectionPool {
 }
 
 impl KafkaConnectionPool {
-    pub fn new(max_idle_timeout: Duration, max_pool_connections: usize) -> Self {
+    pub fn new(max_idle_timeout: Duration, max_pooled_connections: usize) -> Self {
+        debug!("connection pool (max_idle={} seconds, max_pooled={})",
+               max_idle_timeout.as_secs(),
+               max_pooled_connections);
+
         KafkaConnectionPool {
             conns: HashMap::new(),
             config: Config {
                 max_idle_timeout: max_idle_timeout,
-                max_pool_connections: max_pool_connections,
+                max_pooled_connections: max_pooled_connections,
             },
-            state: State::new(),
+            state: State::default(),
         }
     }
 
@@ -77,12 +77,18 @@ impl KafkaConnectionPool {
                 if conn.ts.elapsed() >= self.config.max_idle_timeout {
                     debug!("drop timed out connection: {:?}", conn);
                 } else {
+                    debug!("got pooled connection: {:?}", conn);
+
                     return Ok(conn.unwrap());
                 }
             }
         }
 
-        Ok(KafkaConnection::tcp(self.state.next_connection_id(), &addr, &handle))
+        let conn = KafkaConnection::tcp(self.state.next_connection_id(), &addr, &handle);
+
+        debug!("allocate new connection: {:?}", conn);
+
+        Ok(conn)
     }
 
     pub fn release(&mut self, addr: &SocketAddr, conn: KafkaConnection) {
@@ -90,8 +96,12 @@ impl KafkaConnectionPool {
             .entry(addr.clone())
             .or_insert_with(|| VecDeque::new());
 
-        if conns.len() < self.config.max_pool_connections {
+        if conns.len() < self.config.max_pooled_connections {
+            debug!("release connection: {:?}", conn);
+
             conns.push_back(Pooled::new(conn));
+        } else {
+            debug!("drop overrun connection: {:?}", conn);
         }
     }
 }
