@@ -1,5 +1,7 @@
 use std::net::ToSocketAddrs;
 
+use tokio_core::reactor::Handle;
+
 use client::{KafkaConfig, KafkaClient};
 
 pub struct KafkaProducer {
@@ -11,12 +13,12 @@ impl KafkaProducer {
         KafkaProducer { client: client }
     }
 
-    pub fn from_config(config: KafkaConfig) -> Self {
-        KafkaProducer::from_client(KafkaClient::from_config(config))
+    pub fn from_config(config: KafkaConfig, handle: &Handle) -> Self {
+        KafkaProducer::from_client(KafkaClient::from_config(config, handle))
     }
 
-    pub fn from_hosts<A: ToSocketAddrs + Clone>(hosts: &[A]) -> Self {
-        KafkaProducer::from_config(KafkaConfig::from_hosts(hosts))
+    pub fn from_hosts<A: ToSocketAddrs + Clone>(hosts: &[A], handle: &Handle) -> Self {
+        KafkaProducer::from_config(KafkaConfig::from_hosts(hosts), handle)
     }
 
     pub fn client(&self) -> &KafkaClient {
@@ -31,17 +33,5 @@ impl KafkaProducer {
 impl From<KafkaClient> for KafkaProducer {
     fn from(client: KafkaClient) -> Self {
         KafkaProducer::from_client(client)
-    }
-}
-
-impl From<KafkaConfig> for KafkaProducer {
-    fn from(config: KafkaConfig) -> Self {
-        KafkaProducer::from_config(config)
-    }
-}
-
-impl<'a, A: ToSocketAddrs + Clone> From<&'a [A]> for KafkaProducer {
-    fn from(hosts: &'a [A]) -> Self {
-        KafkaProducer::from_hosts(hosts)
     }
 }

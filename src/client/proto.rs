@@ -4,15 +4,20 @@ use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::Framed;
 use tokio_proto::pipeline::ClientProto;
 
+use protocol::ApiVersion;
 use client::{KafkaRequest, KafkaResponse, KafkaCodec};
 
 pub struct KafkaProto {
-    api_version: i16,
+    api_version: ApiVersion,
 }
 
 impl KafkaProto {
-    pub fn new(api_version: i16) -> Self {
+    pub fn new(api_version: ApiVersion) -> Self {
         KafkaProto { api_version: api_version }
+    }
+
+    pub fn api_version(&self) -> ApiVersion {
+        self.api_version
     }
 }
 

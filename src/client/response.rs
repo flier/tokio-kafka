@@ -6,7 +6,7 @@ use nom::{IResult, Needed};
 use hexplay::HexViewBuilder;
 
 use codec::CODEPAGE_HEX;
-use protocol::{ApiKeys, ProduceResponse, MetadataResponse, parse_produce_response,
+use protocol::{ApiKeys, ApiVersion, ProduceResponse, MetadataResponse, parse_produce_response,
                parse_metadata_response};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -18,26 +18,25 @@ pub enum KafkaResponse {
 }
 
 impl KafkaResponse {
-    pub fn parse(buf: &[u8], api_version: i16) -> io::Result<Option<Self>> {
-        debug!("parsing {} bytes response (api_version: {})",
-               buf.len(),
-               api_version);
+    pub fn parse(buf: &[u8], api_version: ApiVersion) -> io::Result<Option<Self>> {
+        debug!("parsing {} bytes response ({:?})", buf.len(), api_version);
 
         let api_key = ApiKeys::from(BigEndian::read_i16(&buf[..]));
 
-        let res = match api_key {
-            ApiKeys::Produce => {
-                parse_produce_response(buf, api_version).map(|res| KafkaResponse::Produce(res))
+        let res =
+            match api_key {
+                ApiKeys::Produce => {
+                parse_produce_response(buf, api_version as i16).map(|res| KafkaResponse::Produce(res))
             }
-            ApiKeys::Metadata => {
-                parse_metadata_response(buf).map(|res| KafkaResponse::Metadata(res))
-            }
-            _ => {
-                warn!("unsupport response type, {:?}", api_key);
+                ApiKeys::Metadata => {
+                    parse_metadata_response(buf).map(|res| KafkaResponse::Metadata(res))
+                }
+                _ => {
+                    warn!("unsupport response type, {:?}", api_key);
 
-                IResult::Incomplete(Needed::Unknown)
-            }
-        };
+                    IResult::Incomplete(Needed::Unknown)
+                }
+            };
 
         match res {
             IResult::Done(remaining, res) => {

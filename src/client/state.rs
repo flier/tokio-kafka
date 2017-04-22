@@ -1,6 +1,6 @@
 use std::collections::hash_map::HashMap;
 
-use client::{KafkaClient, Broker, BrokerRef, TopicPartitions};
+use client::{KafkaClient, Metadata, Broker, BrokerRef, TopicPartitions};
 
 pub struct KafkaState {
     // ~ the last correlation used when communicating with kafka
@@ -31,5 +31,15 @@ impl KafkaState {
             topic_partitions: HashMap::new(),
             group_coordinators: HashMap::new(),
         }
+    }
+
+    pub fn next_correlation_id(&mut self) -> i32 {
+        self.correlation = self.correlation.wrapping_add(1);
+        self.correlation
+    }
+
+    pub fn update_metadata(&mut self, md: Metadata) {
+        self.brokers = md.brokers;
+        self.topic_partitions = md.topics;
     }
 }

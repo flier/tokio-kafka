@@ -14,6 +14,7 @@ error_chain!{
         LockError
         CodecError(reason: &'static str)
         UnsupportedApiKey(key: ApiKeys)
+        OtherError
     }
 }
 

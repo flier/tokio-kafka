@@ -1,8 +1,27 @@
 use std::slice;
 use std::net::SocketAddr;
-use std::collections::hash_map::Keys;
+use std::iter::FromIterator;
+use std::collections::hash_map::{HashMap, Keys};
 
-use protocol::ApiVersion;
+use protocol::{ApiVersion, MetadataResponse, BrokerMetadata, TopicMetadata, PartitionMetadata};
+
+#[derive(Debug)]
+pub struct Metadata {
+    pub brokers: Vec<Broker>,
+    pub topics: HashMap<String, TopicPartitions>,
+}
+
+impl From<MetadataResponse> for Metadata {
+    fn from(md: MetadataResponse) -> Self {
+        Metadata {
+            brokers: md.brokers
+                .iter()
+                .map(|broker| (*broker).into())
+                .collect(),
+            topics: HashMap::from_iter(md.topics.iter().map(|topic| (*topic).into())),
+        }
+    }
+}
 
 /// Describes a Kafka broker node `kafka-rust` is communicating with.
 #[derive(Debug)]
@@ -11,9 +30,11 @@ pub struct Broker {
     /// cluster.
     node_id: i32,
 
-    /// address of this broker. This information is advertised by
+    /// host of this broker. This information is advertised by
     /// and originating from Kafka cluster itself.
-    addr: SocketAddr,
+    host: String,
+
+    port: u16,
 
     /// The version ranges of requests supported by the broker.
     api_versions: Option<Vec<ApiVersion>>,
@@ -29,8 +50,8 @@ impl Broker {
 
     /// Retrieves the host:port of the this Kafka broker.
     #[inline]
-    pub fn addr(&self) -> &SocketAddr {
-        &self.addr
+    pub fn addr(&self) -> (&str, u16) {
+        (&self.host, self.port)
     }
 
     pub fn api_versions(&self) -> Option<&[ApiVersion]> {
@@ -38,8 +59,19 @@ impl Broker {
     }
 }
 
+impl From<BrokerMetadata> for Broker {
+    fn from(md: BrokerMetadata) -> Self {
+        Broker {
+            node_id: md.node_id,
+            host: md.host,
+            port: md.port as u16,
+            api_versions: None,
+        }
+    }
+}
+
 // See `Brokerref`
-static UNKNOWN_BROKER_INDEX: u32 = ::std::u32::MAX;
+static UNKNOWN_BROKER_INDEX: i32 = ::std::i32::MAX;
 
 /// ~ A custom identifier for a broker.  This type hides the fact that
 /// a `TopicPartition` references a `Broker` indirectly, loosely
@@ -51,11 +83,11 @@ static UNKNOWN_BROKER_INDEX: u32 = ::std::u32::MAX;
 // `self.brokers` using a `BrokerRef` _must_ check against this
 // constant and/or treat it conditionally.
 #[derive(Debug, Copy, Clone)]
-pub struct BrokerRef(u32);
+pub struct BrokerRef(i32);
 
 impl BrokerRef {
     // ~ private constructor on purpose
-    fn new(index: u32) -> Self {
+    fn new(index: i32) -> Self {
         BrokerRef(index)
     }
 
@@ -120,6 +152,18 @@ impl<'a> IntoIterator for &'a TopicPartitions {
     }
 }
 
+impl From<TopicMetadata> for (String, TopicPartitions) {
+    fn from(md: TopicMetadata) -> Self {
+        (md.topic_name,
+         TopicPartitions {
+             partitions: md.partitions
+                 .iter()
+                 .map(|partition| (*partition).into())
+                 .collect(),
+         })
+    }
+}
+
 /// Metadata for a single topic partition.
 #[derive(Debug)]
 pub struct TopicPartition(BrokerRef);
@@ -146,6 +190,12 @@ impl<'a> Iterator for TopicPartitionIter<'a> {
                      self.partition_id += 1;
                      (partition_id, tp)
                  })
+    }
+}
+
+impl From<PartitionMetadata> for TopicPartition {
+    fn from(md: PartitionMetadata) -> Self {
+        TopicPartition(BrokerRef(md.leader))
     }
 }
 

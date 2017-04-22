@@ -6,12 +6,34 @@ use nom::{be_i16, be_i32};
 
 use errors::Result;
 use codec::WriteExt;
-use protocol::{RequestHeader, ResponseHeader, parse_response_header, parse_string};
+use protocol::{ApiKeys, ApiVersion, RequestHeader, ResponseHeader, parse_response_header,
+               parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest {
     pub header: RequestHeader,
-    pub topic_name: String,
+    pub topic_names: Vec<String>,
+}
+
+impl MetadataRequest {
+    pub fn new<S: AsRef<str>>(api_version: ApiVersion,
+                              correlation_id: i32,
+                              client_id: Option<String>,
+                              topic_names: &[S])
+                              -> Self {
+        MetadataRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Metadata as i16,
+                api_version: api_version as i16,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            topic_names: topic_names
+                .iter()
+                .map(|s| s.as_ref().to_owned())
+                .collect(),
+        }
+    }
 }
 
 pub struct MetadataRequestEncoder<T>(PhantomData<T>);
@@ -25,7 +47,8 @@ impl<T> MetadataRequestEncoder<T> {
 impl<T: ByteOrder> MetadataRequestEncoder<T> {
     pub fn encode(&mut self, req: MetadataRequest, dst: &mut BytesMut) -> Result<()> {
         dst.put_item::<T, _>(req.header)?;
-        dst.put_str::<T, _>(Some(req.topic_name))
+        dst.put_array::<T, _, _>(req.topic_names,
+                                 |buf, topic_name| buf.put_str::<T, _>(Some(topic_name)))
     }
 }
 
@@ -195,7 +218,7 @@ mod tests {
                 correlation_id: 123,
                 client_id: Some("client".to_owned()),
             },
-            topic_name: "topic".to_owned(),
+            topic_name: vec!["topic".to_owned()],
         };
 
         let mut encoder = MetadataRequestEncoder::<BigEndian>::new();

@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate error_chain;
-extern crate env_logger;
+extern crate pretty_env_logger;
 extern crate getopts;
 extern crate tokio_kafka;
 
@@ -67,15 +67,15 @@ impl Config {
 }
 
 fn main() {
-    env_logger::init().unwrap();
+    pretty_env_logger::init().unwrap();
 
     let mut core = Core::new().unwrap();
 
     let config = Config::parse_cmdline().unwrap();
 
-    let client = KafkaClient::from_hosts(&config.brokers);
+    let client = KafkaClient::from_hosts(&config.brokers, &core.handle());
 
-    client.load_metadata(core.handle());
+    client.load_metadata();
     /*
     client
         .topics()

@@ -5,14 +5,15 @@ use bytes::{BytesMut, ByteOrder, BigEndian};
 
 use tokio_io::codec::{Encoder, Decoder};
 
+use protocol::ApiVersion;
 use client::{KafkaRequest, KafkaResponse};
 
 pub struct KafkaCodec {
-    api_version: i16,
+    api_version: ApiVersion,
 }
 
 impl KafkaCodec {
-    pub fn new(api_version: i16) -> Self {
+    pub fn new(api_version: ApiVersion) -> Self {
         KafkaCodec { api_version: api_version }
     }
 }
