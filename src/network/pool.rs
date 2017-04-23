@@ -5,11 +5,12 @@ use std::collections::vec_deque::VecDeque;
 
 use std::time::{Instant, Duration};
 
+use futures::{Async, Poll};
 use futures::future::{self, Future, BoxFuture};
 use tokio_core::reactor::Handle;
 
 use errors::{Error, Result};
-use network::KafkaConnection;
+use network::{KafkaConnection, Connect};
 
 #[derive(Debug)]
 struct Pooled<T>
@@ -75,7 +76,7 @@ impl KafkaConnectionPool {
         }
     }
 
-    pub fn get(&mut self, addr: &SocketAddr, handle: &Handle) -> BoxFuture<KafkaConnection, Error> {
+    pub fn checkout(&mut self, addr: &SocketAddr, handle: &Handle) -> Checkout {
         if let Some(conns) = self.conns.get_mut(&addr) {
             while let Some(conn) = conns.pop_front() {
                 if conn.ts.elapsed() >= self.config.max_idle_timeout {
@@ -83,7 +84,7 @@ impl KafkaConnectionPool {
                 } else {
                     debug!("got pooled connection: {:?}", conn);
 
-                    return future::ok(conn.unwrap()).boxed();
+                    return Checkout::Pooled(conn.unwrap());
                 }
             }
         }
@@ -92,7 +93,7 @@ impl KafkaConnectionPool {
 
         debug!("allocate new connection, id={}, addr={}", id, addr);
 
-        KafkaConnection::tcp(id, addr.clone(), handle)
+        Checkout::New(KafkaConnection::tcp(id, addr.clone(), handle))
     }
 
     pub fn release(&mut self, conn: KafkaConnection) {
@@ -106,6 +107,23 @@ impl KafkaConnectionPool {
             conns.push_back(Pooled::new(conn));
         } else {
             debug!("drop overrun connection: {:?}", conn);
+        }
+    }
+}
+
+pub enum Checkout {
+    Pooled(KafkaConnection),
+    New(Connect),
+}
+
+impl Future for Checkout {
+    type Item = KafkaConnection;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        match self {
+            &mut Checkout::Pooled(conn) => Ok(Async::Ready(conn)),
+            &mut Checkout::New(conn) => conn.poll(),
         }
     }
 }

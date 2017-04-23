@@ -5,16 +5,17 @@ use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 
+use futures::{Async, Poll};
 use futures::future::{self, Future, BoxFuture, select_ok};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_core::reactor::Handle;
 use tokio_proto::BindClient;
 use tokio_proto::pipeline::ClientService;
-use tokio_service::Service;
+use tokio_service::{Service, NewService};
 use tokio_timer::Timer;
 
 use errors::{Error, ErrorKind, Result};
-use network::KafkaConnectionPool;
+use network::{KafkaConnection, KafkaConnectionPool};
 use protocol::{ApiVersion, MetadataRequest, MetadataResponse};
 use client::{KafkaOption, KafkaConfig, KafkaState, KafkaProto, KafkaRequest, KafkaResponse,
              Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT, DEFAULT_MAX_POOLED_CONNECTIONS};
@@ -22,7 +23,7 @@ use client::{KafkaOption, KafkaConfig, KafkaState, KafkaProto, KafkaRequest, Kaf
 pub struct KafkaClient {
     config: KafkaConfig,
     handle: Handle,
-    conns: Arc<KafkaConnectionPool>,
+    conns: KafkaConnectionPool,
     state: KafkaState,
 }
 
@@ -52,7 +53,7 @@ impl KafkaClient {
         KafkaClient {
             config: config,
             handle: handle.clone(),
-            conns: Arc::new(KafkaConnectionPool::new(max_connection_idle, max_pooled_connections)),
+            conns: KafkaConnectionPool::new(max_connection_idle, max_pooled_connections),
             state: KafkaState::new(),
         }
     }
@@ -73,50 +74,51 @@ impl KafkaClient {
 
     pub fn load_metadata(&mut self, handle: &Handle) -> BoxFuture<(), Error> {
         self.fetch_metadata::<&str>(&[], handle)
+            .and_then(|metadata| {
+                          //self.state.update_metadata(metadata);
+
+                          future::ok(())
+                      })
+            .boxed()
     }
 
-    fn fetch_metadata<S>(&mut self, topic_names: &[S], handle: &Handle) -> BoxFuture<(), Error>
+    fn fetch_metadata<S>(&mut self,
+                         topic_names: &[S],
+                         handle: &Handle)
+                         -> BoxFuture<Metadata, Error>
         where S: AsRef<str>
     {
-        let topic_names = topic_names
-            .iter()
-            .map(|s| s.as_ref().to_owned())
-            .collect::<Vec<String>>();
-
         let conns = self.config
             .brokers()
             .unwrap()
             .iter()
-            .map(|addr| self.conns.get(&addr, handle));
+            .map(|addr| self.conns.checkout(&addr, handle));
 
-        let fetch = select_ok(conns).and_then(move |(conn, rest)| {
-            for conn in rest {
-                conn.map(|conn| self.conns.release(conn));
-            }
+        let api_version = ApiVersion::Kafka_0_8;
+        let correlation_id = self.state.next_correlation_id();
+        let client_id = self.config.client_id();
+        let request = MetadataRequest::new(api_version, correlation_id, client_id, topic_names);
+        let handle = self.handle.clone();
+        let create_service = move |conn| KafkaProto::new(api_version).bind_client(&handle, conn);
 
-            let api_version = ApiVersion::Kafka_0_8;
-            let correlation_id = self.state.next_correlation_id();
-            let client_id = self.config.client_id();
-            let service = self.service(api_version, conn);
-            let request = MetadataRequest::new(api_version,
-                                               correlation_id,
-                                               client_id,
-                                               topic_names.as_slice());
+        select_ok(conns)
+            .map_err(Error::from)
+            .and_then(|(conn, rest)| {
+                for conn in rest {
+                    conn.map(|conn| self.conns.release(conn));
+                }
 
-            service
-                .call(KafkaRequest::Metadata(request))
-                .map_err(Error::from)
-        });
+                let service = create_service(conn);
 
-        fetch
-            .and_then(|response| match response {
-                          KafkaResponse::Metadata(res) => future::ok(Metadata::from(res)),
-                          _ => future::err(ErrorKind::OtherError.into()),
-                      })
-            .and_then(|metadata| {
-                          self.state.update_metadata(metadata);
-
-                          future::ok(())
+                service
+                    .call(KafkaRequest::Metadata(request))
+                    .map_err(Error::from)
+            })
+            .map_err(Error::from)
+            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
+                          future::ok(Metadata::from(res))
+                      } else {
+                          future::err(ErrorKind::OtherError.into())
                       })
             .boxed()
     }
