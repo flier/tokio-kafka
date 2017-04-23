@@ -1,129 +1,314 @@
 use std::fmt::Debug;
-use std::net::{SocketAddr, Shutdown};
+use std::hash::Hash;
+use std::rc::Rc;
+use std::cell::{Cell, RefCell};
+use std::borrow::ToOwned;
+use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
 use std::collections::vec_deque::VecDeque;
 
 use std::time::{Instant, Duration};
 
-use futures::{Async, Poll};
-use futures::future::{self, Future, BoxFuture};
-use tokio_core::reactor::Handle;
+use futures::{Future, Async, Poll};
+use futures::unsync::oneshot;
 
-use errors::{Error, Result};
-use network::{KafkaConnection, Connect};
+use errors::Error;
 
-#[derive(Debug)]
-struct Pooled<T>
-    where T: Debug
+#[derive(Clone, Debug)]
+pub struct Pool<K, T>
+    where K: Clone + Hash + Eq,
+          T: Clone
 {
-    item: T,
-    ts: Instant,
-}
-
-impl<T: Debug> Pooled<T> {
-    pub fn new(item: T) -> Self {
-        Pooled {
-            item: item,
-            ts: Instant::now(),
-        }
-    }
-
-    pub fn unwrap(self) -> T {
-        self.item
-    }
-}
-
-#[derive(Debug, Default)]
-struct State(u32);
-
-impl State {
-    fn next_connection_id(&mut self) -> u32 {
-        let id = self.0;
-        self.0 = self.0.wrapping_add(1);
-        id
-    }
+    inner: Rc<RefCell<PoolInner<K, T>>>,
 }
 
 #[derive(Debug)]
-struct Config {
-    max_idle_timeout: Duration,
-    max_pooled_connections: usize,
+struct PoolInner<K, T>
+    where K: Clone + Hash + Eq,
+          T: Clone
+{
+    enabled: bool,
+    timeout: Option<Duration>,
+    max_idle: Option<usize>,
+    idle: HashMap<Rc<K>, Vec<Entry<T>>>,
+    parked: HashMap<Rc<K>, VecDeque<oneshot::Sender<Entry<T>>>>,
 }
 
-#[derive(Debug)]
-pub struct KafkaConnectionPool {
-    conns: HashMap<SocketAddr, VecDeque<Pooled<KafkaConnection>>>,
-    config: Config,
-    state: State,
-}
-
-unsafe impl Send for KafkaConnectionPool {}
-unsafe impl Sync for KafkaConnectionPool {}
-
-impl KafkaConnectionPool {
-    pub fn new(max_idle_timeout: Duration, max_pooled_connections: usize) -> Self {
-        debug!("connection pool (max_idle={} seconds, max_pooled={})",
-               max_idle_timeout.as_secs(),
-               max_pooled_connections);
-
-        KafkaConnectionPool {
-            conns: HashMap::new(),
-            config: Config {
-                max_idle_timeout: max_idle_timeout,
-                max_pooled_connections: max_pooled_connections,
-            },
-            state: State::default(),
+impl<K, T> Pool<K, T>
+    where K: Clone + Debug + Hash + Eq,
+          T: Clone
+{
+    pub fn new(timeout: Duration, max_idle: usize) -> Self {
+        Pool {
+            inner: Rc::new(RefCell::new(PoolInner {
+                                            enabled: true,
+                                            timeout: Some(timeout),
+                                            max_idle: Some(max_idle),
+                                            idle: HashMap::new(),
+                                            parked: HashMap::new(),
+                                        })),
         }
     }
 
-    pub fn checkout(&mut self, addr: &SocketAddr, handle: &Handle) -> Checkout {
-        if let Some(conns) = self.conns.get_mut(&addr) {
-            while let Some(conn) = conns.pop_front() {
-                if conn.ts.elapsed() >= self.config.max_idle_timeout {
-                    debug!("drop timed out connection: {:?}", conn);
-                } else {
-                    debug!("got pooled connection: {:?}", conn);
+    pub fn is_enabled(&self) -> bool {
+        self.inner.borrow().enabled
+    }
 
-                    return Checkout::Pooled(conn.unwrap());
+    pub fn enable(&mut self) {
+        self.inner.borrow().enabled = true
+    }
+
+    pub fn disable(&mut self) {
+        self.inner.borrow().enabled = false
+    }
+
+    pub fn checkout(&self, key: &K) -> Checkout<K, T> {
+        Checkout {
+            key: Rc::new(key.clone()),
+            pool: self.clone(),
+            parked: None,
+        }
+    }
+
+    fn put(&mut self, key: Rc<K>, entry: Entry<T>) {
+        trace!("put {:?}", key);
+
+        let mut inner = self.inner.borrow_mut();
+        let mut remove_parked = false;
+        let mut entry = Some(entry);
+        if let Some(parked) = inner.parked.get_mut(&key) {
+            while let Some(tx) = parked.pop_front() {
+                match tx.send(entry.take().unwrap()) {
+                    Ok(()) => break,
+                    Err(e) => {
+                        trace!("removing canceled parked {:?}", key);
+                        entry = Some(e);
+                    }
                 }
             }
+            remove_parked = parked.is_empty();
+        }
+        if remove_parked {
+            inner.parked.remove(&key);
         }
 
-        let id = self.state.next_connection_id();
-
-        debug!("allocate new connection, id={}, addr={}", id, addr);
-
-        Checkout::New(KafkaConnection::tcp(id, addr.clone(), handle))
+        match entry {
+            Some(entry) => {
+                inner.idle.entry(key).or_insert(Vec::new()).push(entry);
+            }
+            None => trace!("found parked {:?}", key),
+        }
     }
 
-    pub fn release(&mut self, conn: KafkaConnection) {
-        let conns = self.conns
-            .entry(conn.addr().clone())
-            .or_insert_with(|| VecDeque::new());
+    pub fn pooled(&self, key: Rc<K>, value: T) -> Pooled<K, T> {
+        trace!("pooled {:?}", key);
 
-        if conns.len() < self.config.max_pooled_connections {
-            debug!("release connection: {:?}", conn);
+        Pooled {
+            entry: Entry {
+                value: value,
+                reused: false,
+                status: Rc::new(Cell::new(Status::Busy)),
+            },
+            key: key,
+            pool: self.clone(),
+        }
+    }
 
-            conns.push_back(Pooled::new(conn));
-        } else {
-            debug!("drop overrun connection: {:?}", conn);
+    fn reuse(&self, key: Rc<K>, mut entry: Entry<T>) -> Pooled<K, T> {
+        trace!("reuse {:?}", key);
+
+        entry.reused = true;
+        entry.status.set(Status::Busy);
+        Pooled {
+            entry: entry,
+            key: key,
+            pool: self.clone(),
+        }
+    }
+
+    fn park(&mut self, key: Rc<K>, tx: oneshot::Sender<Entry<T>>) {
+        trace!("park {:?}", key);
+
+        self.inner
+            .borrow_mut()
+            .parked
+            .entry(key)
+            .or_insert(VecDeque::new())
+            .push_back(tx);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Pooled<K, T>
+    where K: Clone + Hash + Eq,
+          T: Clone
+{
+    entry: Entry<T>,
+    key: Rc<K>,
+    pool: Pool<K, T>,
+}
+
+#[derive(Clone, Debug)]
+struct Entry<T>
+    where T: Clone
+{
+    value: T,
+    reused: bool,
+    status: Rc<Cell<Status>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Status {
+    Idle(Instant),
+    Busy,
+    Closed,
+}
+
+impl<K, T> Deref for Pooled<K, T>
+    where K: Clone + Hash + Eq,
+          T: Clone
+{
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.entry.value
+    }
+}
+
+impl<K, T> DerefMut for Pooled<K, T>
+    where K: Clone + Hash + Eq,
+          T: Clone
+{
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.entry.value
+    }
+}
+
+impl<K, T> Pooled<K, T>
+    where K: Clone + Debug + Hash + Eq,
+          T: Clone
+{
+    pub fn status(&self) -> Status {
+        self.entry.status.get()
+    }
+
+    pub fn busy(&mut self) {
+        self.entry.status.set(Status::Busy)
+    }
+
+    pub fn close(&mut self) {
+        self.entry.status.set(Status::Closed)
+    }
+
+    pub fn idle(&mut self) {
+        let previous = self.status();
+        self.entry.status.set(Status::Idle(Instant::now()));
+        if let Status::Idle(..) = previous {
+            trace!("already idle");
+
+            return;
+        }
+        self.entry.reused = true;
+        if self.pool.is_enabled() {
+            self.pool.put(self.key.clone(), self.entry.clone());
         }
     }
 }
 
-pub enum Checkout {
-    Pooled(KafkaConnection),
-    New(Connect),
+pub struct Checkout<K, T>
+    where K: Clone + Hash + Eq,
+          T: Clone
+{
+    key: Rc<K>,
+    pool: Pool<K, T>,
+    parked: Option<oneshot::Receiver<Entry<T>>>,
 }
 
-impl Future for Checkout {
-    type Item = KafkaConnection;
+impl<K, T> Future for Checkout<K, T>
+    where K: Clone + Debug + Hash + Eq,
+          T: Clone
+{
+    type Item = Pooled<K, T>;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self {
-            &mut Checkout::Pooled(conn) => Ok(Async::Ready(conn)),
-            &mut Checkout::New(conn) => conn.poll(),
+        let mut drop_parked = false;
+        if let Some(ref mut rx) = self.parked {
+            match rx.poll() {
+                Ok(Async::Ready(entry)) => {
+                    trace!("found parked for {:?}", self.key);
+
+                    return Ok(Async::Ready(self.pool.reuse(self.key.clone(), entry)));
+                }
+                Ok(Async::NotReady) => (),
+                Err(oneshot::Canceled) => drop_parked = true,
+            }
+        }
+        if drop_parked {
+            self.parked.take();
+        }
+
+        let expiration = Expiration::new(self.pool.inner.borrow().timeout);
+        let key = &self.key;
+        let mut should_remove = false;
+        let entry = self.pool
+            .inner
+            .borrow_mut()
+            .idle
+            .get_mut(key)
+            .and_then(|list| {
+                while let Some(entry) = list.pop() {
+                    match entry.status.get() {
+                        Status::Idle(idle_at) if !expiration.expires(idle_at) => {
+                            trace!("found idle for {:?}", key);
+
+                            should_remove = list.is_empty();
+                            return Some(entry);
+                        }
+                        _ => {
+                            trace!("removing unacceptable pooled for {:?}", key);
+
+                            // every other case the Entry should just be dropped
+                            // 1. Idle but expired
+                            // 2. Busy (something else somehow took it?)
+                            // 3. Disabled don't reuse of course
+                        }
+                    }
+                }
+                should_remove = true;
+                None
+            });
+
+        if should_remove {
+            self.pool.inner.borrow_mut().idle.remove(key);
+        }
+        match entry {
+            Some(entry) => Ok(Async::Ready(self.pool.reuse(self.key.clone(), entry))),
+            None => {
+                if self.parked.is_none() {
+                    trace!("park for {:?}", self.key);
+
+                    let (tx, mut rx) = oneshot::channel();
+                    let _ = rx.poll(); // park this task
+                    self.pool.park(self.key.clone(), tx);
+                    self.parked = Some(rx);
+                }
+                Ok(Async::NotReady)
+            }
+        }
+    }
+}
+
+struct Expiration(Option<Instant>);
+
+impl Expiration {
+    fn new(dur: Option<Duration>) -> Expiration {
+        Expiration(dur.map(|dur| Instant::now() - dur))
+    }
+
+    fn expires(&self, instant: Instant) -> bool {
+        match self.0 {
+            Some(expire) => expire > instant,
+            None => false,
         }
     }
 }
