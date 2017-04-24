@@ -78,11 +78,18 @@ impl Config {
 fn main() {
     pretty_env_logger::init().unwrap();
 
-    let core = Core::new().unwrap();
+    let mut core = Core::new().unwrap();
 
     let config = Config::parse_cmdline().unwrap();
 
     let mut client = KafkaClient::from_hosts(&config.brokers, &core.handle());
 
-    client.load_metadata().wait();
+    let work = client
+        .load_metadata()
+        .and_then(|_| {
+                      println!("{:?}", client.metadata());
+                      Ok(())
+                  });
+
+    core.run(work).unwrap();
 }

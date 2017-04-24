@@ -1,5 +1,6 @@
 use std::io;
 use std::rc::Rc;
+use std::fmt::Debug;
 use std::cell::RefCell;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
@@ -69,7 +70,13 @@ impl KafkaClient {
         &self.handle
     }
 
-    pub fn load_metadata(&mut self) -> StaticBoxFuture {
+    pub fn metadata(&self) -> Rc<Metadata> {
+        self.state.borrow().metadata()
+    }
+
+    pub fn load_metadata(&mut self) -> LoadMetadata {
+        debug!("loading metadata...");
+
         let state = self.state.clone();
 
         StaticBoxFuture::new(self.fetch_metadata::<&str>(&[])
@@ -81,8 +88,10 @@ impl KafkaClient {
     }
 
     fn fetch_metadata<S>(&mut self, topic_names: &[S]) -> FetchMetadata
-        where S: AsRef<str>
+        where S: AsRef<str> + Debug
     {
+        debug!("fetch metadata for toipcs: {:?}", topic_names);
+
         let addrs = self.config.brokers().unwrap();
         let addr = addrs.iter().next().unwrap();
 
@@ -158,6 +167,7 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
     }
 }
 
+pub type LoadMetadata = StaticBoxFuture;
 pub type FetchMetadata = StaticBoxFuture<Metadata>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 
@@ -218,7 +228,7 @@ impl<T> Future for BindingClient<T>
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.rx.poll() {
             Ok(Async::Ready(client)) => {
-                Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"))))
+                Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"), ApiVersion::Kfaka_0_8)))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(_canceled) => unreachable!(),

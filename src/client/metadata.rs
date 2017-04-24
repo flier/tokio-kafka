@@ -6,8 +6,40 @@ use protocol::{ApiVersion, MetadataResponse};
 
 #[derive(Debug)]
 pub struct Metadata {
-    pub brokers: Vec<Broker>,
-    pub topics: HashMap<String, TopicPartitions>,
+    // ~ a list of known brokers referred to by the index in this
+    // vector.  This index is also referred to as `BrokerRef` and is
+    // enforced by this module.
+    //
+    // Note: loading of additional topic metadata must preserve
+    // already present brokers in this vector at their position.
+    // See `KafkaState::update_metadata`
+    brokers: Vec<Broker>,
+
+    // ~ a mapping of topic to information about its partitions
+    topic_partitions: HashMap<String, TopicPartitions>,
+
+    // ~ a mapping of groups to their coordinators
+    group_coordinators: HashMap<String, BrokerRef>,
+}
+
+impl Metadata {
+    pub fn brokers(&self) -> &[Broker] {
+        &self.brokers
+    }
+
+    pub fn topic_partitions(&self) -> &HashMap<String, TopicPartitions> {
+        &self.topic_partitions
+    }
+}
+
+impl Default for Metadata {
+    fn default() -> Self {
+        Metadata {
+            brokers: Vec::new(),
+            topic_partitions: HashMap::new(),
+            group_coordinators: HashMap::new(),
+        }
+    }
 }
 
 impl From<MetadataResponse> for Metadata {
@@ -24,9 +56,9 @@ impl From<MetadataResponse> for Metadata {
                          }
                      })
                 .collect(),
-            topics: HashMap::from_iter(md.topics
-                                           .iter()
-                                           .map(|topic| {
+            topic_partitions: HashMap::from_iter(md.topics
+                                                     .iter()
+                                                     .map(|topic| {
                 (topic.topic_name.clone(),
                  TopicPartitions {
                      partitions: topic
@@ -36,6 +68,7 @@ impl From<MetadataResponse> for Metadata {
                          .collect(),
                  })
             })),
+            group_coordinators: HashMap::new(),
         }
     }
 }

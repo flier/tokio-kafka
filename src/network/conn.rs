@@ -11,31 +11,32 @@ use futures::stream::Stream;
 use futures::sink::Sink;
 use futures::future::Future;
 use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_io::codec::Framed;
 use tokio_core::reactor::Handle;
 use tokio_core::net::{TcpStream, TcpStreamNew};
 use tokio_proto::streaming::pipeline::{Frame, Transport};
 use tokio_tls::{TlsConnectorExt, TlsStream, ConnectAsync};
 use native_tls::TlsConnector;
 
-use network::{KafkaRequest, KafkaResponse};
+use network::{KafkaRequest, KafkaResponse, KafkaCodec};
 
 #[derive(Debug)]
 pub struct KafkaConnection<I> {
     id: u32,
-    stream: I,
+    stream: Framed<I, KafkaCodec>,
 }
 
 impl<I> Deref for KafkaConnection<I> {
     type Target = I;
 
     fn deref(&self) -> &Self::Target {
-        &self.stream
+        self.stream.get_ref()
     }
 }
 
 impl<I> DerefMut for KafkaConnection<I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.stream
+        self.stream.get_mut()
     }
 }
 
@@ -43,7 +44,7 @@ impl<I> Read for KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.stream.read(buf)
+        self.stream.get_mut().read(buf)
     }
 }
 
@@ -51,10 +52,10 @@ impl<I> Write for KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.stream.write(buf)
+        self.stream.get_mut().write(buf)
     }
     fn flush(&mut self) -> io::Result<()> {
-        self.stream.flush()
+        self.stream.get_mut().flush()
     }
 }
 
@@ -64,7 +65,7 @@ impl<I> AsyncWrite for KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
     fn shutdown(&mut self) -> Poll<(), io::Error> {
-        self.stream.shutdown()
+        self.stream.get_mut().shutdown()
     }
 }
 
@@ -75,7 +76,14 @@ impl<I> Stream for KafkaConnection<I>
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        Ok(Async::NotReady)
+        self.stream
+            .poll()
+            .map(|res| {
+                     Async::Ready(Some(Frame::Message {
+                                           message: res,
+                                           body: false,
+                                       }))
+                 })
     }
 }
 
@@ -85,11 +93,12 @@ impl<I> Sink for KafkaConnection<I>
     type SinkItem = Frame<KafkaRequest, BytesMut, io::Error>;
     type SinkError = io::Error;
 
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        Ok(AsyncSink::Ready)
+    fn start_send(&mut self, frame: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        self.stream.start_send(frame)
     }
+
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        Ok(Async::NotReady)
+        self.stream.poll_complete()
     }
 }
 
@@ -98,10 +107,10 @@ impl<I> Transport for KafkaConnection<I> where I: AsyncRead + AsyncWrite + 'stat
 impl<I> KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
-    pub fn new(id: u32, stream: I) -> Self {
+    pub fn new(id: u32, stream: I, api_version: ApiVersion) -> Self {
         KafkaConnection {
             id: id,
-            stream: stream,
+            stream: stream.framed(KafkaCodec::new(api_version)),
         }
     }
 
@@ -110,7 +119,7 @@ impl<I> KafkaConnection<I>
     }
 
     pub fn stream(&mut self) -> &mut I {
-        &mut self.stream
+        &mut self.stream.get_mut()
     }
 }
 

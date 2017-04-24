@@ -285,8 +285,6 @@ impl<K, T> Future for Checkout<K, T>
             Some(entry) => Ok(Async::Ready(self.pool.reuse(self.key.clone(), entry))),
             None => {
                 if self.parked.is_none() {
-                    trace!("park for {:?}", self.key);
-
                     let (tx, mut rx) = oneshot::channel();
                     let _ = rx.poll(); // park this task
                     self.pool.park(self.key.clone(), tx);

@@ -8,6 +8,7 @@ use tokio_io::codec::{Encoder, Decoder};
 use protocol::ApiVersion;
 use network::{KafkaRequest, KafkaResponse};
 
+#[derive(Debug)]
 pub struct KafkaCodec {
     api_version: ApiVersion,
 }
