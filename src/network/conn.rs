@@ -5,6 +5,8 @@ use std::io::prelude::*;
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 
+use bytes::BytesMut;
+
 use futures::{Async, AsyncSink, Poll, StartSend};
 use futures::stream::Stream;
 use futures::sink::Sink;
@@ -12,39 +14,44 @@ use futures::future::{Future, BoxFuture};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_core::reactor::Handle;
 use tokio_core::net::{TcpStream, TcpStreamNew};
+use tokio_proto::streaming::pipeline::{Frame, Transport};
 use tokio_tls::{TlsConnectorExt, TlsStream, ConnectAsync};
 use native_tls::TlsConnector;
 
 use errors::Error;
 use network::{KafkaRequest, KafkaResponse};
 
-#[derive(Clone, Debug)]
-pub struct KafkaConnection {
+#[derive(Debug)]
+pub struct KafkaConnection<I> {
     id: u32,
-    stream: KafkaStream,
+    stream: I,
 }
 
-impl Deref for KafkaConnection {
-    type Target = KafkaStream;
+impl<I> Deref for KafkaConnection<I> {
+    type Target = I;
 
     fn deref(&self) -> &Self::Target {
         &self.stream
     }
 }
 
-impl DerefMut for KafkaConnection {
+impl<I> DerefMut for KafkaConnection<I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.stream
     }
 }
 
-impl Read for KafkaConnection {
+impl<I> Read for KafkaConnection<I>
+    where I: AsyncRead + AsyncWrite
+{
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.stream.read(buf)
     }
 }
 
-impl Write for KafkaConnection {
+impl<I> Write for KafkaConnection<I>
+    where I: AsyncRead + AsyncWrite
+{
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.stream.write(buf)
     }
@@ -53,16 +60,20 @@ impl Write for KafkaConnection {
     }
 }
 
-impl AsyncRead for KafkaConnection {}
+impl<I> AsyncRead for KafkaConnection<I> where I: AsyncRead + AsyncWrite {}
 
-impl AsyncWrite for KafkaConnection {
+impl<I> AsyncWrite for KafkaConnection<I>
+    where I: AsyncRead + AsyncWrite
+{
     fn shutdown(&mut self) -> Poll<(), io::Error> {
         self.stream.shutdown()
     }
 }
 
-impl Stream for KafkaConnection {
-    type Item = KafkaResponse;
+impl<I> Stream for KafkaConnection<I>
+    where I: AsyncRead + AsyncWrite
+{
+    type Item = Frame<KafkaResponse, BytesMut, io::Error>;
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -70,8 +81,10 @@ impl Stream for KafkaConnection {
     }
 }
 
-impl Sink for KafkaConnection {
-    type SinkItem = KafkaRequest;
+impl<I> Sink for KafkaConnection<I>
+    where I: AsyncRead + AsyncWrite
+{
+    type SinkItem = Frame<KafkaRequest, BytesMut, io::Error>;
     type SinkError = io::Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
@@ -82,8 +95,12 @@ impl Sink for KafkaConnection {
     }
 }
 
-impl KafkaConnection {
-    pub fn new(id: u32, stream: KafkaStream) -> Self {
+impl<I> Transport for KafkaConnection<I> where I: AsyncRead + AsyncWrite + 'static {}
+
+impl<I> KafkaConnection<I>
+    where I: AsyncRead + AsyncWrite
+{
+    pub fn new(id: u32, stream: I) -> Self {
         KafkaConnection {
             id: id,
             stream: stream,
@@ -94,7 +111,7 @@ impl KafkaConnection {
         self.id
     }
 
-    pub fn stream(&mut self) -> &mut KafkaStream {
+    pub fn stream(&mut self) -> &mut I {
         &mut self.stream
     }
 }
@@ -125,7 +142,6 @@ impl KafkaConnector {
 enum State {
     Connecting(TcpStreamNew),
     Handshaking(ConnectAsync<TcpStream>),
-    Connected(KafkaStream),
 }
 
 pub struct Connect {
@@ -161,17 +177,20 @@ impl Connect {
 
 impl Future for Connect {
     type Item = KafkaStream;
-    type Error = Error;
+    type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
             let state;
 
+            let ref domain = self.domain;
+            let ref connector = self.connector;
+
             match self.state {
                 State::Connecting(ref mut future) => {
                     match future.poll() {
                         Ok(Async::Ready(stream)) => {
-                            if let (Some(domain), Some(connector)) = (self.domain, self.connector) {
+                            if let (&Some(ref domain), &Some(ref connector)) = (domain, connector) {
                                 debug!("TCP connected to {}, start TLS handshake", self.addr);
 
                                 state = State::Handshaking(connector.connect_async(&domain,
@@ -199,7 +218,8 @@ impl Future for Connect {
                                Err(err) => {
                         warn!("fail to do TLS handshake to {}, {}", self.addr, err);
 
-                        bail!(err)
+                        Err(io::Error::new(io::ErrorKind::ConnectionAborted,
+                                           "TLS handshake failed"))
                     }
                            }
                 }

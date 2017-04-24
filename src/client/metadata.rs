@@ -16,9 +16,27 @@ impl From<MetadataResponse> for Metadata {
         Metadata {
             brokers: md.brokers
                 .iter()
-                .map(|broker| (*broker).into())
+                .map(|broker| {
+                         Broker {
+                             node_id: broker.node_id,
+                             host: broker.host.clone(),
+                             port: broker.port as u16,
+                             api_versions: None,
+                         }
+                     })
                 .collect(),
-            topics: HashMap::from_iter(md.topics.iter().map(|topic| (*topic).into())),
+            topics: HashMap::from_iter(md.topics
+                                           .iter()
+                                           .map(|topic| {
+                (topic.topic_name.clone(),
+                 TopicPartitions {
+                     partitions: topic
+                         .partitions
+                         .iter()
+                         .map(|partition| TopicPartition(BrokerRef(partition.leader)))
+                         .collect(),
+                 })
+            })),
         }
     }
 }
@@ -56,17 +74,6 @@ impl Broker {
 
     pub fn api_versions(&self) -> Option<&[ApiVersion]> {
         self.api_versions.as_ref().map(|ref v| v.as_slice())
-    }
-}
-
-impl From<BrokerMetadata> for Broker {
-    fn from(md: BrokerMetadata) -> Self {
-        Broker {
-            node_id: md.node_id,
-            host: md.host,
-            port: md.port as u16,
-            api_versions: None,
-        }
     }
 }
 
@@ -152,18 +159,6 @@ impl<'a> IntoIterator for &'a TopicPartitions {
     }
 }
 
-impl From<TopicMetadata> for (String, TopicPartitions) {
-    fn from(md: TopicMetadata) -> Self {
-        (md.topic_name,
-         TopicPartitions {
-             partitions: md.partitions
-                 .iter()
-                 .map(|partition| (*partition).into())
-                 .collect(),
-         })
-    }
-}
-
 /// Metadata for a single topic partition.
 #[derive(Debug)]
 pub struct TopicPartition(BrokerRef);
@@ -190,12 +185,6 @@ impl<'a> Iterator for TopicPartitionIter<'a> {
                      self.partition_id += 1;
                      (partition_id, tp)
                  })
-    }
-}
-
-impl From<PartitionMetadata> for TopicPartition {
-    fn from(md: PartitionMetadata) -> Self {
-        TopicPartition(BrokerRef(md.leader))
     }
 }
 

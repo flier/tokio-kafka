@@ -1,3 +1,4 @@
+use std::io;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -29,7 +30,6 @@ struct PoolInner<K, T>
 {
     enabled: bool,
     timeout: Option<Duration>,
-    max_idle: Option<usize>,
     idle: HashMap<Rc<K>, Vec<Entry<T>>>,
     parked: HashMap<Rc<K>, VecDeque<oneshot::Sender<Entry<T>>>>,
 }
@@ -38,12 +38,11 @@ impl<K, T> Pool<K, T>
     where K: Clone + Debug + Hash + Eq,
           T: Clone
 {
-    pub fn new(timeout: Duration, max_idle: usize) -> Self {
+    pub fn new(timeout: Duration) -> Self {
         Pool {
             inner: Rc::new(RefCell::new(PoolInner {
                                             enabled: true,
                                             timeout: Some(timeout),
-                                            max_idle: Some(max_idle),
                                             idle: HashMap::new(),
                                             parked: HashMap::new(),
                                         })),
@@ -55,11 +54,15 @@ impl<K, T> Pool<K, T>
     }
 
     pub fn enable(&mut self) {
-        self.inner.borrow().enabled = true
+        self.inner.borrow_mut().enabled = true
     }
 
     pub fn disable(&mut self) {
-        self.inner.borrow().enabled = false
+        self.inner.borrow_mut().enabled = false
+    }
+
+    pub fn timeout(&self) -> Option<Duration> {
+        self.inner.borrow().timeout
     }
 
     pub fn checkout(&self, key: &K) -> Checkout<K, T> {
@@ -228,7 +231,7 @@ impl<K, T> Future for Checkout<K, T>
           T: Clone
 {
     type Item = Pooled<K, T>;
-    type Error = Error;
+    type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         let mut drop_parked = false;

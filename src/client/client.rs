@@ -8,14 +8,17 @@ use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 
-use futures::{Async, Poll};
+use bytes::BytesMut;
+
+use futures::{Async, Poll, Stream};
 use futures::future::{self, Future, BoxFuture, select_ok};
 use futures::unsync::oneshot;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::Framed;
 use tokio_core::reactor::Handle;
 use tokio_proto::BindClient;
-use tokio_proto::pipeline::{ClientProto, ClientService};
+use tokio_proto::streaming::{Message, Body};
+use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::{Service, NewService};
 use tokio_timer::Timer;
@@ -54,15 +57,12 @@ impl KafkaClient {
         let max_connection_idle = config
             .max_connection_idle()
             .unwrap_or(*DEFAULT_MAX_CONNECTION_TIMEOUT);
-        let max_pooled_connections = config
-            .max_pooled_connections()
-            .unwrap_or(DEFAULT_MAX_POOLED_CONNECTIONS);
 
         KafkaClient {
             config: config,
             handle: handle.clone(),
             connector: KafkaConnector::new(handle),
-            pool: Pool::new(max_connection_idle, max_pooled_connections),
+            pool: Pool::new(max_connection_idle),
             state: KafkaState::new(),
         }
     }
@@ -74,24 +74,27 @@ impl KafkaClient {
     pub fn handle(&self) -> &Handle {
         &self.handle
     }
-
-    pub fn load_metadata(&mut self, handle: &Handle) -> BoxFuture<(), Error> {
+    /*
+    pub fn load_metadata(&mut self, handle: &Handle) -> Result<()> {
         self.fetch_metadata::<&str>(&[], handle)
+            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
+                          future::ok(Metadata::from(res))
+                      } else {
+                          future::err(ErrorKind::OtherError.into())
+                      })
             .and_then(|metadata| {
                           //self.state.update_metadata(metadata);
 
                           future::ok(())
                       })
-            .boxed()
+            .wait()
     }
-
-    fn fetch_metadata<S>(&mut self,
-                         topic_names: &[S],
-                         handle: &Handle)
-                         -> BoxFuture<Metadata, Error>
+    */
+    fn fetch_metadata<S>(&mut self, topic_names: &[S], handle: &Handle) -> FutureResponse
         where S: AsRef<str>
     {
-        let addr = self.config.brokers().unwrap().iter().next().unwrap();
+        let addrs = self.config.brokers().unwrap();
+        let addr = addrs.iter().next().unwrap();
 
         let checkout = self.pool.checkout(addr);
         let connect = {
@@ -123,6 +126,8 @@ impl KafkaClient {
                          e.into()
                      });
 
+
+
         let api_version = ApiVersion::Kafka_0_8;
         let correlation_id = self.state.next_correlation_id();
         let client_id = self.config.client_id();
@@ -131,19 +136,43 @@ impl KafkaClient {
                                                                   client_id,
                                                                   topic_names));
 
-        let handle = self.handle.clone();
+        let response = race.and_then(move |client| client.call(Message::WithoutBody(request)))
+            .map(|msg| match msg {
+                     Message::WithoutBody(res) => res,
+                     Message::WithBody(res, _) => res,
+                 });
 
-        race.and_then(|client| client.call(request))
-            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                          future::ok(Metadata::from(res))
-                      } else {
-                          future::err(ErrorKind::OtherError.into())
-                      })
-            .boxed()
+        FutureResponse(Box::new(response))
     }
 }
 
-type TokioClient = ClientProxy<KafkaRequest, KafkaResponse, io::Error>;
+pub struct FutureResponse(Box<Future<Item = KafkaResponse, Error = io::Error> + 'static>);
+
+impl Future for FutureResponse {
+    type Item = KafkaResponse;
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.0.poll()
+    }
+}
+
+type TokioBody = Body<BytesMut, io::Error>;
+
+pub struct KafkaBody(TokioBody);
+
+impl Stream for KafkaBody {
+    type Item = BytesMut;
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<Option<BytesMut>, io::Error> {
+        self.0.poll()
+    }
+}
+
+type TokioClient = ClientProxy<Message<KafkaRequest, KafkaBody>,
+                               Message<KafkaResponse, TokioBody>,
+                               io::Error>;
 
 struct RemoteClient {
     client_rx: RefCell<Option<oneshot::Receiver<Pooled<SocketAddr, TokioClient>>>>,
@@ -153,8 +182,11 @@ impl<T> ClientProto<T> for RemoteClient
     where T: AsyncRead + AsyncWrite + 'static
 {
     type Request = KafkaRequest;
+    type RequestBody = <KafkaBody as Stream>::Item;
     type Response = KafkaResponse;
-    type Transport = KafkaConnection;
+    type ResponseBody = BytesMut;
+    type Error = io::Error;
+    type Transport = KafkaConnection<T>;
     type BindTransport = BindingClient<T>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
@@ -176,13 +208,13 @@ struct BindingClient<T> {
 impl<T> Future for BindingClient<T>
     where T: AsyncRead + AsyncWrite + 'static
 {
-    type Item = KafkaConnection;
+    type Item = KafkaConnection<T>;
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.rx.poll() {
             Ok(Async::Ready(client)) => {
-                Ok(Async::Ready(KafkaConnection::new(self.io.take().expect("binding client io lost"), client)))
+                Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"))))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(_canceled) => unreachable!(),
