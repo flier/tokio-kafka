@@ -85,8 +85,9 @@ impl KafkaConfig {
     pub fn from_hosts<A: ToSocketAddrs>(hosts: &[A]) -> Self {
         KafkaConfig(vec![KafkaOption::Brokers(hosts
                                                   .iter()
-                                                  .flat_map(|host| host.to_socket_addrs())
-                                                  .flat_map(|addrs| addrs)
+                                                  .flat_map(|host| {
+                                                                host.to_socket_addrs().unwrap()
+                                                            })
                                                   .collect())])
     }
 

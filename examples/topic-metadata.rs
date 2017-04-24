@@ -1,7 +1,11 @@
 #[macro_use]
+extern crate log;
+#[macro_use]
 extern crate error_chain;
 extern crate pretty_env_logger;
 extern crate getopts;
+extern crate futures;
+extern crate tokio_core;
 extern crate tokio_kafka;
 
 use std::env;
@@ -10,8 +14,9 @@ use std::path::Path;
 
 use getopts::Options;
 
+use futures::future::Future;
 use tokio_core::reactor::Core;
-use tokio_kafka::{KafkaConfig, KafkaClient};
+use tokio_kafka::KafkaClient;
 
 const DEFAULT_BROKER: &'static str = "localhost:9092";
 
@@ -53,15 +58,19 @@ impl Config {
             process::exit(0);
         }
 
+        let brokers = matches
+            .opt_str("b")
+            .map_or_else(|| vec![DEFAULT_BROKER.to_owned()],
+                         |s| s.split(',').map(|s| s.trim().to_owned()).collect());
+
+        let topics = matches
+            .opt_str("t")
+            .map_or_else(|| Vec::new(),
+                         |s| s.split(',').map(|s| s.trim().to_owned()).collect());
+
         Ok(Config {
-               brokers: matches
-                   .opt_str("brokers")
-                   .map_or(vec![DEFAULT_BROKER.to_owned()],
-                           |s| s.split(',').map(|s| s.trim().to_owned()).collect()),
-               topics: matches
-                   .opt_str("topics")
-                   .map_or(Vec::new(),
-                           |s| s.split(',').map(|s| s.trim().to_owned()).collect()),
+               brokers: brokers,
+               topics: topics,
            })
     }
 }
@@ -69,16 +78,11 @@ impl Config {
 fn main() {
     pretty_env_logger::init().unwrap();
 
-    let mut core = Core::new().unwrap();
+    let core = Core::new().unwrap();
 
     let config = Config::parse_cmdline().unwrap();
 
-    let client = KafkaClient::from_hosts(&config.brokers, &core.handle());
+    let mut client = KafkaClient::from_hosts(&config.brokers, &core.handle());
 
-    client.load_metadata();
-    /*
-    client
-        .topics()
-        .map(|topics| topics.filter(|topic| config.topics.contains(topic.topic_name())));
-        */
+    client.load_metadata().wait();
 }

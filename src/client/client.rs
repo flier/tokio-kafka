@@ -46,6 +46,8 @@ impl DerefMut for KafkaClient {
 
 impl KafkaClient {
     pub fn from_config(config: KafkaConfig, handle: &Handle) -> Self {
+        debug!("client with config: {:?}", config);
+
         let max_connection_idle = config
             .max_connection_idle()
             .unwrap_or(*DEFAULT_MAX_CONNECTION_TIMEOUT);
@@ -67,10 +69,10 @@ impl KafkaClient {
         &self.handle
     }
 
-    pub fn load_metadata(&mut self, handle: &Handle) -> StaticBoxFuture {
+    pub fn load_metadata(&mut self) -> StaticBoxFuture {
         let state = self.state.clone();
 
-        StaticBoxFuture::new(self.fetch_metadata::<&str>(&[], handle)
+        StaticBoxFuture::new(self.fetch_metadata::<&str>(&[])
                                  .and_then(move |metadata| {
                                                state.borrow_mut().update_metadata(metadata);
 
@@ -78,7 +80,7 @@ impl KafkaClient {
                                            }))
     }
 
-    fn fetch_metadata<S>(&mut self, topic_names: &[S], handle: &Handle) -> FetchMetadata
+    fn fetch_metadata<S>(&mut self, topic_names: &[S]) -> FetchMetadata
         where S: AsRef<str>
     {
         let addrs = self.config.brokers().unwrap();
