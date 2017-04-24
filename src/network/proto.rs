@@ -5,7 +5,7 @@ use tokio_io::codec::Framed;
 use tokio_proto::pipeline::ClientProto;
 
 use protocol::ApiVersion;
-use client::{KafkaRequest, KafkaResponse, KafkaCodec};
+use network::{KafkaRequest, KafkaResponse, KafkaCodec};
 
 pub struct KafkaProto {
     api_version: ApiVersion,

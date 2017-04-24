@@ -6,7 +6,7 @@ use bytes::{BytesMut, ByteOrder, BigEndian};
 use tokio_io::codec::{Encoder, Decoder};
 
 use protocol::ApiVersion;
-use client::{KafkaRequest, KafkaResponse};
+use network::{KafkaRequest, KafkaResponse};
 
 pub struct KafkaCodec {
     api_version: ApiVersion,

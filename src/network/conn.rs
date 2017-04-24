@@ -16,7 +16,7 @@ use tokio_tls::{TlsConnectorExt, TlsStream, ConnectAsync};
 use native_tls::TlsConnector;
 
 use errors::Error;
-use client::{KafkaRequest, KafkaResponse};
+use network::{KafkaRequest, KafkaResponse};
 
 #[derive(Clone, Debug)]
 pub struct KafkaConnection {

@@ -23,8 +23,9 @@ use tokio_timer::Timer;
 use errors::{Error, ErrorKind, Result};
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
 use protocol::{ApiVersion, MetadataRequest, MetadataResponse};
-use client::{KafkaOption, KafkaConfig, KafkaState, KafkaCodec, KafkaRequest, KafkaResponse,
-             Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT, DEFAULT_MAX_POOLED_CONNECTIONS};
+use network::{KafkaCodec, KafkaRequest, KafkaResponse};
+use client::{KafkaOption, KafkaConfig, KafkaState, Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT,
+             DEFAULT_MAX_POOLED_CONNECTIONS};
 
 pub struct KafkaClient {
     config: KafkaConfig,
