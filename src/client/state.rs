@@ -1,6 +1,6 @@
 use std::collections::hash_map::HashMap;
 
-use client::{KafkaClient, Metadata, Broker, BrokerRef, TopicPartitions};
+use client::{Metadata, Broker, BrokerRef, TopicPartitions};
 
 pub struct KafkaState {
     // ~ the last correlation used when communicating with kafka

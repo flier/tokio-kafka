@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::cell::{Cell, RefCell};
-use std::borrow::ToOwned;
 use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
 use std::collections::vec_deque::VecDeque;
@@ -12,8 +11,6 @@ use std::time::{Instant, Duration};
 
 use futures::{Future, Async, Poll};
 use futures::unsync::oneshot;
-
-use errors::Error;
 
 #[derive(Clone, Debug)]
 pub struct Pool<K, T>

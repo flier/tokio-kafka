@@ -1,41 +1,33 @@
 use std::io;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::iter::FromIterator;
-use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 
 use bytes::BytesMut;
 
 use futures::{Async, Poll, Stream};
-use futures::future::{self, Future, BoxFuture, select_ok};
+use futures::future::{self, Future};
 use futures::unsync::oneshot;
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::Framed;
 use tokio_core::reactor::Handle;
 use tokio_proto::BindClient;
 use tokio_proto::streaming::{Message, Body};
 use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
-use tokio_service::{Service, NewService};
-use tokio_timer::Timer;
+use tokio_service::Service;
 
-use errors::{Error, ErrorKind, Result};
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
-use protocol::{ApiVersion, MetadataRequest, MetadataResponse};
-use network::{KafkaCodec, KafkaRequest, KafkaResponse};
-use client::{KafkaOption, KafkaConfig, KafkaState, Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT,
-             DEFAULT_MAX_POOLED_CONNECTIONS};
+use protocol::{ApiVersion, MetadataRequest};
+use network::{KafkaRequest, KafkaResponse};
+use client::{KafkaConfig, KafkaState, Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT};
 
 pub struct KafkaClient {
     config: KafkaConfig,
     handle: Handle,
     connector: KafkaConnector,
     pool: Pool<SocketAddr, TokioClient>,
-    state: KafkaState,
+    state: Rc<RefCell<KafkaState>>,
 }
 
 impl Deref for KafkaClient {
@@ -63,7 +55,7 @@ impl KafkaClient {
             handle: handle.clone(),
             connector: KafkaConnector::new(handle),
             pool: Pool::new(max_connection_idle),
-            state: KafkaState::new(),
+            state: Rc::new(RefCell::new(KafkaState::new())),
         }
     }
 
@@ -74,23 +66,19 @@ impl KafkaClient {
     pub fn handle(&self) -> &Handle {
         &self.handle
     }
-    /*
-    pub fn load_metadata(&mut self, handle: &Handle) -> Result<()> {
-        self.fetch_metadata::<&str>(&[], handle)
-            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                          future::ok(Metadata::from(res))
-                      } else {
-                          future::err(ErrorKind::OtherError.into())
-                      })
-            .and_then(|metadata| {
-                          //self.state.update_metadata(metadata);
 
-                          future::ok(())
-                      })
-            .wait()
+    pub fn load_metadata(&mut self, handle: &Handle) -> StaticBoxFuture {
+        let state = self.state.clone();
+
+        StaticBoxFuture::new(self.fetch_metadata::<&str>(&[], handle)
+                                 .and_then(move |metadata| {
+                                               state.borrow_mut().update_metadata(metadata);
+
+                                               future::ok(())
+                                           }))
     }
-    */
-    fn fetch_metadata<S>(&mut self, topic_names: &[S], handle: &Handle) -> FutureResponse
+
+    fn fetch_metadata<S>(&mut self, topic_names: &[S], handle: &Handle) -> FetchMetadata
         where S: AsRef<str>
     {
         let addrs = self.config.brokers().unwrap();
@@ -126,10 +114,8 @@ impl KafkaClient {
                          e.into()
                      });
 
-
-
         let api_version = ApiVersion::Kafka_0_8;
-        let correlation_id = self.state.next_correlation_id();
+        let correlation_id = self.state.borrow_mut().next_correlation_id();
         let client_id = self.config.client_id();
         let request = KafkaRequest::Metadata(MetadataRequest::new(api_version,
                                                                   correlation_id,
@@ -140,22 +126,38 @@ impl KafkaClient {
             .map(|msg| match msg {
                      Message::WithoutBody(res) => res,
                      Message::WithBody(res, _) => res,
-                 });
+                 })
+            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
+                          future::ok(Metadata::from(res))
+                      } else {
+                          future::err(io::Error::new(io::ErrorKind::Other, "invalid response"))
+                      });
 
-        FutureResponse(Box::new(response))
+        FetchMetadata::new(response)
     }
 }
 
-pub struct FutureResponse(Box<Future<Item = KafkaResponse, Error = io::Error> + 'static>);
+pub struct StaticBoxFuture<F = (), E = io::Error>(Box<Future<Item = F, Error = E> + 'static>);
 
-impl Future for FutureResponse {
-    type Item = KafkaResponse;
-    type Error = io::Error;
+impl<F, E> StaticBoxFuture<F, E> {
+    pub fn new<T>(inner: T) -> Self
+        where T: Future<Item = F, Error = E> + 'static
+    {
+        StaticBoxFuture(Box::new(inner))
+    }
+}
+
+impl<F, E> Future for StaticBoxFuture<F, E> {
+    type Item = F;
+    type Error = E;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         self.0.poll()
     }
 }
+
+pub type FetchMetadata = StaticBoxFuture<Metadata>;
+pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 
 type TokioBody = Body<BytesMut, io::Error>;
 

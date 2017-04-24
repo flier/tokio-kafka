@@ -1,5 +1,4 @@
 use std::fmt;
-use std::rc::Rc;
 use std::io;
 use std::io::prelude::*;
 use std::net::SocketAddr;
@@ -10,7 +9,7 @@ use bytes::BytesMut;
 use futures::{Async, AsyncSink, Poll, StartSend};
 use futures::stream::Stream;
 use futures::sink::Sink;
-use futures::future::{Future, BoxFuture};
+use futures::future::Future;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_core::reactor::Handle;
 use tokio_core::net::{TcpStream, TcpStreamNew};
@@ -18,7 +17,6 @@ use tokio_proto::streaming::pipeline::{Frame, Transport};
 use tokio_tls::{TlsConnectorExt, TlsStream, ConnectAsync};
 use native_tls::TlsConnector;
 
-use errors::Error;
 use network::{KafkaRequest, KafkaResponse};
 
 #[derive(Debug)]
@@ -203,7 +201,7 @@ impl Future for Connect {
                         Err(err) => {
                             warn!("fail to connect {}, {}", self.addr, err);
 
-                            return bail!(err);
+                            return Err(err);
                         }
                     }
                 }

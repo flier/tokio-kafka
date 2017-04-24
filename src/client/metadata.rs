@@ -1,9 +1,8 @@
 use std::slice;
-use std::net::SocketAddr;
 use std::iter::FromIterator;
 use std::collections::hash_map::{HashMap, Keys};
 
-use protocol::{ApiVersion, MetadataResponse, BrokerMetadata, TopicMetadata, PartitionMetadata};
+use protocol::{ApiVersion, MetadataResponse};
 
 #[derive(Debug)]
 pub struct Metadata {
