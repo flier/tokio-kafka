@@ -41,8 +41,10 @@ lazy_static! {
 }
 
 macro_rules! hexdump {
-    ($buf:expr) => (::hexplay::HexViewBuilder::new($buf)
-                        .codepage(&$crate::errors::CODEPAGE_HEX)
-                        .row_width(16)
-                        .finish())
+    ($buf:expr) => (hexdump!($buf, 0));
+    ($buf:expr, $off:expr) => (::hexplay::HexViewBuilder::new($buf)
+                                  .codepage(&$crate::errors::CODEPAGE_HEX)
+                                  .address_offset($off)
+                                  .row_width(16)
+                                  .finish());
 }

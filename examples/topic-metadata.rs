@@ -51,7 +51,7 @@ impl Config {
         let matches = opts.parse(&args[1..])?;
 
         if matches.opt_present("h") {
-            let brief = format!("Usage: {} FILE [options]", program);
+            let brief = format!("Usage: {} [options]", program);
 
             print!("{}", opts.usage(&brief));
 
@@ -78,9 +78,9 @@ impl Config {
 fn main() {
     pretty_env_logger::init().unwrap();
 
-    let mut core = Core::new().unwrap();
-
     let config = Config::parse_cmdline().unwrap();
+
+    let mut core = Core::new().unwrap();
 
     let mut client = KafkaClient::from_hosts(&config.brokers, &core.handle());
 

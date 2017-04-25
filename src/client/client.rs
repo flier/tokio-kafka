@@ -136,7 +136,7 @@ impl KafkaClient {
 
         let response = race.and_then(move |client| client.call(Message::WithoutBody(request)))
             .map(|msg| {
-                     debug!("received response: {:?}", msg);
+                     debug!("received message: {:?}", msg);
 
                      match msg {
                          Message::WithoutBody(res) => res,

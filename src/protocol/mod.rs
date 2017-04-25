@@ -243,6 +243,8 @@ impl From<i16> for KafkaCode {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use nom::{IResult, Needed, ErrorKind};
     use nom::verbose_errors::Err;
 

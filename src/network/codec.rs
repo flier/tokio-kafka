@@ -23,19 +23,20 @@ impl Encoder for KafkaCodec {
     type Item = KafkaRequest;
     type Error = io::Error;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let size_off = dst.len();
+    fn encode(&mut self, request: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let off = dst.len();
 
         dst.put_i32::<BigEndian>(0);
 
-        item.encode(dst)?;
+        request.encode(dst)?;
 
-        let size = dst.len() - size_off - mem::size_of::<i32>();
+        let size = dst.len() - off - mem::size_of::<i32>();
 
-        BigEndian::write_i32(&mut dst[size_off..size_off + mem::size_of::<i32>()],
-                             size as i32);
+        BigEndian::write_i32(&mut dst[off..off + mem::size_of::<i32>()], size as i32);
 
-        trace!("encoded {} bytes frame", size);
+        trace!("frame encoded as {} bytes:\n{}",
+               size + mem::size_of::<i32>(),
+               hexdump!(&dst[..]));
 
         Ok(())
     }
@@ -61,8 +62,6 @@ impl Decoder for KafkaCodec {
                 let buf = src.split_to(size + size_header_len)
                     .split_off(size_header_len)
                     .freeze();
-
-                trace!("decoding {} bytes frame", size);
 
                 KafkaResponse::parse(&buf[..], self.api_version)
             }
