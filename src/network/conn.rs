@@ -99,8 +99,6 @@ impl<I> Stream for KafkaConnection<I>
             .map(|res| {
                 res.map(|res| {
                     res.map(|res| {
-                                trace!("received response: {:?}", res);
-
                                 Frame::Message {
                                     message: res,
                                     body: false,

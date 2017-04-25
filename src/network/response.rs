@@ -20,7 +20,10 @@ impl KafkaResponse {
                  api_key: ApiKeys,
                  api_version: ApiVersion)
                  -> io::Result<Option<Self>> {
-        debug!("parsing {} bytes response ({:?})", buf.len(), api_version);
+        debug!("parsing {} bytes response as {:?} ({:?})",
+               buf.len(),
+               api_key,
+               api_version);
 
         let res =
             match api_key {

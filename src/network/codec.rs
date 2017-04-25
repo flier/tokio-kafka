@@ -42,7 +42,7 @@ impl Encoder for KafkaCodec {
 
         BigEndian::write_i32(&mut dst[off..off + mem::size_of::<i32>()], size as i32);
 
-        trace!("frame encoded as {} bytes:\n{}",
+        trace!("encoded {} bytes frame:\n{}",
                size + mem::size_of::<i32>(),
                hexdump!(&dst[..]));
 
@@ -68,7 +68,9 @@ impl Decoder for KafkaCodec {
             if size_header_len + size > src.len() {
                 Ok(None)
             } else {
-                trace!("received {} bytes frame\n{}", src.len(), hexdump!(&src[..]));
+                trace!("received {} bytes frame:\n{}",
+                       src.len(),
+                       hexdump!(&src[..]));
 
                 let buf = src.split_to(size + size_header_len)
                     .split_off(size_header_len)
