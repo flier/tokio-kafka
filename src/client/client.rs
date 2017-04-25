@@ -237,7 +237,7 @@ impl<T> Future for BindingClient<T>
             Ok(Async::Ready(client)) => {
                 trace!("got connection for {:?}", self.io);
 
-                let codec = KafkaCodec::new(ApiVersion::Kafka_0_8);
+                let codec = KafkaCodec::new();
 
                 Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"), codec)))
             }

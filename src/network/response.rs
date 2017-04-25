@@ -2,8 +2,6 @@ use std::io;
 
 use log::LogLevel::Debug;
 
-use bytes::{ByteOrder, BigEndian};
-
 use nom::{IResult, Needed};
 
 use protocol::{ApiKeys, ApiVersion, ProduceResponse, MetadataResponse, parse_produce_response,
@@ -18,10 +16,11 @@ pub enum KafkaResponse {
 }
 
 impl KafkaResponse {
-    pub fn parse(buf: &[u8], api_version: ApiVersion) -> io::Result<Option<Self>> {
+    pub fn parse(buf: &[u8],
+                 api_key: ApiKeys,
+                 api_version: ApiVersion)
+                 -> io::Result<Option<Self>> {
         debug!("parsing {} bytes response ({:?})", buf.len(), api_version);
-
-        let api_key = ApiKeys::from(BigEndian::read_i16(&buf[..]));
 
         let res =
             match api_key {

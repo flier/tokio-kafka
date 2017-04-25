@@ -3,7 +3,8 @@ use std::io;
 use bytes::{BytesMut, BigEndian};
 
 use compression::Compression;
-use protocol::{ProduceRequest, ProduceRequestEncoder, MetadataRequest, MetadataRequestEncoder};
+use protocol::{RequestHeader, ProduceRequest, ProduceRequestEncoder, MetadataRequest,
+               MetadataRequestEncoder};
 
 #[derive(Debug)]
 pub enum KafkaRequest {
@@ -11,8 +12,6 @@ pub enum KafkaRequest {
         req: ProduceRequest,
         compression: Compression,
     },
-    Fetch,
-    Offsets,
     Metadata(MetadataRequest),
 }
 
@@ -26,7 +25,6 @@ impl KafkaRequest {
             KafkaRequest::Metadata(req) => {
                 MetadataRequestEncoder::<BigEndian>::new().encode(req, buf)
             }
-            _ => unimplemented!(),
         };
 
         trace!("request encoded as {} bytes:\n{}",
@@ -38,5 +36,12 @@ impl KafkaRequest {
 
                         io::Error::new(io::ErrorKind::InvalidInput, err.to_string())
                     })
+    }
+
+    pub fn header(&self) -> &RequestHeader {
+        match self {
+            &KafkaRequest::Produce { ref req, .. } => &req.header,
+            &KafkaRequest::Metadata(ref req) => &req.header,
+        }
     }
 }

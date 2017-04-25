@@ -1,21 +1,22 @@
 use std::io;
 use std::mem;
+use std::collections::VecDeque;
 
 use bytes::{BufMut, BytesMut, ByteOrder, BigEndian};
 
 use tokio_io::codec::{Encoder, Decoder};
 
-use protocol::ApiVersion;
+use protocol::{ApiKeys, ApiVersion, RequestHeader};
 use network::{KafkaRequest, KafkaResponse};
 
 #[derive(Debug)]
 pub struct KafkaCodec {
-    api_version: ApiVersion,
+    requests: VecDeque<(ApiKeys, ApiVersion, i32)>,
 }
 
 impl KafkaCodec {
-    pub fn new(api_version: ApiVersion) -> Self {
-        KafkaCodec { api_version: api_version }
+    pub fn new() -> Self {
+        KafkaCodec { requests: VecDeque::new() }
     }
 }
 
@@ -28,6 +29,13 @@ impl Encoder for KafkaCodec {
 
         dst.put_i32::<BigEndian>(0);
 
+        let &RequestHeader {
+                 api_key,
+                 api_version,
+                 correlation_id,
+                 ..
+             } = request.header();
+
         request.encode(dst)?;
 
         let size = dst.len() - off - mem::size_of::<i32>();
@@ -37,6 +45,9 @@ impl Encoder for KafkaCodec {
         trace!("frame encoded as {} bytes:\n{}",
                size + mem::size_of::<i32>(),
                hexdump!(&dst[..]));
+
+        self.requests
+            .push_back((ApiKeys::from(api_key), ApiVersion::from(api_version), correlation_id));
 
         Ok(())
     }
@@ -63,7 +74,15 @@ impl Decoder for KafkaCodec {
                     .split_off(size_header_len)
                     .freeze();
 
-                KafkaResponse::parse(&buf[..], self.api_version)
+                if let Some((api_key, api_version, correlation_id)) = self.requests.pop_front() {
+                    if BigEndian::read_i32(&buf[..]) != correlation_id {
+                        Err(io::Error::new(io::ErrorKind::InvalidData, "correlation id mismatch"))
+                    } else {
+                        KafkaResponse::parse(&buf[..], api_key, api_version)
+                    }
+                } else {
+                    Err(io::Error::new(io::ErrorKind::InvalidData, "unexpected response"))
+                }
             }
         }
     }
