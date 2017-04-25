@@ -15,6 +15,7 @@ time = "0.1"
 hexplay = "0.1"
 
 futures = "0.1"
+futures-cpupool = "0.1"
 tokio-core = "0.1"
 tokio-io = "0.1"
 tokio-proto = "0.1"

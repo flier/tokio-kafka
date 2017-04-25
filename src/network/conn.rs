@@ -1,10 +1,13 @@
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 
 use bytes::BytesMut;
+
+use hexplay::HexViewBuilder;
+use codec::CODEPAGE_HEX;
 
 use futures::{Async, AsyncSink, Poll, StartSend};
 use futures::stream::Stream;
@@ -18,7 +21,7 @@ use tokio_proto::streaming::pipeline::{Frame, Transport};
 use tokio_tls::{TlsConnectorExt, TlsStream, ConnectAsync};
 use native_tls::TlsConnector;
 
-use network::{KafkaRequest, KafkaResponse, KafkaCodec};
+use network::{KafkaRequest, KafkaResponse, KafkaCodec, Resolver, DnsResolver, DnsQuery};
 
 #[derive(Debug)]
 pub struct KafkaConnection<I> {
@@ -44,7 +47,23 @@ impl<I> Read for KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.stream.get_mut().read(buf)
+        match self.stream.get_mut().read(buf) {
+            Ok(size) => {
+                trace!("read {} bytes:\n{}",
+                       size,
+                       HexViewBuilder::new(&buf[..size])
+                           .codepage(&CODEPAGE_HEX)
+                           .row_width(16)
+                           .finish());
+
+                Ok(size)
+            }
+            Err(err) => {
+                trace!("read failed, {}", err);
+
+                Err(err)
+            }
+        }
     }
 }
 
@@ -52,9 +71,18 @@ impl<I> Write for KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        trace!("write {} bytes:\n{}",
+               buf.len(),
+               HexViewBuilder::new(buf)
+                   .codepage(&CODEPAGE_HEX)
+                   .row_width(16)
+                   .finish());
+
         self.stream.get_mut().write(buf)
     }
     fn flush(&mut self) -> io::Result<()> {
+        trace!("flush stream");
+
         self.stream.get_mut().flush()
     }
 }
@@ -65,6 +93,8 @@ impl<I> AsyncWrite for KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
     fn shutdown(&mut self) -> Poll<(), io::Error> {
+        trace!("shutdown stream");
+
         self.stream.get_mut().shutdown()
     }
 }
@@ -79,11 +109,18 @@ impl<I> Stream for KafkaConnection<I>
         self.stream
             .poll()
             .map(|res| {
-                     Async::Ready(Some(Frame::Message {
-                                           message: res,
-                                           body: false,
-                                       }))
-                 })
+                res.map(|res| {
+                    res.map(|res| {
+                                trace!("received response: {:?}", res);
+
+                                Frame::Message {
+                                    message: res,
+                                    body: false,
+                                }
+                            })
+
+                })
+            })
     }
 }
 
@@ -94,7 +131,28 @@ impl<I> Sink for KafkaConnection<I>
     type SinkError = io::Error;
 
     fn start_send(&mut self, frame: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        self.stream.start_send(frame)
+        trace!("send request: {:?}", frame);
+
+        match frame {
+            Frame::Message {
+                message: request,
+                body,
+            } => {
+                self.stream
+                    .start_send(request)
+                    .map(|async| match async {
+                             AsyncSink::Ready => AsyncSink::Ready,
+                             AsyncSink::NotReady(request) => {
+                                 AsyncSink::NotReady(Frame::Message {
+                                                         message: request,
+                                                         body: body,
+                                                     })
+                             }
+                         })
+            }
+            Frame::Body { .. } => Ok(AsyncSink::Ready),
+            Frame::Error { .. } => Ok(AsyncSink::Ready),
+        }
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
@@ -107,79 +165,69 @@ impl<I> Transport for KafkaConnection<I> where I: AsyncRead + AsyncWrite + 'stat
 impl<I> KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
-    pub fn new(id: u32, stream: I, api_version: ApiVersion) -> Self {
+    pub fn new(id: u32, stream: I, codec: KafkaCodec) -> Self {
         KafkaConnection {
             id: id,
-            stream: stream.framed(KafkaCodec::new(api_version)),
+            stream: stream.framed(codec),
         }
     }
 
     pub fn id(&self) -> u32 {
         self.id
     }
-
-    pub fn stream(&mut self) -> &mut I {
-        &mut self.stream.get_mut()
-    }
 }
 
-#[derive(Clone, Debug)]
 pub struct KafkaConnector {
     handle: Handle,
+    resolver: DnsResolver,
 }
 
 impl KafkaConnector {
     pub fn new(handle: &Handle) -> Self {
-        KafkaConnector { handle: handle.clone() }
+        KafkaConnector {
+            handle: handle.clone(),
+            resolver: DnsResolver::default(),
+        }
     }
 
-    pub fn tcp(&mut self, addr: SocketAddr) -> Connect {
-        debug!("TCP connecting to {}", addr);
+    pub fn tcp<S>(&mut self, addr: S) -> Connect
+        where S: ToSocketAddrs + fmt::Debug + Send + 'static
+    {
+        trace!("TCP connect to {:?}", addr);
 
-        Connect::tcp(addr, &self.handle)
+        Connect {
+            domain: None,
+            connector: None,
+            handle: self.handle.clone(),
+            state: State::Resolving(self.resolver.resolve(addr)),
+        }
     }
 
-    pub fn tls(&mut self, addr: SocketAddr, connector: TlsConnector, domain: &str) -> Connect {
-        debug!("TLS connecting to {} @ {}", domain, addr);
+    pub fn tls<S>(&mut self, addr: S, connector: TlsConnector, domain: &str) -> Connect
+        where S: ToSocketAddrs + fmt::Debug + Send + 'static
+    {
+        trace!("TLS connect to {:?}", addr);
 
-        Connect::tls(addr, domain, connector, &self.handle)
+        Connect {
+            domain: Some(domain.to_owned()),
+            connector: Some(connector),
+            handle: self.handle.clone(),
+            state: State::Resolving(self.resolver.resolve(addr)),
+        }
     }
 }
 
 enum State {
-    Connecting(TcpStreamNew),
-    Handshaking(ConnectAsync<TcpStream>),
+    Resolving(DnsQuery),
+    Connecting(TcpStreamNew, SocketAddr, Vec<SocketAddr>),
+    Handshaking(ConnectAsync<TcpStream>, SocketAddr),
 }
 
 pub struct Connect {
-    addr: SocketAddr,
     domain: Option<String>,
     connector: Option<TlsConnector>,
+    handle: Handle,
     state: State,
-}
-
-impl Connect {
-    pub fn tcp(addr: SocketAddr, handle: &Handle) -> Self {
-        let state = State::Connecting(TcpStream::connect(&addr, handle));
-
-        Connect {
-            addr: addr,
-            domain: None,
-            connector: None,
-            state: state,
-        }
-    }
-
-    pub fn tls(addr: SocketAddr, domain: &str, connector: TlsConnector, handle: &Handle) -> Self {
-        let state = State::Connecting(TcpStream::connect(&addr, handle));
-
-        Connect {
-            addr: addr,
-            domain: Some(domain.to_owned()),
-            connector: Some(connector),
-            state: state,
-        }
-    }
 }
 
 impl Future for Connect {
@@ -194,41 +242,76 @@ impl Future for Connect {
             let ref connector = self.connector;
 
             match self.state {
-                State::Connecting(ref mut future) => {
+                State::Resolving(ref mut future) => {
                     match future.poll() {
-                        Ok(Async::Ready(stream)) => {
-                            if let (&Some(ref domain), &Some(ref connector)) = (domain, connector) {
-                                debug!("TCP connected to {}, start TLS handshake", self.addr);
+                        Ok(Async::Ready(mut addrs)) => {
+                            addrs.reverse();
 
-                                state = State::Handshaking(connector.connect_async(&domain,
-                                                                                   stream));
+                            if let Some(addr) = addrs.pop() {
+                                trace!("TCP connecting to {}", addr);
+
+                                state = State::Connecting(TcpStream::connect(&addr, &self.handle),
+                                                          addr,
+                                                          addrs)
                             } else {
-                                return Ok(Async::Ready(KafkaStream::Tcp(self.addr, stream)));
+                                return Err(io::Error::new(io::ErrorKind::AddrNotAvailable,
+                                                          "no more address"));
                             }
                         }
                         Ok(Async::NotReady) => return Ok(Async::NotReady),
                         Err(err) => {
-                            warn!("fail to connect {}, {}", self.addr, err);
+                            warn!("fail to resolve address, {}", err);
 
                             return Err(err);
                         }
                     }
                 }
-                State::Handshaking(ref mut future) => {
-                    return match future.poll() {
-                               Ok(Async::Ready(stream)) => {
-                        debug!("TLS connected to {}", self.addr);
+                State::Connecting(ref mut future, addr, ref mut addrs) => {
+                    match future.poll() {
+                        Ok(Async::Ready(stream)) => {
+                            if let (&Some(ref domain), &Some(ref connector)) = (domain, connector) {
+                                trace!("TCP connected to {}, start TLS handshake", addr);
 
-                        Ok(Async::Ready(KafkaStream::Tls(self.addr, stream)))
-                    }
-                               Ok(Async::NotReady) => Ok(Async::NotReady),
-                               Err(err) => {
-                        warn!("fail to do TLS handshake to {}, {}", self.addr, err);
+                                state = State::Handshaking(connector.connect_async(&domain,
+                                                                                   stream),
+                                                           addr);
+                            } else {
+                                trace!("TCP connected to {}", addr);
 
-                        Err(io::Error::new(io::ErrorKind::ConnectionAborted,
-                                           "TLS handshake failed"))
+                                return Ok(Async::Ready(KafkaStream::Tcp(addr, stream)));
+                            }
+                        }
+                        Ok(Async::NotReady) => return Ok(Async::NotReady),
+                        Err(err) => {
+                            warn!("fail to connect {}, {}", addr, err);
+
+                            if let Some(addr) = addrs.pop() {
+                                trace!("TCP connecting to {}", addr);
+
+                                state = State::Connecting(TcpStream::connect(&addr, &self.handle),
+                                                          addr,
+                                                          addrs.clone())
+                            } else {
+                                return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, err));
+                            }
+                        }
                     }
-                           }
+                }
+                State::Handshaking(ref mut future, addr) => {
+                    match future.poll() {
+                        Ok(Async::Ready(stream)) => {
+                            trace!("TLS connected to {}", addr);
+
+                            return Ok(Async::Ready(KafkaStream::Tls(addr, stream)));
+                        }
+                        Ok(Async::NotReady) => return Ok(Async::NotReady),
+                        Err(err) => {
+                            warn!("fail to do TLS handshake to {}, {}", addr, err);
+
+                            return Err(io::Error::new(io::ErrorKind::ConnectionAborted,
+                                                      "TLS handshake failed"));
+                        }
+                    }
                 }
             }
 

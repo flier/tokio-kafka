@@ -134,15 +134,13 @@ mod tests {
 
     #[test]
     fn test_config() {
-        let mut config = KafkaConfig::new(&["localhost"]);
+        let mut config = KafkaConfig::from_hosts(&["127.0.0.1:9092".to_owned()]);
 
-        assert_eq!(config.brokers(), Some(vec!["localhost"]));
+        assert_eq!(config.brokers(),
+                   Some(vec!["127.0.0.1:9092".parse().unwrap()]));
 
-        assert_eq!(config.with_brokers(&["localhost:9092"]).brokers(),
-                   Some(vec!["localhost:9092"]));
         assert_eq!(config.with_client_id("kafka").client_id(),
                    Some("kafka".to_owned()));
-
 
         assert_eq!(config.compression_codec(), None);
         assert_eq!(config

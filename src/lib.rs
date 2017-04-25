@@ -13,6 +13,7 @@ extern crate time;
 extern crate hexplay;
 
 extern crate futures;
+extern crate futures_cpupool;
 extern crate tokio_core;
 extern crate tokio_io;
 extern crate tokio_proto;
@@ -22,7 +23,7 @@ extern crate tokio_tls;
 extern crate native_tls;
 
 #[cfg(test)]
-extern crate env_logger;
+extern crate pretty_env_logger;
 
 pub mod errors;
 mod codec;
@@ -34,6 +35,7 @@ mod producer;
 mod consumer;
 
 pub use compression::Compression;
+pub use protocol::RequiredAcks;
 pub use client::{KafkaConfig, KafkaClient};
 pub use producer::KafkaProducer;
 pub use consumer::KafkaConsumer;
