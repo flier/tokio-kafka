@@ -12,6 +12,7 @@ extern crate xxhash2;
 extern crate time;
 extern crate hexplay;
 
+#[macro_use]
 extern crate futures;
 extern crate futures_cpupool;
 extern crate tokio_core;

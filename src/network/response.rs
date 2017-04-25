@@ -65,7 +65,8 @@ impl KafkaResponse {
                 Ok(None)
             }
             IResult::Error(err) => {
-                debug!("{}",
+                debug!("recieved response in {} bytes\n{}",
+                       buf.len(),
                        HexViewBuilder::new(buf)
                            .codepage(&CODEPAGE_HEX)
                            .row_width(16)

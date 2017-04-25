@@ -198,7 +198,7 @@ struct RemoteClient {
 }
 
 impl<T> ClientProto<T> for RemoteClient
-    where T: AsyncRead + AsyncWrite + 'static
+    where T: AsyncRead + AsyncWrite + Debug + 'static
 {
     type Request = KafkaRequest;
     type RequestBody = <KafkaBody as Stream>::Item;
@@ -209,6 +209,8 @@ impl<T> ClientProto<T> for RemoteClient
     type BindTransport = BindingClient<T>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
+        trace!("bind transport for {:?}", io);
+
         BindingClient {
             rx: self.client_rx
                 .borrow_mut()
@@ -225,7 +227,7 @@ struct BindingClient<T> {
 }
 
 impl<T> Future for BindingClient<T>
-    where T: AsyncRead + AsyncWrite + 'static
+    where T: AsyncRead + AsyncWrite + Debug + 'static
 {
     type Item = KafkaConnection<T>;
     type Error = io::Error;
@@ -233,7 +235,11 @@ impl<T> Future for BindingClient<T>
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.rx.poll() {
             Ok(Async::Ready(client)) => {
-                Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"), KafkaCodec::new(ApiVersion::Kafka_0_8))))
+                trace!("got connection for {:?}", self.io);
+
+                let codec = KafkaCodec::new(ApiVersion::Kafka_0_8);
+
+                Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"), codec)))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(_canceled) => unreachable!(),

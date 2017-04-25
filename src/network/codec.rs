@@ -1,7 +1,7 @@
 use std::io;
 use std::mem;
 
-use bytes::{BytesMut, ByteOrder, BigEndian};
+use bytes::{BufMut, BytesMut, ByteOrder, BigEndian};
 
 use tokio_io::codec::{Encoder, Decoder};
 
@@ -24,7 +24,18 @@ impl Encoder for KafkaCodec {
     type Error = io::Error;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        item.encode(dst)
+        let size_off = dst.len();
+
+        dst.put_i32::<BigEndian>(0);
+
+        item.encode(dst)?;
+
+        let size = dst.len() - size_off - mem::size_of::<i32>();
+
+        BigEndian::write_i32(&mut dst[size_off..size_off + mem::size_of::<i32>()],
+                             size as i32);
+
+        Ok(())
     }
 }
 

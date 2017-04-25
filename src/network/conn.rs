@@ -80,6 +80,7 @@ impl<I> Write for KafkaConnection<I>
 
         self.stream.get_mut().write(buf)
     }
+
     fn flush(&mut self) -> io::Result<()> {
         trace!("flush stream");
 
@@ -156,6 +157,8 @@ impl<I> Sink for KafkaConnection<I>
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        trace!("poll complete");
+
         self.stream.poll_complete()
     }
 }
