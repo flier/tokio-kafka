@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use std::str;
 use std::mem;
 use std::borrow::{Cow, ToOwned};

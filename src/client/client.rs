@@ -20,7 +20,7 @@ use tokio_service::Service;
 
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
 use protocol::{ApiVersion, MetadataRequest};
-use network::{KafkaRequest, KafkaResponse};
+use network::{KafkaRequest, KafkaResponse, KafkaCodec};
 use client::{KafkaConfig, KafkaState, Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT};
 
 pub struct KafkaClient {
@@ -116,14 +116,15 @@ impl KafkaClient {
         let race = checkout
             .select(connect)
             .map(|(conn, _work)| conn)
-            .map_err(|(e, _work)| {
-                         // the Pool Checkout cannot error, so the only error
-                         // is from the Connector
-                         // XXX: should wait on the Checkout? Problem is
-                         // that if the connector is failing, it may be that we
-                         // never had a pooled stream at all
-                         e.into()
-                     });
+            .map_err(|(err, _work)| {
+                warn!("fail to checkout connection, {}", err);
+                // the Pool Checkout cannot error, so the only error
+                // is from the Connector
+                // XXX: should wait on the Checkout? Problem is
+                // that if the connector is failing, it may be that we
+                // never had a pooled stream at all
+                err.into()
+            });
 
         let api_version = ApiVersion::Kafka_0_8;
         let correlation_id = self.state.borrow_mut().next_correlation_id();
@@ -134,9 +135,13 @@ impl KafkaClient {
                                                                   topic_names));
 
         let response = race.and_then(move |client| client.call(Message::WithoutBody(request)))
-            .map(|msg| match msg {
-                     Message::WithoutBody(res) => res,
-                     Message::WithBody(res, _) => res,
+            .map(|msg| {
+                     debug!("received response: {:?}", msg);
+
+                     match msg {
+                         Message::WithoutBody(res) => res,
+                         Message::WithBody(res, _) => res,
+                     }
                  })
             .and_then(|res| if let KafkaResponse::Metadata(res) = res {
                           future::ok(Metadata::from(res))
@@ -228,7 +233,7 @@ impl<T> Future for BindingClient<T>
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.rx.poll() {
             Ok(Async::Ready(client)) => {
-                Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"), ApiVersion::Kfaka_0_8)))
+                Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"), KafkaCodec::new(ApiVersion::Kafka_0_8))))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(_canceled) => unreachable!(),

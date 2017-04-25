@@ -5,10 +5,10 @@ use bytes::{BytesMut, BigEndian};
 use compression::Compression;
 use protocol::{ProduceRequest, ProduceRequestEncoder, MetadataRequest, MetadataRequestEncoder};
 
+#[derive(Debug)]
 pub enum KafkaRequest {
     Produce {
         req: ProduceRequest,
-        api_version: i16,
         compression: Compression,
     },
     Fetch,
@@ -19,11 +19,9 @@ pub enum KafkaRequest {
 impl KafkaRequest {
     pub fn encode(self, buf: &mut BytesMut) -> io::Result<()> {
         let res = match self {
-            KafkaRequest::Produce {
-                req,
-                api_version,
-                compression,
-            } => ProduceRequestEncoder::<BigEndian>::new(api_version, compression).encode(req, buf),
+            KafkaRequest::Produce { req, compression } => {
+                ProduceRequestEncoder::<BigEndian>::new(compression).encode(req, buf)
+            }
             KafkaRequest::Metadata(req) => {
                 MetadataRequestEncoder::<BigEndian>::new().encode(req, buf)
             }
