@@ -34,16 +34,14 @@ pub struct ProducePartitionData {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequestEncoder<T> {
     pub offset: i64,
-    pub api_version: i16,
     pub compression: Compression,
     pub phantom: PhantomData<T>,
 }
 
 impl<T> ProduceRequestEncoder<T> {
-    pub fn new(api_version: i16, compression: Compression) -> Self {
+    pub fn new(compression: Compression) -> Self {
         ProduceRequestEncoder {
             offset: 0,
-            api_version: api_version,
             compression: compression,
             phantom: PhantomData,
         }
@@ -236,7 +234,7 @@ mod tests {
             }],
         };
 
-        let mut encoder = ProduceRequestEncoder::<BigEndian>::new(1, Compression::None);
+        let mut encoder = ProduceRequestEncoder::<BigEndian>::new(Compression::None);
 
         let mut buf = BytesMut::with_capacity(128);
 
