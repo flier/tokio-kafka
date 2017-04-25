@@ -8,7 +8,10 @@ extern crate futures;
 extern crate tokio_core;
 extern crate tokio_kafka;
 
+use std::rc::Rc;
+use std::io;
 use std::env;
+use std::cmp;
 use std::process;
 use std::path::Path;
 
@@ -16,7 +19,7 @@ use getopts::Options;
 
 use futures::future::Future;
 use tokio_core::reactor::Core;
-use tokio_kafka::KafkaClient;
+use tokio_kafka::{KafkaClient, Metadata};
 
 const DEFAULT_BROKER: &'static str = "localhost:9092";
 
@@ -29,6 +32,10 @@ error_chain!{
 struct Config {
     brokers: Vec<String>,
     topics: Vec<String>,
+    header: bool,
+    host: bool,
+    size: bool,
+    topic_separators: bool,
 }
 
 impl Config {
@@ -47,6 +54,10 @@ impl Config {
                     "Bootstrap broker(s) (host[:port], comma separated)",
                     "HOSTS");
         opts.optopt("t", "topics", "Specify topics (comma separated)", "NAMES");
+        opts.optflag("", "no-header", "Don't print headers");
+        opts.optflag("", "no-host", "Don't print host:port of leaders");
+        opts.optflag("", "no-size", "Don't print partition sizes");
+        opts.optflag("", "no-empty-lines", "Don't separate topics by empty lines");
 
         let matches = opts.parse(&args[1..])?;
 
@@ -71,6 +82,10 @@ impl Config {
         Ok(Config {
                brokers: brokers,
                topics: topics,
+               header: !matches.opt_present("no-header"),
+               host: !matches.opt_present("no-host"),
+               size: !matches.opt_present("no-size"),
+               topic_separators: !matches.opt_present("no-empty-lines"),
            })
     }
 }
@@ -87,9 +102,14 @@ fn main() {
     let work = client
         .load_metadata()
         .and_then(|_| {
-                      println!("{:?}", client.metadata());
+                      dump_metadata(client.metadata(), &config);
+
                       Ok(())
                   });
 
     core.run(work).unwrap();
+}
+
+fn dump_metadata(metadata: Rc<Metadata>, cfg: &Config) {
+    debug!("{:?}", metadata);
 }

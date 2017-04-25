@@ -27,7 +27,7 @@ impl Metadata {
         &self.brokers
     }
 
-    pub fn topic_partitions(&self) -> &HashMap<String, TopicPartitions> {
+    pub fn topics(&self) -> &HashMap<String, TopicPartitions> {
         &self.topic_partitions
     }
 }
