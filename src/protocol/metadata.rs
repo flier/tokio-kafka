@@ -160,7 +160,9 @@ mod tests {
                 0, 0,                               // api_version
                 0, 0, 0, 123,                       // correlation_id
                 0, 6, 99, 108, 105, 101, 110, 116,  // client_id
-            0, 5, b't', b'o', b'p', b'i', b'c',     // topic_name
+            // topic_names: [String]
+            0, 0, 0, 1,
+                0, 5, b't', b'o', b'p', b'i', b'c',     // topic_name
         ];
 
         static ref TEST_RESPONSE_DATA: Vec<u8> = vec![
@@ -218,7 +220,7 @@ mod tests {
                 correlation_id: 123,
                 client_id: Some("client".to_owned()),
             },
-            topic_name: vec!["topic".to_owned()],
+            topic_names: vec!["topic".to_owned()],
         };
 
         let mut encoder = MetadataRequestEncoder::<BigEndian>::new();
