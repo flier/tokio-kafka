@@ -5,9 +5,9 @@ use bytes::{BytesMut, BufMut, ByteOrder};
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use codec::WriteExt;
 use compression::Compression;
-use protocol::{RequestHeader, ResponseHeader, MessageSet, parse_string, parse_response_header};
+use protocol::{RequestHeader, ResponseHeader, MessageSet, parse_string, parse_response_header,
+               WriteExt};
 
 const MAGIC_BYTE: i8 = 1;
 

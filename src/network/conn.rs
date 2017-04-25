@@ -6,9 +6,6 @@ use std::ops::{Deref, DerefMut};
 
 use bytes::BytesMut;
 
-use hexplay::HexViewBuilder;
-use codec::CODEPAGE_HEX;
-
 use futures::{Async, AsyncSink, Poll, StartSend};
 use futures::stream::Stream;
 use futures::sink::Sink;
@@ -49,12 +46,7 @@ impl<I> Read for KafkaConnection<I>
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.stream.get_mut().read(buf) {
             Ok(size) => {
-                trace!("read {} bytes:\n{}",
-                       size,
-                       HexViewBuilder::new(&buf[..size])
-                           .codepage(&CODEPAGE_HEX)
-                           .row_width(16)
-                           .finish());
+                trace!("read {} bytes:\n{}", size, hexdump!(&buf[..size]));
 
                 Ok(size)
             }
@@ -71,12 +63,7 @@ impl<I> Write for KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        trace!("write {} bytes:\n{}",
-               buf.len(),
-               HexViewBuilder::new(buf)
-                   .codepage(&CODEPAGE_HEX)
-                   .row_width(16)
-                   .finish());
+        trace!("write {} bytes:\n{}", buf.len(), hexdump!(buf));
 
         self.stream.get_mut().write(buf)
     }

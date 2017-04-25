@@ -3,7 +3,7 @@ use bytes::{BufMut, ByteOrder};
 use nom::be_i32;
 
 use errors::Result;
-use codec::{Encodable, WriteExt};
+use protocol::{Encodable, WriteExt, ParseTag};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestHeader {
@@ -28,14 +28,13 @@ pub struct ResponseHeader {
 }
 
 named!(pub parse_response_header<ResponseHeader>,
-    do_parse!(
-        correlation_id: be_i32
+    parse_tag!(ParseTag::ResponseHeader, do_parse!(
+        correlation_id: parse_tag!(ParseTag::CorrelationId, be_i32)
      >> (ResponseHeader {
             correlation_id: correlation_id,
         })
-    )
+    ))
 );
-
 
 #[cfg(test)]
 mod tests {

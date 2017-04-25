@@ -5,8 +5,8 @@ use time;
 use crc::crc32;
 
 use errors::Result;
-use codec::WriteExt;
 use compression::Compression;
+use protocol::WriteExt;
 
 /// Message sets
 ///

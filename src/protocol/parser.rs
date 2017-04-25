@@ -1,4 +1,10 @@
+use std::str;
+use std::borrow::Cow;
+use std::collections::HashMap;
+
 use bytes::{BufMut, ByteOrder};
+
+use nom::{self, IResult, be_i16, be_i32, prepare_errors, error_to_u32, print_offsets};
 
 use errors::{ErrorKind, Result};
 
@@ -65,15 +71,135 @@ pub trait WriteExt: BufMut {
 
 impl<T: BufMut> WriteExt for T {}
 
-lazy_static! {
-    pub static ref CODEPAGE_HEX: Vec<char> = (0_u32..256)
-        .map(|c| if 0x20 <= c && c <= 0x7E {
-                ::std::char::from_u32(c).unwrap()
-            } else {
-                '.'
-            })
-        .collect();
+#[macro_export]
+macro_rules! parse_tag (
+    ($i:expr, $tag:expr, $submac:ident!( $($args:tt)* )) => (
+        {
+            match $submac!($i, $($args)*) {
+                $crate::nom::IResult::Done(i, o)    => $crate::nom::IResult::Done(i, o),
+                $crate::nom::IResult::Incomplete(i) => $crate::nom::IResult::Incomplete(i),
+                $crate::nom::IResult::Error(e)      => {
+                    let code = ::nom::ErrorKind::Custom($tag as u32);
+
+                    return $crate::nom::IResult::Error(error_node_position!(code, $i, e));
+                }
+            }
+        }
+    );
+    ($i:expr, $tag:expr, $f:expr) => (
+        parse_tag!($i, $tag, call!($f));
+    );
+);
+
+#[repr(u32)]
+pub enum ParseTag {
+    ResponseHeader = 1001,
+    CorrelationId = 1002,
+    MetadataBrokers = 1010,
+    MetadataTopics = 1011,
 }
+
+lazy_static!{
+    pub static ref PARSE_TAGS: HashMap<u32, &'static str> = {
+        let mut h = HashMap::new();
+        h.insert(ParseTag::ResponseHeader as u32, "response_header");
+        h.insert(ParseTag::CorrelationId as u32, "correlation_id");
+        h.insert(ParseTag::MetadataBrokers as u32, "metadata_brokers");
+        h.insert(ParseTag::MetadataTopics as u32, "metadata_topics");
+        h
+    };
+}
+
+fn reset_color(v: &mut Vec<u8>) {
+    v.push(0x1B);
+    v.push('[' as u8);
+    v.push(0);
+    v.push('m' as u8);
+}
+
+fn write_color(v: &mut Vec<u8>, color: u8) {
+    v.push(0x1B);
+    v.push('[' as u8);
+    v.push(1);
+    v.push(';' as u8);
+    let s = color.to_string();
+    let bytes = s.as_bytes();
+    v.extend(bytes.iter().cloned());
+    v.push('m' as u8);
+}
+
+fn print_codes<E>(colors: HashMap<u32, (nom::ErrorKind<E>, u8)>,
+                  names: HashMap<u32, &str>)
+                  -> String {
+    let mut v = Vec::new();
+    for (code, &(ref err, color)) in &colors {
+        if let Some(&s) = names.get(&code) {
+            let bytes = s.as_bytes();
+            write_color(&mut v, color);
+            v.extend(bytes.iter().cloned());
+        } else {
+            let s = err.description();
+            let bytes = s.as_bytes();
+            write_color(&mut v, color);
+            v.extend(bytes.iter().cloned());
+        }
+        reset_color(&mut v);
+        v.push(' ' as u8);
+    }
+    reset_color(&mut v);
+
+    String::from_utf8_lossy(&v[..]).into_owned()
+}
+
+fn generate_colors(v: &[(nom::ErrorKind<u32>, usize, usize)])
+                   -> HashMap<u32, (nom::ErrorKind<u32>, u8)> {
+    let mut h: HashMap<u32, (nom::ErrorKind<u32>, u8)> = HashMap::new();
+    let mut color = 0;
+
+    for &(ref c, _, _) in v.iter() {
+        if let &nom::ErrorKind::Custom(code) = c {
+            h.insert(code, (c.clone(), color + 31));
+        } else {
+            h.insert(error_to_u32(&c), (c.clone(), color + 31));
+        }
+        color = color + 1 % 7;
+    }
+
+    h
+}
+
+pub fn display_parse_error<O>(input: &[u8], res: IResult<&[u8], O>) {
+    if let Some(v) = prepare_errors(input, res) {
+        let colors = generate_colors(&v);
+        trace!("parsers codes: {}\n{}",
+               print_codes(colors, PARSE_TAGS.clone()),
+               print_offsets(input, 0, &v));
+    }
+}
+
+named!(pub parse_str<Option<Cow<str>>>,
+    do_parse!(
+        len: be_i16
+     >> s: cond!(len > 0, map!(map_res!(take!(len), str::from_utf8), Cow::from))
+     >> (s)
+    )
+);
+
+named!(pub parse_string<String>,
+    do_parse!(
+        len: be_i16
+     >> s: cond_reduce!(len > 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
+     >> (s)
+    )
+);
+
+named!(pub parse_bytes<Option<Cow<[u8]>>>,
+    do_parse!(
+        len: be_i32
+     >> s: cond!(len > 0, map!(take!(len), Cow::from))
+     >> (s)
+    )
+);
 
 #[cfg(test)]
 mod tests {

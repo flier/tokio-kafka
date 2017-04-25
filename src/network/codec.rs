@@ -35,6 +35,8 @@ impl Encoder for KafkaCodec {
         BigEndian::write_i32(&mut dst[size_off..size_off + mem::size_of::<i32>()],
                              size as i32);
 
+        trace!("encoded {} bytes frame", size);
+
         Ok(())
     }
 }
@@ -44,17 +46,23 @@ impl Decoder for KafkaCodec {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < mem::size_of::<u32>() {
+        let size_header_len = mem::size_of::<u32>();
+
+        if src.len() < size_header_len {
             Ok(None)
         } else {
             let size = BigEndian::read_i32(&src[..]) as usize;
 
-            if mem::size_of::<u32>() + size > src.len() {
+            if size_header_len + size > src.len() {
                 Ok(None)
             } else {
-                let buf = src.split_to(size)
-                    .split_off(mem::size_of::<u32>())
+                trace!("received {} bytes frame\n{}", src.len(), hexdump!(&src[..]));
+
+                let buf = src.split_to(size + size_header_len)
+                    .split_off(size_header_len)
                     .freeze();
+
+                trace!("decoding {} bytes frame", size);
 
                 KafkaResponse::parse(&buf[..], self.api_version)
             }

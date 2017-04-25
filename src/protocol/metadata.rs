@@ -5,9 +5,8 @@ use bytes::{BytesMut, ByteOrder};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use codec::WriteExt;
-use protocol::{ApiKeys, ApiVersion, RequestHeader, ResponseHeader, parse_response_header,
-               parse_string};
+use protocol::{ApiKeys, ApiVersion, RequestHeader, ResponseHeader, ParseTag,
+               parse_response_header, parse_string, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest {
@@ -86,9 +85,9 @@ named!(pub parse_metadata_response<MetadataResponse>,
     do_parse!(
         header: parse_response_header
      >> n: be_i32
-     >> brokers: many_m_n!(n as usize, n as usize, parse_broker_metadata)
+     >> brokers: parse_tag!(ParseTag::MetadataBrokers, many_m_n!(n as usize, n as usize, parse_broker_metadata))
      >> n: be_i32
-     >> topics: many_m_n!(n as usize, n as usize, parse_topic_metadata)
+     >> topics: parse_tag!(ParseTag::MetadataTopics, many_m_n!(n as usize, n as usize, parse_topic_metadata))
      >> (MetadataResponse {
             header: header,
             brokers: brokers,

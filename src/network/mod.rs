@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 mod request;
 mod response;
 mod codec;

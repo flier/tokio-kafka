@@ -1,13 +1,13 @@
 use std::io;
+
+use log::LogLevel::Debug;
+
 use bytes::{ByteOrder, BigEndian};
 
 use nom::{IResult, Needed};
 
-use hexplay::HexViewBuilder;
-
-use codec::CODEPAGE_HEX;
 use protocol::{ApiKeys, ApiVersion, ProduceResponse, MetadataResponse, parse_produce_response,
-               parse_metadata_response};
+               parse_metadata_response, display_parse_error};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
@@ -56,21 +56,14 @@ impl KafkaResponse {
                           "unknown".to_owned()
                       });
 
-                debug!("{}",
-                       HexViewBuilder::new(buf)
-                           .codepage(&CODEPAGE_HEX)
-                           .row_width(16)
-                           .finish());
+                debug!("\n{}", hexdump!(buf));
 
                 Ok(None)
             }
             IResult::Error(err) => {
-                debug!("recieved response in {} bytes\n{}",
-                       buf.len(),
-                       HexViewBuilder::new(buf)
-                           .codepage(&CODEPAGE_HEX)
-                           .row_width(16)
-                           .finish());
+                if log_enabled!(Debug) {
+                    display_parse_error::<KafkaResponse>(&buf[..], IResult::Error(err.clone()));
+                }
 
                 Err(io::Error::new(io::ErrorKind::InvalidData,
                                    format!("fail to parse response, {}", err)))

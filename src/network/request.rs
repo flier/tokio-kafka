@@ -2,9 +2,6 @@ use std::io;
 
 use bytes::{BytesMut, BigEndian};
 
-use hexplay::HexViewBuilder;
-
-use codec::CODEPAGE_HEX;
 use compression::Compression;
 use protocol::{ProduceRequest, ProduceRequestEncoder, MetadataRequest, MetadataRequestEncoder};
 
@@ -31,11 +28,7 @@ impl KafkaRequest {
             _ => unimplemented!(),
         };
 
-        trace!("request encoded:\n{}",
-               HexViewBuilder::new(&buf[..])
-                   .codepage(&CODEPAGE_HEX)
-                   .row_width(16)
-                   .finish());
+        trace!("request encoded:\n{}", hexdump!(&buf[..]));
 
         res.map_err(|err| {
                         warn!("fail to encode request, {}", err);

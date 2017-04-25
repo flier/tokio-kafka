@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -26,9 +28,10 @@ extern crate native_tls;
 #[cfg(test)]
 extern crate pretty_env_logger;
 
+#[macro_use]
 pub mod errors;
-mod codec;
 mod compression;
+#[macro_use]
 mod protocol;
 mod network;
 mod client;

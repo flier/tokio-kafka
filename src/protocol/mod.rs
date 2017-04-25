@@ -1,17 +1,16 @@
 #![allow(non_camel_case_types)]
 
-use std::str;
 use std::mem;
-use std::borrow::{Cow, ToOwned};
 
-use nom::{be_i16, be_i32};
-
+#[macro_use]
+mod parser;
 mod header;
 mod metadata;
 mod produce;
 mod message;
 
-
+pub use self::parser::{Encodable, WriteExt, ParseTag, PARSE_TAGS, parse_str, parse_string,
+                       parse_bytes, display_parse_error};
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
 pub use self::metadata::{MetadataRequest, MetadataResponse, MetadataRequestEncoder,
                          BrokerMetadata, TopicMetadata, PartitionMetadata, parse_metadata_response};
@@ -242,33 +241,10 @@ impl From<i16> for KafkaCode {
     }
 }
 
-named!(pub parse_str<Option<Cow<str>>>,
-    do_parse!(
-        len: be_i16
-     >> s: cond!(len > 0, map!(map_res!(take!(len), str::from_utf8), Cow::from))
-     >> (s)
-    )
-);
-
-named!(pub parse_string<String>,
-    do_parse!(
-        len: be_i16
-     >> s: cond_reduce!(len > 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
-     >> (s)
-    )
-);
-
-named!(pub parse_bytes<Option<Cow<[u8]>>>,
-    do_parse!(
-        len: be_i32
-     >> s: cond!(len > 0, map!(take!(len), Cow::from))
-     >> (s)
-    )
-);
-
 #[cfg(test)]
 mod tests {
     use nom::{IResult, Needed, ErrorKind};
+    use nom::verbose_errors::Err;
 
     use super::*;
 
@@ -285,8 +261,9 @@ mod tests {
     fn test_parse_string() {
         assert_eq!(parse_string(b"\0"), IResult::Incomplete(Needed::Size(2)));
         assert_eq!(parse_string(b"\xff\xff"),
-                   IResult::Error(ErrorKind::CondReduce));
-        assert_eq!(parse_string(b"\0\0"), IResult::Error(ErrorKind::CondReduce));
+                   IResult::Error(Err::Position(ErrorKind::CondReduce, &[][..])));
+        assert_eq!(parse_string(b"\0\0"),
+                   IResult::Error(Err::Position(ErrorKind::CondReduce, &[][..])));
         assert_eq!(parse_string(b"\0\x04test"),
                    IResult::Done(&b""[..], "test".to_owned()));
     }
