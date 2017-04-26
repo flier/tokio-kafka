@@ -10,7 +10,7 @@ lazy_static = "0.2"
 bytes = "0.4"
 nom = { version = "2.2", features = ["verbose-errors"] }
 crc = "1.4"
-xxhash2 = "0.1"
+twox-hash = "1.1"
 time = "0.1"
 hexplay = "0.1"
 

@@ -10,7 +10,7 @@ extern crate bytes;
 #[macro_use]
 extern crate nom;
 extern crate crc;
-extern crate xxhash2;
+extern crate twox_hash;
 extern crate time;
 extern crate hexplay;
 
