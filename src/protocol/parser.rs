@@ -91,19 +91,21 @@ macro_rules! parse_tag (
     );
 );
 
-#[repr(u32)]
+#[repr(i32)]
 pub enum ParseTag {
-    ResponseHeader = 1001,
-    CorrelationId = 1002,
-    MetadataBrokers = 1010,
-    MetadataTopics = 1011,
+    ResponseHeader = 0,
+    ProduceTopics = -1,
+    ProducePartitions = -2,
+    MetadataBrokers = -301,
+    MetadataTopics = -302,
 }
 
 lazy_static!{
     pub static ref PARSE_TAGS: HashMap<u32, &'static str> = {
         let mut h = HashMap::new();
         h.insert(ParseTag::ResponseHeader as u32, "response_header");
-        h.insert(ParseTag::CorrelationId as u32, "correlation_id");
+        h.insert(ParseTag::ProduceTopics as u32, "produce_topics");
+        h.insert(ParseTag::ProducePartitions as u32, "produce_partitions");
         h.insert(ParseTag::MetadataBrokers as u32, "metadata_brokers");
         h.insert(ParseTag::MetadataTopics as u32, "metadata_topics");
         h

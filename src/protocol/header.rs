@@ -29,7 +29,7 @@ pub struct ResponseHeader {
 
 named!(pub parse_response_header<ResponseHeader>,
     parse_tag!(ParseTag::ResponseHeader, do_parse!(
-        correlation_id: parse_tag!(ParseTag::CorrelationId, be_i32)
+        correlation_id: be_i32
      >> (ResponseHeader {
             correlation_id: correlation_id,
         })

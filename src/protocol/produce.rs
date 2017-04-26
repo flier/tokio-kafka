@@ -6,8 +6,8 @@ use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
 use compression::Compression;
-use protocol::{RequestHeader, ResponseHeader, MessageSet, parse_string, parse_response_header,
-               WriteExt};
+use protocol::{RequestHeader, ResponseHeader, MessageSet, ParseTag, parse_string,
+               parse_response_header, WriteExt};
 
 const MAGIC_BYTE: i8 = 1;
 
@@ -101,7 +101,8 @@ named_args!(pub parse_produce_response(api_version: i16)<ProduceResponse>,
     do_parse!(
         header: parse_response_header
      >> n: be_i32
-     >> topics: many_m_n!(n as usize, n as usize, apply!(parse_produce_topic_status, api_version))
+     >> topics: parse_tag!(ParseTag::ProduceTopics,
+            many_m_n!(n as usize, n as usize, apply!(parse_produce_topic_status, api_version)))
      >> throttle_time: cond!(api_version > 0, be_i32)
      >> (ProduceResponse {
             header: header,
@@ -115,7 +116,8 @@ named_args!(parse_produce_topic_status(api_version: i16)<ProduceTopicStatus>,
     do_parse!(
         topic_name: parse_string
      >> n: be_i32
-     >> partitions: many_m_n!(n as usize, n as usize, apply!(parse_produce_partition_status, api_version))
+     >> partitions: parse_tag!(ParseTag::ProducePartitions,
+            many_m_n!(n as usize, n as usize, apply!(parse_produce_partition_status, api_version)))
      >> (ProduceTopicStatus {
             topic_name: topic_name,
             partitions: partitions,
