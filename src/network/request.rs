@@ -4,7 +4,7 @@ use bytes::{BytesMut, BigEndian};
 
 use compression::Compression;
 use protocol::{RequestHeader, ProduceRequest, ProduceRequestEncoder, MetadataRequest,
-               MetadataRequestEncoder};
+               MetadataRequestEncoder, ApiVersionsRequest, ApiVersionsRequestEncoder};
 
 #[derive(Debug)]
 pub enum KafkaRequest {
@@ -13,16 +13,20 @@ pub enum KafkaRequest {
         compression: Compression,
     },
     Metadata(MetadataRequest),
+    ApiVersions(ApiVersionsRequest),
 }
 
 impl KafkaRequest {
     pub fn encode(self, buf: &mut BytesMut) -> io::Result<()> {
         let res = match self {
             KafkaRequest::Produce { req, compression } => {
-                ProduceRequestEncoder::<BigEndian>::new(compression).encode(req, buf)
+                ProduceRequestEncoder::new(compression).encode::<BigEndian>(req, buf)
             }
             KafkaRequest::Metadata(req) => {
-                MetadataRequestEncoder::<BigEndian>::new().encode(req, buf)
+                MetadataRequestEncoder::new().encode::<BigEndian>(req, buf)
+            }
+            KafkaRequest::ApiVersions(req) => {
+                ApiVersionsRequestEncoder::new().encode::<BigEndian>(req, buf)
             }
         };
 
@@ -37,6 +41,7 @@ impl KafkaRequest {
         match self {
             &KafkaRequest::Produce { ref req, .. } => &req.header,
             &KafkaRequest::Metadata(ref req) => &req.header,
+            &KafkaRequest::ApiVersions(ref req) => &req.header,
         }
     }
 }

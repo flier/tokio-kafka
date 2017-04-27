@@ -19,7 +19,7 @@ use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
 
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
-use protocol::{ApiVersion, MetadataRequest};
+use protocol::MetadataRequest;
 use network::{KafkaRequest, KafkaResponse, KafkaCodec};
 use client::{KafkaConfig, KafkaState, Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT};
 
@@ -126,7 +126,7 @@ impl KafkaClient {
                 err.into()
             });
 
-        let api_version = ApiVersion::Kafka_0_8;
+        let api_version = 0;
         let correlation_id = self.state.borrow_mut().next_correlation_id();
         let client_id = self.config.client_id();
         let request = KafkaRequest::Metadata(MetadataRequest::new(api_version,

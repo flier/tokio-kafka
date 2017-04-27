@@ -6,12 +6,12 @@ use bytes::{BufMut, BytesMut, ByteOrder, BigEndian};
 
 use tokio_io::codec::{Encoder, Decoder};
 
-use protocol::{ApiKeys, ApiVersion, RequestHeader};
+use protocol::{ApiKeys, RequestHeader};
 use network::{KafkaRequest, KafkaResponse};
 
 #[derive(Debug)]
 pub struct KafkaCodec {
-    requests: VecDeque<(ApiKeys, ApiVersion, i32)>,
+    requests: VecDeque<(ApiKeys, i16, i32)>,
 }
 
 impl KafkaCodec {
@@ -47,7 +47,7 @@ impl Encoder for KafkaCodec {
                hexdump!(&dst[..]));
 
         self.requests
-            .push_back((ApiKeys::from(api_key), ApiVersion::from(api_version), correlation_id));
+            .push_back((ApiKeys::from(api_key), api_version, correlation_id));
 
         Ok(())
     }

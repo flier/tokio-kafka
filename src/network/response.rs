@@ -4,22 +4,19 @@ use log::LogLevel::Debug;
 
 use nom::{IResult, Needed};
 
-use protocol::{ApiKeys, ApiVersion, ProduceResponse, MetadataResponse, parse_produce_response,
-               parse_metadata_response, display_parse_error};
+use protocol::{ApiKeys, ProduceResponse, parse_produce_response, MetadataResponse,
+               parse_metadata_response, ApiVersionsResponse, parse_api_versions_response,
+               display_parse_error};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
     Produce(ProduceResponse),
-    Fetch,
-    Offsets,
     Metadata(MetadataResponse),
+    ApiVersions(ApiVersionsResponse),
 }
 
 impl KafkaResponse {
-    pub fn parse(buf: &[u8],
-                 api_key: ApiKeys,
-                 api_version: ApiVersion)
-                 -> io::Result<Option<Self>> {
+    pub fn parse(buf: &[u8], api_key: ApiKeys, api_version: i16) -> io::Result<Option<Self>> {
         debug!("parsing {} bytes response as {:?} ({:?})",
                buf.len(),
                api_key,
@@ -32,6 +29,9 @@ impl KafkaResponse {
             }
                 ApiKeys::Metadata => {
                     parse_metadata_response(buf).map(|res| KafkaResponse::Metadata(res))
+                }
+                ApiKeys::ApiVersions => {
+                    parse_api_versions_response(buf).map(|res| KafkaResponse::ApiVersions(res))
                 }
                 _ => {
                     warn!("unsupport response type, {:?}", api_key);

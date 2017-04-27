@@ -8,6 +8,7 @@ mod header;
 mod metadata;
 mod produce;
 mod message;
+mod versions;
 
 pub use self::parser::{Encodable, WriteExt, ParseTag, PARSE_TAGS, parse_str, parse_string,
                        parse_bytes, display_parse_error};
@@ -17,6 +18,8 @@ pub use self::metadata::{MetadataRequest, MetadataResponse, MetadataRequestEncod
 pub use self::produce::{ProduceRequest, ProduceResponse, ProduceRequestEncoder, ProduceTopicData,
                         ProducePartitionData, parse_produce_response};
 pub use self::message::{Message, MessageSet};
+pub use self::versions::{ApiVersion, ApiVersionsRequest, ApiVersionsRequestEncoder,
+                         ApiVersionsResponse, parse_api_versions_response};
 
 /// The following are the numeric codes that the ApiKey in the request can take for each of the below request types.
 #[derive(Debug, Copy, Clone)]
@@ -46,20 +49,6 @@ pub enum ApiKeys {
 }
 
 impl From<i16> for ApiKeys {
-    fn from(v: i16) -> Self {
-        unsafe { mem::transmute(v) }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(i16)]
-pub enum ApiVersion {
-    Kafka_0_8 = 0,
-    Kafka_0_9 = 1,
-    kafka_0_10 = 2,
-}
-
-impl From<i16> for ApiVersion {
     fn from(v: i16) -> Self {
         unsafe { mem::transmute(v) }
     }

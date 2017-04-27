@@ -98,6 +98,7 @@ pub enum ParseTag {
     ProducePartitions = -2,
     MetadataBrokers = -301,
     MetadataTopics = -302,
+    ApiVersions = -1801,
 }
 
 lazy_static!{
@@ -108,6 +109,7 @@ lazy_static!{
         h.insert(ParseTag::ProducePartitions as u32, "produce_partitions");
         h.insert(ParseTag::MetadataBrokers as u32, "metadata_brokers");
         h.insert(ParseTag::MetadataTopics as u32, "metadata_topics");
+         h.insert(ParseTag::ApiVersions as u32, "api_versions");
         h
     };
 }

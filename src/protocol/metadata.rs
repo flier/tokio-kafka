@@ -1,12 +1,10 @@
-use std::marker::PhantomData;
-
 use bytes::{BytesMut, ByteOrder};
 
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ApiKeys, ApiVersion, RequestHeader, ResponseHeader, ParseTag,
-               parse_response_header, parse_string, WriteExt};
+use protocol::{ApiKeys, RequestHeader, ResponseHeader, ParseTag, parse_response_header,
+               parse_string, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest {
@@ -15,7 +13,7 @@ pub struct MetadataRequest {
 }
 
 impl MetadataRequest {
-    pub fn new<S: AsRef<str>>(api_version: ApiVersion,
+    pub fn new<S: AsRef<str>>(api_version: i16,
                               correlation_id: i32,
                               client_id: Option<String>,
                               topic_names: &[S])
@@ -35,16 +33,16 @@ impl MetadataRequest {
     }
 }
 
-pub struct MetadataRequestEncoder<T>(PhantomData<T>);
+pub struct MetadataRequestEncoder;
 
-impl<T> MetadataRequestEncoder<T> {
+impl MetadataRequestEncoder {
     pub fn new() -> Self {
-        MetadataRequestEncoder(PhantomData)
+        MetadataRequestEncoder
     }
 }
 
-impl<T: ByteOrder> MetadataRequestEncoder<T> {
-    pub fn encode(&mut self, req: MetadataRequest, dst: &mut BytesMut) -> Result<()> {
+impl MetadataRequestEncoder {
+    pub fn encode<T: ByteOrder>(&mut self, req: MetadataRequest, dst: &mut BytesMut) -> Result<()> {
         dst.put_item::<T, _>(req.header)?;
         dst.put_array::<T, _, _>(req.topic_names,
                                  |buf, topic_name| buf.put_str::<T, _>(Some(topic_name)))
@@ -222,17 +220,17 @@ mod tests {
             topic_names: vec!["topic".to_owned()],
         };
 
-        let mut encoder = MetadataRequestEncoder::<BigEndian>::new();
+        let mut encoder = MetadataRequestEncoder::new();
 
         let mut buf = BytesMut::with_capacity(128);
 
-        encoder.encode(req, &mut buf).unwrap();
+        encoder.encode::<BigEndian>(req, &mut buf).unwrap();
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
     }
 
     #[test]
-    fn test_metadata_request_decoder() {
+    fn test_metadata_response_decoder() {
         assert_eq!(parse_metadata_response(TEST_RESPONSE_DATA.as_slice()),
         IResult::Done(&[][..], TEST_RESPONSE.clone()));
     }

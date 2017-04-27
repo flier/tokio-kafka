@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use bytes::{BytesMut, BufMut, ByteOrder};
 
 use nom::{be_i16, be_i32, be_i64};
@@ -32,18 +30,16 @@ pub struct ProducePartitionData {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProduceRequestEncoder<T> {
+pub struct ProduceRequestEncoder {
     pub offset: i64,
     pub compression: Compression,
-    pub phantom: PhantomData<T>,
 }
 
-impl<T> ProduceRequestEncoder<T> {
+impl ProduceRequestEncoder {
     pub fn new(compression: Compression) -> Self {
         ProduceRequestEncoder {
             offset: 0,
             compression: compression,
-            phantom: PhantomData,
         }
     }
 
@@ -59,8 +55,8 @@ impl<T> ProduceRequestEncoder<T> {
     }
 }
 
-impl<T: ByteOrder> ProduceRequestEncoder<T> {
-    pub fn encode(&mut self, req: ProduceRequest, dst: &mut BytesMut) -> Result<()> {
+impl ProduceRequestEncoder {
+    pub fn encode<T: ByteOrder>(&mut self, req: ProduceRequest, dst: &mut BytesMut) -> Result<()> {
         dst.put_item::<T, _>(req.header)?;
         dst.put_i16::<T>(req.required_acks);
         dst.put_i32::<T>(req.timeout);
@@ -236,11 +232,11 @@ mod tests {
             }],
         };
 
-        let mut encoder = ProduceRequestEncoder::<BigEndian>::new(Compression::None);
+        let mut encoder = ProduceRequestEncoder::new(Compression::None);
 
         let mut buf = BytesMut::with_capacity(128);
 
-        encoder.encode(req, &mut buf).unwrap();
+        encoder.encode::<BigEndian>(req, &mut buf).unwrap();
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
     }
