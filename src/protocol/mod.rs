@@ -5,19 +5,22 @@ use std::mem;
 #[macro_use]
 mod parser;
 mod header;
+mod message;
 mod metadata;
 mod produce;
-mod message;
+mod fetch;
 mod versions;
 
 pub use self::parser::{Encodable, WriteExt, ParseTag, PARSE_TAGS, parse_str, parse_string,
                        parse_bytes, display_parse_error};
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
+pub use self::message::{Message, MessageSet, MessageSetEncoder, parse_message_set, MAGIC_BYTE};
 pub use self::metadata::{MetadataRequest, MetadataResponse, MetadataRequestEncoder,
                          BrokerMetadata, TopicMetadata, PartitionMetadata, parse_metadata_response};
 pub use self::produce::{ProduceRequest, ProduceResponse, ProduceRequestEncoder, ProduceTopicData,
                         ProducePartitionData, parse_produce_response};
-pub use self::message::{Message, MessageSet};
+pub use self::fetch::{FetchRequest, FetchRequestEncoder, FetchTopicData, FetchPartitionData,
+                      parse_fetch_response};
 pub use self::versions::{ApiVersion, ApiVersionsRequest, ApiVersionsRequestEncoder,
                          ApiVersionsResponse, parse_api_versions_response};
 
@@ -234,6 +237,8 @@ impl From<i16> for KafkaCode {
 mod tests {
     use std::borrow::Cow;
 
+    use bytes::Bytes;
+
     use nom::{IResult, Needed, ErrorKind};
     use nom::verbose_errors::Err;
 
@@ -266,6 +271,6 @@ mod tests {
                    IResult::Done(&b""[..], None));
         assert_eq!(parse_bytes(b"\0\0\0\0"), IResult::Done(&b""[..], None));
         assert_eq!(parse_bytes(b"\0\0\0\x04test"),
-                   IResult::Done(&b""[..], Some(Cow::from(&b"test"[..]))));
+                   IResult::Done(&b""[..], Some(Bytes::from(&b"test"[..]))));
     }
 }

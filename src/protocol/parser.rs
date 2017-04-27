@@ -2,7 +2,7 @@ use std::str;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use bytes::{BufMut, ByteOrder};
+use bytes::{Bytes, BufMut, ByteOrder};
 
 use nom::{self, IResult, be_i16, be_i32, prepare_errors, error_to_u32, print_offsets};
 
@@ -96,6 +96,8 @@ pub enum ParseTag {
     ResponseHeader = 0,
     ProduceTopics = -1,
     ProducePartitions = -2,
+    FetchTopics = -101,
+    FetchPartitions = -102,
     MetadataBrokers = -301,
     MetadataTopics = -302,
     ApiVersions = -1801,
@@ -107,9 +109,11 @@ lazy_static!{
         h.insert(ParseTag::ResponseHeader as u32, "response_header");
         h.insert(ParseTag::ProduceTopics as u32, "produce_topics");
         h.insert(ParseTag::ProducePartitions as u32, "produce_partitions");
+        h.insert(ParseTag::FetchTopics as u32, "fetch_topics");
+        h.insert(ParseTag::FetchPartitions as u32, "fetch_partitions");
         h.insert(ParseTag::MetadataBrokers as u32, "metadata_brokers");
         h.insert(ParseTag::MetadataTopics as u32, "metadata_topics");
-         h.insert(ParseTag::ApiVersions as u32, "api_versions");
+        h.insert(ParseTag::ApiVersions as u32, "api_versions");
         h
     };
 }
@@ -197,10 +201,10 @@ named!(pub parse_string<String>,
     )
 );
 
-named!(pub parse_bytes<Option<Cow<[u8]>>>,
+named!(pub parse_bytes<Option<Bytes>>,
     do_parse!(
         len: be_i32
-     >> s: cond!(len > 0, map!(take!(len), Cow::from))
+     >> s: cond!(len > 0, map!(take!(len), Bytes::from))
      >> (s)
     )
 );

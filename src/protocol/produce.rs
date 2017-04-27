@@ -4,10 +4,8 @@ use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
 use compression::Compression;
-use protocol::{RequestHeader, ResponseHeader, MessageSet, ParseTag, parse_string,
-               parse_response_header, WriteExt};
-
-const MAGIC_BYTE: i8 = 1;
+use protocol::{RequestHeader, ResponseHeader, MessageSet, MessageSetEncoder, ParseTag,
+               parse_string, parse_response_header, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequest {
@@ -31,32 +29,17 @@ pub struct ProducePartitionData {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequestEncoder {
-    pub offset: i64,
     pub compression: Compression,
 }
 
 impl ProduceRequestEncoder {
     pub fn new(compression: Compression) -> Self {
-        ProduceRequestEncoder {
-            offset: 0,
-            compression: compression,
-        }
+        ProduceRequestEncoder { compression: compression }
     }
 
-    fn next_offset(&mut self) -> i64 {
-        match self.compression {
-            Compression::None => 0,
-            _ => {
-                let offset = self.offset;
-                self.offset.wrapping_add(1);
-                offset
-            }
-        }
-    }
-}
-
-impl ProduceRequestEncoder {
     pub fn encode<T: ByteOrder>(&mut self, req: ProduceRequest, dst: &mut BytesMut) -> Result<()> {
+        let encoder = MessageSetEncoder::new(req.header.api_version);
+
         dst.put_item::<T, _>(req.header)?;
         dst.put_i16::<T>(req.required_acks);
         dst.put_i32::<T>(req.timeout);
@@ -64,9 +47,7 @@ impl ProduceRequestEncoder {
             buf.put_str::<T, _>(Some(topic.topic_name))?;
             buf.put_array::<T, _, _>(topic.partitions, |buf, partition| {
                 buf.put_i32::<T>(partition.partition);
-                buf.put_array::<T, _, _>(partition.message_set.messages, |buf, message| {
-                    message.encode::<T>(buf, self.next_offset(), MAGIC_BYTE, self.compression)
-                })
+                encoder.encode::<T>(partition.message_set, buf)
             })
         })
     }
@@ -223,6 +204,8 @@ mod tests {
                     partition: 1,
                     message_set: MessageSet {
                         messages: vec![Message {
+                            offset: 0,
+                            compression: Compression::None,
                             key: Some(Bytes::from(&b"key"[..])),
                             value: Some(Bytes::from(&b"value"[..])),
                             timestamp: Some(456),
