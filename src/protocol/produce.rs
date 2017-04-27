@@ -3,8 +3,7 @@ use bytes::{BytesMut, BufMut, ByteOrder};
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use compression::Compression;
-use protocol::{RequestHeader, ResponseHeader, MessageSet, MessageSetEncoder, ParseTag,
+use protocol::{Encodable, RequestHeader, ResponseHeader, MessageSet, MessageSetEncoder, ParseTag,
                parse_string, parse_response_header, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,23 +26,15 @@ pub struct ProducePartitionData {
     pub message_set: MessageSet,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProduceRequestEncoder {
-    pub compression: Compression,
-}
+impl Encodable for ProduceRequest {
+    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
+        let encoder = MessageSetEncoder::new(self.header.api_version);
 
-impl ProduceRequestEncoder {
-    pub fn new(compression: Compression) -> Self {
-        ProduceRequestEncoder { compression: compression }
-    }
+        self.header.encode::<T>(dst)?;
 
-    pub fn encode<T: ByteOrder>(&mut self, req: ProduceRequest, dst: &mut BytesMut) -> Result<()> {
-        let encoder = MessageSetEncoder::new(req.header.api_version);
-
-        dst.put_item::<T, _>(req.header)?;
-        dst.put_i16::<T>(req.required_acks);
-        dst.put_i32::<T>(req.timeout);
-        dst.put_array::<T, _, _>(req.topics, |buf, topic| {
+        dst.put_i16::<T>(self.required_acks);
+        dst.put_i32::<T>(self.timeout);
+        dst.put_array::<T, _, _>(self.topics, |buf, topic| {
             buf.put_str::<T, _>(Some(topic.topic_name))?;
             buf.put_array::<T, _, _>(topic.partitions, |buf, partition| {
                 buf.put_i32::<T>(partition.partition);
@@ -123,6 +114,7 @@ mod tests {
 
     use super::*;
     use protocol::*;
+    use compression::Compression;
 
     lazy_static!{
         static ref TEST_REQUEST_DATA: Vec<u8> = vec![
@@ -186,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn test_produce_request_encoder() {
+    fn test_encode_produce_request() {
         let req = ProduceRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Produce as i16,
@@ -213,17 +205,15 @@ mod tests {
             }],
         };
 
-        let mut encoder = ProduceRequestEncoder::new(Compression::None);
-
         let mut buf = BytesMut::with_capacity(128);
 
-        encoder.encode::<BigEndian>(req, &mut buf).unwrap();
+        req.encode::<BigEndian>(&mut buf).unwrap();
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
     }
 
     #[test]
-    fn test_produce_response_decoder() {
+    fn test_parse_produce_response() {
         assert_eq!(parse_produce_response(TEST_RESPONSE_DATA.as_slice(), 2),
                    IResult::Done(&[][..], TEST_RESPONSE.clone()));
     }

@@ -6,7 +6,7 @@ use bytes::{BufMut, BytesMut, ByteOrder, BigEndian};
 
 use tokio_io::codec::{Encoder, Decoder};
 
-use protocol::{ApiKeys, RequestHeader};
+use protocol::{Encodable, ApiKeys, RequestHeader};
 use network::{KafkaRequest, KafkaResponse};
 
 #[derive(Debug)]
@@ -36,7 +36,12 @@ impl Encoder for KafkaCodec {
                  ..
              } = request.header();
 
-        request.encode(dst)?;
+        request
+            .encode::<BigEndian>(dst)
+            .map_err(|err| {
+                         io::Error::new(io::ErrorKind::InvalidInput,
+                                        format!("invalid request, {}", err))
+                     })?;
 
         let size = dst.len() - off - mem::size_of::<i32>();
 

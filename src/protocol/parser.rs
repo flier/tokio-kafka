@@ -2,17 +2,17 @@ use std::str;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use bytes::{Bytes, BufMut, ByteOrder};
+use bytes::{Bytes, BytesMut, BufMut, ByteOrder};
 
 use nom::{self, IResult, be_i16, be_i32, prepare_errors, error_to_u32, print_offsets};
 
 use errors::{ErrorKind, Result};
 
 pub trait Encodable {
-    fn encode<T: ByteOrder, B: BufMut>(self, buf: B) -> Result<()>;
+    fn encode<T: ByteOrder>(self, buf: &mut BytesMut) -> Result<()>;
 }
 
-pub trait WriteExt: BufMut {
+pub trait WriteExt: BufMut + Sized {
     fn put_str<T: ByteOrder, S: AsRef<str>>(&mut self, s: Option<S>) -> Result<()> {
         match s.as_ref() {
             Some(v) if v.as_ref().len() > i16::max_value() as usize => {
@@ -62,10 +62,6 @@ pub trait WriteExt: BufMut {
 
             Ok(())
         }
-    }
-
-    fn put_item<T: ByteOrder, E: Encodable>(&mut self, item: E) -> Result<()> {
-        item.encode::<T, _>(self)
     }
 }
 

@@ -3,27 +3,16 @@ use bytes::{BytesMut, ByteOrder};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{RequestHeader, ResponseHeader, WriteExt, ParseTag, parse_response_header};
+use protocol::{Encodable, RequestHeader, ResponseHeader, ParseTag, parse_response_header};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ApiVersionsRequest {
     pub header: RequestHeader,
 }
 
-pub struct ApiVersionsRequestEncoder;
-
-impl ApiVersionsRequestEncoder {
-    pub fn new() -> Self {
-        ApiVersionsRequestEncoder
-    }
-}
-
-impl ApiVersionsRequestEncoder {
-    pub fn encode<T: ByteOrder>(&mut self,
-                                req: ApiVersionsRequest,
-                                dst: &mut BytesMut)
-                                -> Result<()> {
-        dst.put_item::<T, _>(req.header)
+impl Encodable for ApiVersionsRequest {
+    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
+        self.header.encode::<T>(dst)
     }
 }
 
@@ -76,7 +65,7 @@ named!(parse_api_version<ApiVersion>,
 
 #[cfg(test)]
 mod tests {
-    use bytes::BigEndian;
+    use bytes::{BytesMut, BigEndian};
 
     use nom::IResult;
 
@@ -116,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn test_api_versions_request_encoder() {
+    fn test_encode_api_versions_request() {
         let req = ApiVersionsRequest {
             header: RequestHeader {
                 api_key: ApiKeys::ApiVersions as i16,
@@ -126,17 +115,15 @@ mod tests {
             },
         };
 
-        let mut encoder = ApiVersionsRequestEncoder::new();
-
         let mut buf = BytesMut::with_capacity(128);
 
-        encoder.encode::<BigEndian>(req, &mut buf).unwrap();
+        req.encode::<BigEndian>(&mut buf).unwrap();
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
     }
 
     #[test]
-    fn test_api_versions_response_decoder() {
+    fn test_parse_api_versions_response() {
         assert_eq!(parse_api_versions_response(TEST_RESPONSE_DATA.as_slice()),
         IResult::Done(&[][..], TEST_RESPONSE.clone()));
     }

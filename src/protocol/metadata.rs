@@ -3,7 +3,7 @@ use bytes::{BytesMut, ByteOrder};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ApiKeys, RequestHeader, ResponseHeader, ParseTag, parse_response_header,
+use protocol::{Encodable, ApiKeys, RequestHeader, ResponseHeader, ParseTag, parse_response_header,
                parse_string, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -33,18 +33,11 @@ impl MetadataRequest {
     }
 }
 
-pub struct MetadataRequestEncoder;
+impl Encodable for MetadataRequest {
+    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
+        self.header.encode::<T>(dst)?;
 
-impl MetadataRequestEncoder {
-    pub fn new() -> Self {
-        MetadataRequestEncoder
-    }
-}
-
-impl MetadataRequestEncoder {
-    pub fn encode<T: ByteOrder>(&mut self, req: MetadataRequest, dst: &mut BytesMut) -> Result<()> {
-        dst.put_item::<T, _>(req.header)?;
-        dst.put_array::<T, _, _>(req.topic_names,
+        dst.put_array::<T, _, _>(self.topic_names,
                                  |buf, topic_name| buf.put_str::<T, _>(Some(topic_name)))
     }
 }
@@ -137,7 +130,7 @@ named!(parse_partition_metadata<PartitionMetadata>,
 
 #[cfg(test)]
 mod tests {
-    use bytes::BigEndian;
+    use bytes::{BytesMut, BigEndian};
 
     use nom::IResult;
 
@@ -204,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn test_metadata_request_encoder() {
+    fn test_encode_metadata_request() {
         let req = MetadataRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Metadata as i16,
@@ -215,17 +208,15 @@ mod tests {
             topic_names: vec!["topic".to_owned()],
         };
 
-        let mut encoder = MetadataRequestEncoder::new();
-
         let mut buf = BytesMut::with_capacity(128);
 
-        encoder.encode::<BigEndian>(req, &mut buf).unwrap();
+        req.encode::<BigEndian>(&mut buf).unwrap();
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
     }
 
     #[test]
-    fn test_metadata_response_decoder() {
+    fn test_parse_metadata_response() {
         assert_eq!(parse_metadata_response(TEST_RESPONSE_DATA.as_slice()),
         IResult::Done(&[][..], TEST_RESPONSE.clone()));
     }

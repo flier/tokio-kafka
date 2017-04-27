@@ -15,14 +15,14 @@ pub use self::parser::{Encodable, WriteExt, ParseTag, PARSE_TAGS, parse_str, par
                        parse_bytes, display_parse_error};
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
 pub use self::message::{Message, MessageSet, MessageSetEncoder, parse_message_set, MAGIC_BYTE};
-pub use self::metadata::{MetadataRequest, MetadataResponse, MetadataRequestEncoder,
-                         BrokerMetadata, TopicMetadata, PartitionMetadata, parse_metadata_response};
-pub use self::produce::{ProduceRequest, ProduceResponse, ProduceRequestEncoder, ProduceTopicData,
-                        ProducePartitionData, parse_produce_response};
-pub use self::fetch::{FetchRequest, FetchRequestEncoder, FetchTopicData, FetchPartitionData,
+pub use self::metadata::{MetadataRequest, MetadataResponse, BrokerMetadata, TopicMetadata,
+                         PartitionMetadata, parse_metadata_response};
+pub use self::produce::{ProduceRequest, ProduceResponse, ProduceTopicData, ProducePartitionData,
+                        parse_produce_response};
+pub use self::fetch::{FetchRequest, FetchTopic, FetchPartition, FetchResponse,
                       parse_fetch_response};
-pub use self::versions::{ApiVersion, ApiVersionsRequest, ApiVersionsRequestEncoder,
-                         ApiVersionsResponse, parse_api_versions_response};
+pub use self::versions::{ApiVersion, ApiVersionsRequest, ApiVersionsResponse,
+                         parse_api_versions_response};
 
 /// The following are the numeric codes that the ApiKey in the request can take for each of the below request types.
 #[derive(Debug, Copy, Clone)]

@@ -1,4 +1,4 @@
-use bytes::{BufMut, ByteOrder};
+use bytes::{BytesMut, BufMut, ByteOrder};
 
 use nom::be_i32;
 
@@ -14,7 +14,7 @@ pub struct RequestHeader {
 }
 
 impl Encodable for RequestHeader {
-    fn encode<T: ByteOrder, B: BufMut>(self, mut buf: B) -> Result<()> {
+    fn encode<T: ByteOrder>(self, buf: &mut BytesMut) -> Result<()> {
         buf.put_i16::<T>(self.api_key);
         buf.put_i16::<T>(self.api_version);
         buf.put_i32::<T>(self.correlation_id);
@@ -52,9 +52,9 @@ mod tests {
             client_id: Some("test".to_owned()),
         };
 
-        let mut buf = vec![];
+        let mut buf = BytesMut::with_capacity(64);
 
-        buf.put_item::<BigEndian, _>(hdr).unwrap();
+        hdr.encode::<BigEndian>(&mut buf).unwrap();
 
         assert_eq!(&buf[..],
                    &[0, 1,            // api_key

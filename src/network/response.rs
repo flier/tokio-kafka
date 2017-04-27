@@ -4,13 +4,14 @@ use log::LogLevel::Debug;
 
 use nom::{IResult, Needed};
 
-use protocol::{ApiKeys, ProduceResponse, parse_produce_response, MetadataResponse,
-               parse_metadata_response, ApiVersionsResponse, parse_api_versions_response,
-               display_parse_error};
+use protocol::{ApiKeys, ProduceResponse, parse_produce_response, FetchResponse,
+               parse_fetch_response, MetadataResponse, parse_metadata_response,
+               ApiVersionsResponse, parse_api_versions_response, display_parse_error};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
     Produce(ProduceResponse),
+    Fetch(FetchResponse),
     Metadata(MetadataResponse),
     ApiVersions(ApiVersionsResponse),
 }
@@ -22,23 +23,23 @@ impl KafkaResponse {
                api_key,
                api_version);
 
-        let res =
-            match api_key {
-                ApiKeys::Produce => {
-                parse_produce_response(buf, api_version as i16).map(|res| KafkaResponse::Produce(res))
+        let res = match api_key {
+            ApiKeys::Produce => {
+                parse_produce_response(buf, api_version as i16).map(KafkaResponse::Produce)
             }
-                ApiKeys::Metadata => {
-                    parse_metadata_response(buf).map(|res| KafkaResponse::Metadata(res))
-                }
-                ApiKeys::ApiVersions => {
-                    parse_api_versions_response(buf).map(|res| KafkaResponse::ApiVersions(res))
-                }
-                _ => {
-                    warn!("unsupport response type, {:?}", api_key);
+            ApiKeys::Fetch => {
+                parse_fetch_response(buf, api_version as i16).map(KafkaResponse::Fetch)
+            }
+            ApiKeys::Metadata => parse_metadata_response(buf).map(KafkaResponse::Metadata),
+            ApiKeys::ApiVersions => {
+                parse_api_versions_response(buf).map(KafkaResponse::ApiVersions)
+            }
+            _ => {
+                warn!("unsupport response type, {:?}", api_key);
 
-                    IResult::Incomplete(Needed::Unknown)
-                }
-            };
+                IResult::Incomplete(Needed::Unknown)
+            }
+        };
 
         match res {
             IResult::Done(remaining, res) => {
