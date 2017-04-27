@@ -1,3 +1,5 @@
+use std::mem;
+
 use bytes::{Bytes, BytesMut, BufMut, ByteOrder};
 
 use nom::{be_i8, be_i32, be_i64};
@@ -10,10 +12,8 @@ use errors::Result;
 use compression::Compression;
 use protocol::{WriteExt, ParseTag, parse_bytes};
 
-pub const MAGIC_BYTE: i8 = 1;
-
-pub const LOG_APPEND_TIME_FLAG: i8 = 0x08;
-pub const COMPRESSION_MASK: i8 = 0x07;
+pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
+pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
 
 /// Message sets
 ///
@@ -115,10 +115,10 @@ impl MessageSetEncoder {
         let crc_off = buf.len();
         buf.put_i32::<T>(0);
         let data_off = buf.len();
-        buf.put_i8(MAGIC_BYTE);
-        buf.put_i8((message.compression as i8 & COMPRESSION_MASK) |
+        buf.put_i8(self.api_version as i8);
+        buf.put_i8((message.compression as i8 & COMPRESSION_CODEC_MASK) |
                    if let Some(Timestamp::LogAppendTime(_)) = message.timestamp {
-                       LOG_APPEND_TIME_FLAG
+                       TIMESTAMP_TYPE_MASK
                    } else {
                        0
                    });
@@ -156,20 +156,24 @@ named_args!(parse_message(api_version: i16)<Message>,
         do_parse!(
             offset: be_i64
          >> size: be_i32
-         >> crc: be_i32
-         >> magic: verify!(be_i8, |v: i8| v == MAGIC_BYTE)
+         >> data: peek!(take!(size))
+         >> crc: parse_tag!(ParseTag::MessageCrc,
+            verify!(be_i32, |checksum: i32| {
+                crc32::checksum_ieee(&data[mem::size_of::<i32>()..]) == checksum as u32
+            }))
+         >> magic: verify!(be_i8, |v: i8| v as i16 == api_version)
          >> attrs: be_i8
          >> timestamp: cond!(api_version > 0, be_i64)
          >> key: parse_bytes
          >> value: parse_bytes
          >> (Message {
                 offset: offset,
-                timestamp: timestamp.map(|ts| if (attrs & LOG_APPEND_TIME_FLAG) == 0 {
+                timestamp: timestamp.map(|ts| if (attrs & TIMESTAMP_TYPE_MASK) == 0 {
                     Timestamp::CreateTime(ts)
                 }else {
                     Timestamp::LogAppendTime(ts)
                 }),
-                compression: Compression::from(attrs & COMPRESSION_MASK),
+                compression: Compression::from(attrs & COMPRESSION_CODEC_MASK),
                 key: key,
                 value: value,
             })

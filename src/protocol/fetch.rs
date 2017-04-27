@@ -175,8 +175,8 @@ mod tests {
                         0, 0, 0, 1,
                             0, 0, 0, 0, 0, 0, 0, 0,             // offset
                             0, 0, 0, 30,                        // size
-                            226, 52, 65, 188,                   // crc
-                            MAGIC_BYTE as u8,                   // magic
+                            206, 63, 210, 11,                   // crc
+                            1,                                  // magic
                             8,                                  // attributes
                             0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
                             0, 0, 0, 3, 107, 101, 121,          // key

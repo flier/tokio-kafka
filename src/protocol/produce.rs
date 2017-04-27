@@ -125,7 +125,7 @@ mod tests {
             // ProduceRequest
                 // RequestHeader
                 0, 0,                               // api_key
-                0, 2,                               // api_version
+                0, 1,                               // api_version
                 0, 0, 0, 123,                       // correlation_id
                 0, 6, 99, 108, 105, 101, 110, 116,  // client_id
             255, 255,                               // required_acks
@@ -141,14 +141,14 @@ mod tests {
                         // MessageSet
                         0, 0, 0, 1,
                         // messages: [Message]
-                        0, 0, 0, 0, 0, 0, 0, 0,             // offset
-                        0, 0, 0, 30,                        // size
-                        226, 52, 65, 188,                   // crc
-                        MAGIC_BYTE as u8,                   // magic
-                        0,                                  // attributes
-                        0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
-                        0, 0, 0, 3, 107, 101, 121,          // key
-                        0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+                            0, 0, 0, 0, 0, 0, 0, 0,             // offset
+                            0, 0, 0, 30,                        // size
+                            226, 52, 65, 188,                   // crc
+                            1,                                  // magic
+                            0,                                  // attributes
+                            0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
+                            0, 0, 0, 3, 107, 101, 121,          // key
+                            0, 0, 0, 5, 118, 97, 108, 117, 101  // value
         ];
 
         static ref TEST_RESPONSE_DATA: Vec<u8> = vec![
@@ -186,7 +186,7 @@ mod tests {
         let req = ProduceRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Produce as i16,
-                api_version: 2,
+                api_version: 1,
                 correlation_id: 123,
                 client_id: Some("client".to_owned()),
             },

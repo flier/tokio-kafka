@@ -91,10 +91,12 @@ macro_rules! parse_tag (
 pub enum ParseTag {
     ResponseHeader = 8000,
 
-    MessageSet = 8001,
-    Message = 8002,
-    String = 8003,
-    Bytes = 8004,
+    String = 8001,
+    Bytes = 8002,
+
+    MessageSet = 8003,
+    Message = 8004,
+    MessageCrc = 8005,
 
     ProduceResponse = 10000,
     ProduceTopicStatus = 10001,
@@ -118,10 +120,12 @@ lazy_static!{
         let mut h = HashMap::new();
         h.insert(ParseTag::ResponseHeader as u32, "ResponseHeader");
 
-        h.insert(ParseTag::MessageSet as u32, "MessageSet");
-        h.insert(ParseTag::Message as u32, "Message");
         h.insert(ParseTag::String as u32, "String");
         h.insert(ParseTag::Bytes as u32, "Bytes");
+
+        h.insert(ParseTag::MessageSet as u32, "MessageSet");
+        h.insert(ParseTag::Message as u32, "Message");
+        h.insert(ParseTag::MessageCrc as u32, "MessageCrc");
 
         h.insert(ParseTag::ProduceResponse as u32, "ProduceResponse");
         h.insert(ParseTag::ProduceTopicStatus as u32, "ProduceTopicStatus");
@@ -339,11 +343,11 @@ mod tests {
     fn test_parse_string() {
         assert_eq!(parse_string(b"\0"), IResult::Incomplete(Needed::Size(2)));
         assert_eq!(parse_string(b"\xff\xff"),
-                   IResult::Error(Err::NodePosition(ErrorKind::Custom(8003),
+                   IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::String as u32),
                                                     &[255, 255][..],
                                                     Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
         assert_eq!(parse_string(b"\0\0"),
-                   IResult::Error(Err::NodePosition(ErrorKind::Custom(8003),
+                   IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::String as u32),
                                                     &[0, 0][..],
                                                     Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
         assert_eq!(parse_string(b"\0\x04test"),
