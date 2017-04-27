@@ -37,28 +37,32 @@ pub struct ApiVersion {
 }
 
 named!(pub parse_api_versions_response<ApiVersionsResponse>,
-    do_parse!(
-        header: parse_response_header
-     >> error_code: be_i16
-     >> api_versions: parse_tag!(ParseTag::ApiVersions, length_count!(be_i32, parse_api_version))
-     >> (ApiVersionsResponse {
-            header: header,
-            error_code: error_code,
-            api_versions: api_versions,
-        })
+    parse_tag!(ParseTag::ApiVersionsResponse,
+        do_parse!(
+            header: parse_response_header
+         >> error_code: be_i16
+         >> api_versions: length_count!(be_i32, parse_api_version)
+         >> (ApiVersionsResponse {
+                header: header,
+                error_code: error_code,
+                api_versions: api_versions,
+            })
+        )
     )
 );
 
 named!(parse_api_version<ApiVersion>,
-    do_parse!(
-        api_key: be_i16
-     >> min_version: be_i16
-     >> max_version: be_i16
-     >> (ApiVersion {
-            api_key: api_key,
-            min_version: min_version,
-            max_version: max_version,
-        })
+    parse_tag!(ParseTag::ApiVersion,
+        do_parse!(
+            api_key: be_i16
+         >> min_version: be_i16
+         >> max_version: be_i16
+         >> (ApiVersion {
+                api_key: api_key,
+                min_version: min_version,
+                max_version: max_version,
+            })
+        )
     )
 );
 

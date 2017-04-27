@@ -17,7 +17,7 @@ pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
 pub use self::message::{Message, MessageSet, MessageSetEncoder, parse_message_set, MAGIC_BYTE};
 pub use self::metadata::{MetadataRequest, MetadataResponse, BrokerMetadata, TopicMetadata,
                          PartitionMetadata, parse_metadata_response};
-pub use self::produce::{ProduceRequest, ProduceResponse, ProduceTopicData, ProducePartitionData,
+pub use self::produce::{ProduceRequest, ProduceResponse, ProduceTopic, ProducePartition,
                         parse_produce_response};
 pub use self::fetch::{FetchRequest, FetchTopic, FetchPartition, FetchResponse,
                       parse_fetch_response};
@@ -230,47 +230,5 @@ pub enum KafkaCode {
 impl From<i16> for KafkaCode {
     fn from(v: i16) -> Self {
         unsafe { mem::transmute(v) }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::borrow::Cow;
-
-    use bytes::Bytes;
-
-    use nom::{IResult, Needed, ErrorKind};
-    use nom::verbose_errors::Err;
-
-    use super::*;
-
-    #[test]
-    fn test_parse_str() {
-        assert_eq!(parse_str(b"\0"), IResult::Incomplete(Needed::Size(2)));
-        assert_eq!(parse_str(b"\xff\xff"), IResult::Done(&b""[..], None));
-        assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], None));
-        assert_eq!(parse_str(b"\0\x04test"),
-                   IResult::Done(&b""[..], Some(Cow::from("test"))));
-    }
-
-    #[test]
-    fn test_parse_string() {
-        assert_eq!(parse_string(b"\0"), IResult::Incomplete(Needed::Size(2)));
-        assert_eq!(parse_string(b"\xff\xff"),
-                   IResult::Error(Err::Position(ErrorKind::CondReduce, &[][..])));
-        assert_eq!(parse_string(b"\0\0"),
-                   IResult::Error(Err::Position(ErrorKind::CondReduce, &[][..])));
-        assert_eq!(parse_string(b"\0\x04test"),
-                   IResult::Done(&b""[..], "test".to_owned()));
-    }
-
-    #[test]
-    fn test_parse_bytes() {
-        assert_eq!(parse_bytes(b"\0"), IResult::Incomplete(Needed::Size(4)));
-        assert_eq!(parse_bytes(b"\xff\xff\xff\xff"),
-                   IResult::Done(&b""[..], None));
-        assert_eq!(parse_bytes(b"\0\0\0\0"), IResult::Done(&b""[..], None));
-        assert_eq!(parse_bytes(b"\0\0\0\x04test"),
-                   IResult::Done(&b""[..], Some(Bytes::from(&b"test"[..]))));
     }
 }

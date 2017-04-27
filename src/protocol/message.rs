@@ -8,7 +8,7 @@ use crc::crc32;
 
 use errors::Result;
 use compression::Compression;
-use protocol::{WriteExt, parse_bytes};
+use protocol::{WriteExt, ParseTag, parse_bytes};
 
 pub const MAGIC_BYTE: i8 = 1;
 
@@ -115,30 +115,34 @@ impl MessageSetEncoder {
 }
 
 named_args!(pub parse_message_set(api_version: i16)<MessageSet>,
-    do_parse!(
-        messages: length_count!(be_i32, apply!(parse_message, api_version))
-     >> (MessageSet {
-            messages: messages,
-        })
+    parse_tag!(ParseTag::MessageSet,
+        do_parse!(
+            messages: length_count!(be_i32, apply!(parse_message, api_version))
+        >> (MessageSet {
+                messages: messages,
+            })
+        )
     )
 );
 
 named_args!(parse_message(api_version: i16)<Message>,
-    do_parse!(
-        offset: be_i64
-     >> size: be_i32
-     >> crc: be_i32
-     >> magic: be_i8
-     >> attrs: be_i8
-     >> timestamp: cond!(api_version > 0, be_i64)
-     >> key: parse_bytes
-     >> value: parse_bytes
-     >> (Message {
-            offset: offset,
-            timestamp: timestamp,
-            compression: Compression::from(attrs & 0x07),
-            key: key,
-            value: value,
-        })
+    parse_tag!(ParseTag::Message,
+        do_parse!(
+            offset: be_i64
+        >> size: be_i32
+        >> crc: be_i32
+        >> magic: be_i8
+        >> attrs: be_i8
+        >> timestamp: cond!(api_version > 0, be_i64)
+        >> key: parse_bytes
+        >> value: parse_bytes
+        >> (Message {
+                offset: offset,
+                timestamp: timestamp,
+                compression: Compression::from(attrs & 0x07),
+                key: key,
+                value: value,
+            })
+        )
     )
 );

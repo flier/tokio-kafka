@@ -11,17 +11,17 @@ pub struct ProduceRequest {
     pub header: RequestHeader,
     pub required_acks: i16,
     pub timeout: i32,
-    pub topics: Vec<ProduceTopicData>,
+    pub topics: Vec<ProduceTopic>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProduceTopicData {
+pub struct ProduceTopic {
     pub topic_name: String,
-    pub partitions: Vec<ProducePartitionData>,
+    pub partitions: Vec<ProducePartition>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProducePartitionData {
+pub struct ProducePartition {
     pub partition: i32,
     pub message_set: MessageSet,
 }
@@ -66,43 +66,47 @@ pub struct ProducePartitionStatus {
 }
 
 named_args!(pub parse_produce_response(api_version: i16)<ProduceResponse>,
-    do_parse!(
-        header: parse_response_header
-     >> topics: parse_tag!(ParseTag::ProduceTopics,
-            length_count!(be_i32, apply!(parse_produce_topic_status, api_version)))
-     >> throttle_time: cond!(api_version > 0, be_i32)
-     >> (ProduceResponse {
-            header: header,
-            topics: topics,
-            throttle_time: throttle_time,
-        })
+    parse_tag!(ParseTag::ProduceResponse,
+        do_parse!(
+            header: parse_response_header
+         >> topics: length_count!(be_i32, apply!(parse_produce_topic_status, api_version))
+         >> throttle_time: cond!(api_version > 0, be_i32)
+         >> (ProduceResponse {
+                header: header,
+                topics: topics,
+                throttle_time: throttle_time,
+            })
+        )
     )
 );
 
 named_args!(parse_produce_topic_status(api_version: i16)<ProduceTopicStatus>,
-    do_parse!(
-        topic_name: parse_string
-     >> partitions: parse_tag!(ParseTag::ProducePartitions,
-            length_count!(be_i32, apply!(parse_produce_partition_status, api_version)))
-     >> (ProduceTopicStatus {
-            topic_name: topic_name,
-            partitions: partitions,
-        })
+    parse_tag!(ParseTag::ProduceTopicStatus,
+        do_parse!(
+            topic_name: parse_string
+         >> partitions: length_count!(be_i32, apply!(parse_produce_partition_status, api_version))
+         >> (ProduceTopicStatus {
+                topic_name: topic_name,
+                partitions: partitions,
+            })
+        )
     )
 );
 
 named_args!(parse_produce_partition_status(api_version: i16)<ProducePartitionStatus>,
-    do_parse!(
-        partition: be_i32
-     >> error_code: be_i16
-     >> offset: be_i64
-     >> timestamp: cond!(api_version > 1, be_i64)
-     >> (ProducePartitionStatus {
-            partition: partition,
-            error_code: error_code,
-            offset: offset,
-            timestamp: timestamp,
-        })
+    parse_tag!(ParseTag::ProducePartitionStatus,
+        do_parse!(
+            partition: be_i32
+         >> error_code: be_i16
+         >> offset: be_i64
+         >> timestamp: cond!(api_version > 1, be_i64)
+         >> (ProducePartitionStatus {
+                partition: partition,
+                error_code: error_code,
+                offset: offset,
+                timestamp: timestamp,
+            })
+        )
     )
 );
 
@@ -188,9 +192,9 @@ mod tests {
             },
             required_acks: RequiredAcks::All as i16,
             timeout: 123,
-            topics: vec![ProduceTopicData {
+            topics: vec![ProduceTopic {
                 topic_name: "topic".to_owned(),
-                partitions: vec![ProducePartitionData {
+                partitions: vec![ProducePartition {
                     partition: 1,
                     message_set: MessageSet {
                         messages: vec![Message {

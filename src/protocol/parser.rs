@@ -77,7 +77,7 @@ macro_rules! parse_tag (
                 $crate::nom::IResult::Error(e)      => {
                     let code = ::nom::ErrorKind::Custom($tag as u32);
 
-                    return $crate::nom::IResult::Error(error_node_position!(code, $i, e));
+                    $crate::nom::IResult::Error(error_node_position!(code, $i, e))
                 }
             }
         }
@@ -89,27 +89,55 @@ macro_rules! parse_tag (
 
 #[repr(i32)]
 pub enum ParseTag {
-    ResponseHeader = 0,
-    ProduceTopics = -1,
-    ProducePartitions = -2,
-    FetchTopics = -101,
-    FetchPartitions = -102,
-    MetadataBrokers = -301,
-    MetadataTopics = -302,
-    ApiVersions = -1801,
+    ResponseHeader = 8000,
+
+    MessageSet = 8001,
+    Message = 8002,
+    String = 8003,
+    Bytes = 8004,
+
+    ProduceResponse = 10000,
+    ProduceTopicStatus = 10001,
+    ProducePartitionStatus = 10002,
+
+    FetchResponse = 10100,
+    TopicData = 10101,
+    PartitionData = 10102,
+
+    MetadataResponse = 10300,
+    BrokerMetadata = 10301,
+    TopicMetadata = 10302,
+    PartitionMetadata = 10303,
+
+    ApiVersionsResponse = 11800,
+    ApiVersion = 11801,
 }
 
 lazy_static!{
     pub static ref PARSE_TAGS: HashMap<u32, &'static str> = {
         let mut h = HashMap::new();
-        h.insert(ParseTag::ResponseHeader as u32, "response_header");
-        h.insert(ParseTag::ProduceTopics as u32, "produce_topics");
-        h.insert(ParseTag::ProducePartitions as u32, "produce_partitions");
-        h.insert(ParseTag::FetchTopics as u32, "fetch_topics");
-        h.insert(ParseTag::FetchPartitions as u32, "fetch_partitions");
-        h.insert(ParseTag::MetadataBrokers as u32, "metadata_brokers");
-        h.insert(ParseTag::MetadataTopics as u32, "metadata_topics");
-        h.insert(ParseTag::ApiVersions as u32, "api_versions");
+        h.insert(ParseTag::ResponseHeader as u32, "ResponseHeader");
+
+        h.insert(ParseTag::MessageSet as u32, "MessageSet");
+        h.insert(ParseTag::Message as u32, "Message");
+        h.insert(ParseTag::String as u32, "String");
+        h.insert(ParseTag::Bytes as u32, "Bytes");
+
+        h.insert(ParseTag::ProduceResponse as u32, "ProduceResponse");
+        h.insert(ParseTag::ProduceTopicStatus as u32, "ProduceTopicStatus");
+        h.insert(ParseTag::ProducePartitionStatus as u32, "ProducePartitionStatus");
+
+        h.insert(ParseTag::FetchResponse as u32, "FetchResponse");
+        h.insert(ParseTag::TopicData as u32, "TopicData");
+        h.insert(ParseTag::PartitionData as u32, "PartitionData");
+
+        h.insert(ParseTag::MetadataResponse as u32, "MetadataResponse");
+        h.insert(ParseTag::BrokerMetadata as u32, "BrokerMetadata");
+        h.insert(ParseTag::TopicMetadata as u32, "TopicMetadata");
+        h.insert(ParseTag::PartitionMetadata as u32, "PartitionMetadata");
+
+        h.insert(ParseTag::ApiVersionsResponse as u32, "ApiVersionsResponse");
+        h.insert(ParseTag::ApiVersion as u32, "ApiVersion");
         h
     };
 }
@@ -182,26 +210,32 @@ pub fn display_parse_error<O>(input: &[u8], res: IResult<&[u8], O>) {
 }
 
 named!(pub parse_str<Option<Cow<str>>>,
-    do_parse!(
-        len: be_i16
-     >> s: cond!(len > 0, map!(map_res!(take!(len), str::from_utf8), Cow::from))
-     >> (s)
+    parse_tag!(ParseTag::String,
+        do_parse!(
+            len: be_i16
+         >> s: cond!(len > 0, map!(map_res!(take!(len), str::from_utf8), Cow::from))
+         >> (s)
+        )
     )
 );
 
 named!(pub parse_string<String>,
-    do_parse!(
-        len: be_i16
-     >> s: cond_reduce!(len > 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
-     >> (s)
+    parse_tag!(ParseTag::String,
+        do_parse!(
+            len: be_i16
+         >> s: cond_reduce!(len > 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
+         >> (s)
+        )
     )
 );
 
 named!(pub parse_bytes<Option<Bytes>>,
-    do_parse!(
-        len: be_i32
-     >> s: cond!(len > 0, map!(take!(len), Bytes::from))
-     >> (s)
+    parse_tag!(ParseTag::Bytes,
+        do_parse!(
+            len: be_i32
+         >> s: cond!(len > 0, map!(take!(len), Bytes::from))
+         >> (s)
+        )
     )
 );
 
@@ -211,7 +245,10 @@ mod tests {
     use std::slice;
     use std::iter::repeat;
 
-    use bytes::BigEndian;
+    use bytes::{Bytes, BigEndian};
+
+    use nom::{IResult, Needed, ErrorKind};
+    use nom::verbose_errors::Err;
 
     use super::*;
 
@@ -287,5 +324,39 @@ mod tests {
         let s = unsafe { slice::from_raw_parts(buf.as_ptr(), i32::max_value() as usize + 1) };
 
         assert!(buf.put_bytes::<BigEndian, _>(Some(s)).err().is_some());
+    }
+
+    #[test]
+    fn test_parse_str() {
+        assert_eq!(parse_str(b"\0"), IResult::Incomplete(Needed::Size(2)));
+        assert_eq!(parse_str(b"\xff\xff"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_str(b"\0\x04test"),
+                   IResult::Done(&b""[..], Some(Cow::from("test"))));
+    }
+
+    #[test]
+    fn test_parse_string() {
+        assert_eq!(parse_string(b"\0"), IResult::Incomplete(Needed::Size(2)));
+        assert_eq!(parse_string(b"\xff\xff"),
+                   IResult::Error(Err::NodePosition(ErrorKind::Custom(8003),
+                                                    &[255, 255][..],
+                                                    Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
+        assert_eq!(parse_string(b"\0\0"),
+                   IResult::Error(Err::NodePosition(ErrorKind::Custom(8003),
+                                                    &[0, 0][..],
+                                                    Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
+        assert_eq!(parse_string(b"\0\x04test"),
+                   IResult::Done(&b""[..], "test".to_owned()));
+    }
+
+    #[test]
+    fn test_parse_bytes() {
+        assert_eq!(parse_bytes(b"\0"), IResult::Incomplete(Needed::Size(4)));
+        assert_eq!(parse_bytes(b"\xff\xff\xff\xff"),
+                   IResult::Done(&b""[..], None));
+        assert_eq!(parse_bytes(b"\0\0\0\0"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_bytes(b"\0\0\0\x04test"),
+                   IResult::Done(&b""[..], Some(Bytes::from(&b"test"[..]))));
     }
 }

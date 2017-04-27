@@ -73,58 +73,66 @@ pub struct PartitionMetadata {
 }
 
 named!(pub parse_metadata_response<MetadataResponse>,
-    do_parse!(
-        header: parse_response_header
-     >> brokers: parse_tag!(ParseTag::MetadataBrokers, length_count!(be_i32, parse_broker_metadata))
-     >> topics: parse_tag!(ParseTag::MetadataTopics, length_count!(be_i32, parse_topic_metadata))
-     >> (MetadataResponse {
-            header: header,
-            brokers: brokers,
-            topics: topics,
-        })
+    parse_tag!(ParseTag::MetadataResponse,
+        do_parse!(
+            header: parse_response_header
+        >> brokers: length_count!(be_i32, parse_broker_metadata)
+        >> topics: length_count!(be_i32, parse_topic_metadata)
+        >> (MetadataResponse {
+                header: header,
+                brokers: brokers,
+                topics: topics,
+            })
+        )
     )
 );
 
 named!(parse_broker_metadata<BrokerMetadata>,
-    do_parse!(
-        node_id: be_i32
-     >> host: parse_string
-     >> port: be_i32
-     >> (BrokerMetadata {
-            node_id: node_id,
-            host: host,
-            port: port,
-        })
+    parse_tag!(ParseTag::BrokerMetadata,
+        do_parse!(
+            node_id: be_i32
+         >> host: parse_string
+         >> port: be_i32
+         >> (BrokerMetadata {
+                node_id: node_id,
+                host: host,
+                port: port,
+            })
+        )
     )
 );
 
 named!(parse_topic_metadata<TopicMetadata>,
-    do_parse!(
-        error_code: be_i16
-     >> topic_name: parse_string
-     >> partitions: length_count!(be_i32, parse_partition_metadata)
-     >> (TopicMetadata {
-            error_code: error_code,
-            topic_name: topic_name,
-            partitions: partitions,
-        })
+    parse_tag!(ParseTag::TopicMetadata,
+        do_parse!(
+            error_code: be_i16
+         >> topic_name: parse_string
+         >> partitions: length_count!(be_i32, parse_partition_metadata)
+         >> (TopicMetadata {
+                error_code: error_code,
+                topic_name: topic_name,
+                partitions: partitions,
+            })
+        )
     )
 );
 
 named!(parse_partition_metadata<PartitionMetadata>,
-    do_parse!(
-        error_code: be_i16
-     >> partition_id: be_i32
-     >> leader: be_i32
-     >> replicas: length_count!(be_i32, be_i32)
-     >> isr: length_count!(be_i32, be_i32)
-     >> (PartitionMetadata {
-         error_code: error_code,
-         partition_id: partition_id,
-         leader: leader,
-         replicas: replicas,
-         isr: isr,
-     })
+    parse_tag!(ParseTag::PartitionMetadata,
+        do_parse!(
+            error_code: be_i16
+         >> partition_id: be_i32
+         >> leader: be_i32
+         >> replicas: length_count!(be_i32, be_i32)
+         >> isr: length_count!(be_i32, be_i32)
+         >> (PartitionMetadata {
+                error_code: error_code,
+                partition_id: partition_id,
+                leader: leader,
+                replicas: replicas,
+                isr: isr,
+            })
+        )
     )
 );
 
