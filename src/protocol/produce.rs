@@ -77,9 +77,8 @@ pub struct ProducePartitionStatus {
 named_args!(pub parse_produce_response(api_version: i16)<ProduceResponse>,
     do_parse!(
         header: parse_response_header
-     >> n: be_i32
      >> topics: parse_tag!(ParseTag::ProduceTopics,
-            many_m_n!(n as usize, n as usize, apply!(parse_produce_topic_status, api_version)))
+            length_count!(be_i32, apply!(parse_produce_topic_status, api_version)))
      >> throttle_time: cond!(api_version > 0, be_i32)
      >> (ProduceResponse {
             header: header,
@@ -92,9 +91,8 @@ named_args!(pub parse_produce_response(api_version: i16)<ProduceResponse>,
 named_args!(parse_produce_topic_status(api_version: i16)<ProduceTopicStatus>,
     do_parse!(
         topic_name: parse_string
-     >> n: be_i32
      >> partitions: parse_tag!(ParseTag::ProducePartitions,
-            many_m_n!(n as usize, n as usize, apply!(parse_produce_partition_status, api_version)))
+            length_count!(be_i32, apply!(parse_produce_partition_status, api_version)))
      >> (ProduceTopicStatus {
             topic_name: topic_name,
             partitions: partitions,

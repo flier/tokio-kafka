@@ -82,9 +82,8 @@ named_args!(pub parse_fetch_response(api_version: i16)<FetchReponse>,
     do_parse!(
         header: parse_response_header
      >> throttle_time: cond!(api_version > 0, be_i32)
-     >> n: be_i32
      >> topics: parse_tag!(ParseTag::FetchTopics,
-            many_m_n!(n as usize, n as usize, apply!(parse_fetch_topic_data, api_version)))
+            length_count!(be_i32, apply!(parse_fetch_topic_data, api_version)))
      >> (FetchReponse {
             header: header,
             throttle_time: throttle_time,
@@ -96,9 +95,8 @@ named_args!(pub parse_fetch_response(api_version: i16)<FetchReponse>,
 named_args!(parse_fetch_topic_data(api_version: i16)<TopicData>,
     do_parse!(
         topic_name: parse_string
-     >> n: be_i32
      >> partitions: parse_tag!(ParseTag::FetchPartitions,
-            many_m_n!(n as usize, n as usize, apply!(parse_fetch_partition_data, api_version)))
+            length_count!(be_i32, apply!(parse_fetch_partition_data, api_version)))
      >> (TopicData {
             topic_name: topic_name,
             partitions: partitions,

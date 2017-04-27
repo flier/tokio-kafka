@@ -82,10 +82,8 @@ pub struct PartitionMetadata {
 named!(pub parse_metadata_response<MetadataResponse>,
     do_parse!(
         header: parse_response_header
-     >> n: be_i32
-     >> brokers: parse_tag!(ParseTag::MetadataBrokers, many_m_n!(n as usize, n as usize, parse_broker_metadata))
-     >> n: be_i32
-     >> topics: parse_tag!(ParseTag::MetadataTopics, many_m_n!(n as usize, n as usize, parse_topic_metadata))
+     >> brokers: parse_tag!(ParseTag::MetadataBrokers, length_count!(be_i32, parse_broker_metadata))
+     >> topics: parse_tag!(ParseTag::MetadataTopics, length_count!(be_i32, parse_topic_metadata))
      >> (MetadataResponse {
             header: header,
             brokers: brokers,
@@ -111,8 +109,7 @@ named!(parse_topic_metadata<TopicMetadata>,
     do_parse!(
         error_code: be_i16
      >> topic_name: parse_string
-     >> n: be_i32
-     >> partitions: many_m_n!(n as usize, n as usize, parse_partition_metadata)
+     >> partitions: length_count!(be_i32, parse_partition_metadata)
      >> (TopicMetadata {
             error_code: error_code,
             topic_name: topic_name,
@@ -126,10 +123,8 @@ named!(parse_partition_metadata<PartitionMetadata>,
         error_code: be_i16
      >> partition_id: be_i32
      >> leader: be_i32
-     >> n: be_i32
-     >> replicas: many_m_n!(n as usize, n as usize, be_i32)
-     >> n: be_i32
-     >> isr: many_m_n!(n as usize, n as usize, be_i32)
+     >> replicas: length_count!(be_i32, be_i32)
+     >> isr: length_count!(be_i32, be_i32)
      >> (PartitionMetadata {
          error_code: error_code,
          partition_id: partition_id,

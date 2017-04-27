@@ -1,6 +1,6 @@
 use bytes::{Bytes, BytesMut, BufMut, ByteOrder};
 
-use nom::{be_i8, be_i16, be_i32, be_i64};
+use nom::{be_i8, be_i32, be_i64};
 
 use time;
 
@@ -70,7 +70,8 @@ impl MessageSetEncoder {
             let offset = if message.compression == Compression::None {
                 message.offset
             } else {
-                offset.wrapping_add(1) - 1
+                offset = offset.wrapping_add(1);
+                offset - 1
             };
 
             self.encode_message::<T>(message, offset, buf)

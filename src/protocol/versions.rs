@@ -51,8 +51,7 @@ named!(pub parse_api_versions_response<ApiVersionsResponse>,
     do_parse!(
         header: parse_response_header
      >> error_code: be_i16
-     >> n: be_i32
-     >> api_versions: parse_tag!(ParseTag::ApiVersions, many_m_n!(n as usize, n as usize, parse_api_version))
+     >> api_versions: parse_tag!(ParseTag::ApiVersions, length_count!(be_i32, parse_api_version))
      >> (ApiVersionsResponse {
             header: header,
             error_code: error_code,
