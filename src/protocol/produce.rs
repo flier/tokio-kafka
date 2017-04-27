@@ -202,7 +202,7 @@ mod tests {
                             compression: Compression::None,
                             key: Some(Bytes::from(&b"key"[..])),
                             value: Some(Bytes::from(&b"value"[..])),
-                            timestamp: Some(456),
+                            timestamp: Some(Timestamp::CreateTime(456)),
                         }],
                     },
                 }],

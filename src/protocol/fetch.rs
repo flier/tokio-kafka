@@ -177,7 +177,7 @@ mod tests {
                             0, 0, 0, 30,                        // size
                             226, 52, 65, 188,                   // crc
                             MAGIC_BYTE as u8,                   // magic
-                            0,                                  // attributes
+                            8,                                  // attributes
                             0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
                             0, 0, 0, 3, 107, 101, 121,          // key
                             0, 0, 0, 5, 118, 97, 108, 117, 101  // value
@@ -198,7 +198,7 @@ mod tests {
                             compression: Compression::None,
                             key: Some(Bytes::from(&b"key"[..])),
                             value: Some(Bytes::from(&b"value"[..])),
-                            timestamp: Some(456),
+                            timestamp: Some(Timestamp::LogAppendTime(456)),
                         }],
                     },
                 }],

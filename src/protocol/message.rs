@@ -12,6 +12,9 @@ use protocol::{WriteExt, ParseTag, parse_bytes};
 
 pub const MAGIC_BYTE: i8 = 1;
 
+pub const LOG_APPEND_TIME_FLAG: i8 = 0x08;
+pub const COMPRESSION_MASK: i8 = 0x07;
+
 /// Message sets
 ///
 /// One structure common to both the produce and fetch requests is the message set format.
@@ -48,10 +51,33 @@ pub struct MessageSet {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Message {
     pub offset: i64,
-    pub timestamp: Option<i64>,
+    pub timestamp: Option<Timestamp>,
     pub compression: Compression,
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Timestamp {
+    CreateTime(i64),
+    LogAppendTime(i64),
+}
+
+impl Timestamp {
+    pub fn value(&self) -> i64 {
+        match self {
+            &Timestamp::CreateTime(v) |
+            &Timestamp::LogAppendTime(v) => v,
+        }
+    }
+}
+
+impl Default for Timestamp {
+    fn default() -> Self {
+        let ts = time::now_utc().to_timespec();
+
+        Timestamp::CreateTime(ts.sec * 1000_000 + ts.nsec as i64 / 1000)
+    }
 }
 
 pub struct MessageSetEncoder {
@@ -90,15 +116,15 @@ impl MessageSetEncoder {
         buf.put_i32::<T>(0);
         let data_off = buf.len();
         buf.put_i8(MAGIC_BYTE);
-        buf.put_i8(message.compression as i8);
+        buf.put_i8((message.compression as i8 & COMPRESSION_MASK) |
+                   if let Some(Timestamp::LogAppendTime(_)) = message.timestamp {
+                       LOG_APPEND_TIME_FLAG
+                   } else {
+                       0
+                   });
 
         if self.api_version > 0 {
-            buf.put_i64::<T>(message
-                                 .timestamp
-                                 .unwrap_or_else(|| {
-                                                     let ts = time::now_utc().to_timespec();
-                                                     ts.sec * 1000_000 + ts.nsec as i64 / 1000
-                                                 }));
+            buf.put_i64::<T>(message.timestamp.unwrap_or_default().value());
         }
 
         buf.put_bytes::<T, _>(message.key)?;
@@ -118,7 +144,7 @@ named_args!(pub parse_message_set(api_version: i16)<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
         do_parse!(
             messages: length_count!(be_i32, apply!(parse_message, api_version))
-        >> (MessageSet {
+         >> (MessageSet {
                 messages: messages,
             })
         )
@@ -129,17 +155,21 @@ named_args!(parse_message(api_version: i16)<Message>,
     parse_tag!(ParseTag::Message,
         do_parse!(
             offset: be_i64
-        >> size: be_i32
-        >> crc: be_i32
-        >> magic: be_i8
-        >> attrs: be_i8
-        >> timestamp: cond!(api_version > 0, be_i64)
-        >> key: parse_bytes
-        >> value: parse_bytes
-        >> (Message {
+         >> size: be_i32
+         >> crc: be_i32
+         >> magic: verify!(be_i8, |v: i8| v == MAGIC_BYTE)
+         >> attrs: be_i8
+         >> timestamp: cond!(api_version > 0, be_i64)
+         >> key: parse_bytes
+         >> value: parse_bytes
+         >> (Message {
                 offset: offset,
-                timestamp: timestamp,
-                compression: Compression::from(attrs & 0x07),
+                timestamp: timestamp.map(|ts| if (attrs & LOG_APPEND_TIME_FLAG) == 0 {
+                    Timestamp::CreateTime(ts)
+                }else {
+                    Timestamp::LogAppendTime(ts)
+                }),
+                compression: Compression::from(attrs & COMPRESSION_MASK),
                 key: key,
                 value: value,
             })

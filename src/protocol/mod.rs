@@ -14,7 +14,8 @@ mod versions;
 pub use self::parser::{Encodable, WriteExt, ParseTag, PARSE_TAGS, parse_str, parse_string,
                        parse_bytes, display_parse_error};
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
-pub use self::message::{Message, MessageSet, MessageSetEncoder, parse_message_set, MAGIC_BYTE};
+pub use self::message::{Message, MessageSet, MessageSetEncoder, parse_message_set, MAGIC_BYTE,
+                        Timestamp};
 pub use self::metadata::{MetadataRequest, MetadataResponse, BrokerMetadata, TopicMetadata,
                          PartitionMetadata, parse_metadata_response};
 pub use self::produce::{ProduceRequest, ProduceResponse, ProduceTopic, ProducePartition,
