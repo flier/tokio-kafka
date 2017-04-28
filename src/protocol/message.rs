@@ -157,11 +157,11 @@ named_args!(parse_message(api_version: i16)<Message>,
             offset: be_i64
          >> size: be_i32
          >> data: peek!(take!(size))
-         >> crc: parse_tag!(ParseTag::MessageCrc,
+         >> _crc: parse_tag!(ParseTag::MessageCrc,
             verify!(be_i32, |checksum: i32| {
                 crc32::checksum_ieee(&data[mem::size_of::<i32>()..]) == checksum as u32
             }))
-         >> magic: verify!(be_i8, |v: i8| v as i16 == api_version)
+         >> _magic: verify!(be_i8, |v: i8| v as i16 == api_version)
          >> attrs: be_i8
          >> timestamp: cond!(api_version > 0, be_i64)
          >> key: parse_bytes
