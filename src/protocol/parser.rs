@@ -99,12 +99,16 @@ pub enum ParseTag {
     MessageCrc = 8005,
 
     ProduceResponse = 10000,
-    ProduceTopicStatus = 10001,
-    ProducePartitionStatus = 10002,
+    TopicStatus = 10001,
+    PartitionStatus = 10002,
 
     FetchResponse = 10100,
     TopicData = 10101,
     PartitionData = 10102,
+
+    ListOffsetResponse = 10200,
+    TopicOffset = 10201,
+    PartitionOffset = 10202,
 
     MetadataResponse = 10300,
     BrokerMetadata = 10301,
@@ -128,12 +132,16 @@ lazy_static!{
         h.insert(ParseTag::MessageCrc as u32, "MessageCrc");
 
         h.insert(ParseTag::ProduceResponse as u32, "ProduceResponse");
-        h.insert(ParseTag::ProduceTopicStatus as u32, "ProduceTopicStatus");
-        h.insert(ParseTag::ProducePartitionStatus as u32, "ProducePartitionStatus");
+        h.insert(ParseTag::TopicStatus as u32, "TopicStatus");
+        h.insert(ParseTag::PartitionStatus as u32, "PartitionStatus");
 
         h.insert(ParseTag::FetchResponse as u32, "FetchResponse");
         h.insert(ParseTag::TopicData as u32, "TopicData");
         h.insert(ParseTag::PartitionData as u32, "PartitionData");
+
+        h.insert(ParseTag::ListOffsetResponse as u32, "OffsetResponse");
+        h.insert(ParseTag::TopicOffset as u32, "TopicOffset");
+        h.insert(ParseTag::PartitionOffset as u32, "PartitionOffset");
 
         h.insert(ParseTag::MetadataResponse as u32, "MetadataResponse");
         h.insert(ParseTag::BrokerMetadata as u32, "BrokerMetadata");

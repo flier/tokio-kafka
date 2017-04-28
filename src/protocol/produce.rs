@@ -47,18 +47,18 @@ impl Encodable for ProduceRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceResponse {
     pub header: ResponseHeader,
-    pub topics: Vec<ProduceTopicStatus>,
+    pub topics: Vec<TopicStatus>,
     pub throttle_time: Option<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProduceTopicStatus {
+pub struct TopicStatus {
     pub topic_name: String,
-    pub partitions: Vec<ProducePartitionStatus>,
+    pub partitions: Vec<PartitionStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProducePartitionStatus {
+pub struct PartitionStatus {
     pub partition: i32,
     pub error_code: i16,
     pub offset: i64,
@@ -80,12 +80,12 @@ named_args!(pub parse_produce_response(api_version: i16)<ProduceResponse>,
     )
 );
 
-named_args!(parse_produce_topic_status(api_version: i16)<ProduceTopicStatus>,
-    parse_tag!(ParseTag::ProduceTopicStatus,
+named_args!(parse_produce_topic_status(api_version: i16)<TopicStatus>,
+    parse_tag!(ParseTag::TopicStatus,
         do_parse!(
             topic_name: parse_string
          >> partitions: length_count!(be_i32, apply!(parse_produce_partition_status, api_version))
-         >> (ProduceTopicStatus {
+         >> (TopicStatus {
                 topic_name: topic_name,
                 partitions: partitions,
             })
@@ -93,14 +93,14 @@ named_args!(parse_produce_topic_status(api_version: i16)<ProduceTopicStatus>,
     )
 );
 
-named_args!(parse_produce_partition_status(api_version: i16)<ProducePartitionStatus>,
-    parse_tag!(ParseTag::ProducePartitionStatus,
+named_args!(parse_produce_partition_status(api_version: i16)<PartitionStatus>,
+    parse_tag!(ParseTag::PartitionStatus,
         do_parse!(
             partition: be_i32
          >> error_code: be_i16
          >> offset: be_i64
          >> timestamp: cond!(api_version > 1, be_i64)
-         >> (ProducePartitionStatus {
+         >> (PartitionStatus {
                 partition: partition,
                 error_code: error_code,
                 offset: offset,
@@ -168,9 +168,9 @@ mod tests {
 
         static ref TEST_RESPONSE: ProduceResponse = ProduceResponse {
             header: ResponseHeader { correlation_id: 123 },
-            topics: vec![ProduceTopicStatus {
+            topics: vec![TopicStatus {
                              topic_name: "topic".to_owned(),
-                             partitions: vec![ProducePartitionStatus {
+                             partitions: vec![PartitionStatus {
                                                   partition: 1,
                                                   error_code: 2,
                                                   offset: 3,
