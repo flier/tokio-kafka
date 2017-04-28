@@ -5,13 +5,15 @@ use log::LogLevel::Debug;
 use nom::{IResult, Needed};
 
 use protocol::{ApiKeys, ProduceResponse, parse_produce_response, FetchResponse,
-               parse_fetch_response, MetadataResponse, parse_metadata_response,
-               ApiVersionsResponse, parse_api_versions_response, display_parse_error};
+               parse_fetch_response, ListOffsetResponse, parse_list_offset_response,
+               MetadataResponse, parse_metadata_response, ApiVersionsResponse,
+               parse_api_versions_response, display_parse_error};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
     Produce(ProduceResponse),
     Fetch(FetchResponse),
+    ListOffsets(ListOffsetResponse),
     Metadata(MetadataResponse),
     ApiVersions(ApiVersionsResponse),
 }
@@ -29,6 +31,9 @@ impl KafkaResponse {
             }
             ApiKeys::Fetch => {
                 parse_fetch_response(buf, api_version as i16).map(KafkaResponse::Fetch)
+            }
+            ApiKeys::ListOffsets => {
+                parse_list_offset_response(buf, api_version as i16).map(KafkaResponse::ListOffsets)
             }
             ApiKeys::Metadata => parse_metadata_response(buf).map(KafkaResponse::Metadata),
             ApiKeys::ApiVersions => {
