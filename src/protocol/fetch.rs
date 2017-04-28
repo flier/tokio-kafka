@@ -81,7 +81,7 @@ pub struct PartitionData {
 
 named_args!(pub parse_fetch_response(api_version: i16)<FetchResponse>,
     parse_tag!(ParseTag::FetchResponse,
-        do_parse!(
+        dbg_dmp!( do_parse!(
             header: parse_response_header
          >> throttle_time: cond!(api_version > 0, be_i32)
          >> topics: length_count!(be_i32, apply!(parse_fetch_topic_data, api_version))
@@ -90,7 +90,7 @@ named_args!(pub parse_fetch_response(api_version: i16)<FetchResponse>,
                 throttle_time: throttle_time,
                 topics: topics,
             })
-        )
+        ))
     )
 );
 
@@ -134,8 +134,29 @@ mod tests {
     use protocol::*;
     use compression::Compression;
 
-    lazy_static!{
-        static ref TEST_FETCH_REQUEST_DATA: Vec<u8> = vec![
+    #[test]
+    fn test_encode_fetch_request() {
+        let request = FetchRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Fetch as i16,
+                api_version: 1,
+                correlation_id: 123,
+                client_id: Some("client".to_owned()),
+            },
+            replica_id: 2,
+            max_wait_time: 3,
+            min_bytes: 4,
+            topics: vec![FetchTopic {
+                topic_name: "topic".to_owned(),
+                partitions: vec![FetchPartition {
+                    partition: 5,
+                    fetch_offset: 6,
+                    max_bytes: 7
+                }],
+            }],
+        };
+
+        let data = vec![
             // FetchRequest
                 // RequestHeader
                 0, 1,                               // api_key
@@ -157,7 +178,95 @@ mod tests {
                         0, 0, 0, 7,                 // max_bytes
         ];
 
-        static ref TEST_FETCH_RESPONSE_DATA: Vec<u8> = vec![
+        let mut buf = BytesMut::with_capacity(128);
+
+        request.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(&buf[..], &data[..]);
+    }
+
+    #[test]
+    fn test_parse_fetch_response_v0() {
+        let response = FetchResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            throttle_time: None,
+            topics: vec![TopicData {
+                topic_name: "topic".to_owned(),
+                partitions: vec![PartitionData {
+                    partition: 1,
+                    error_code: 2,
+                    highwater_mark_offset: 3,
+                    message_set: MessageSet {
+                        messages: vec![Message {
+                            offset: 0,
+                            compression: Compression::None,
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
+                            timestamp: None,
+                        }],
+                    },
+                }],
+            }],
+        };
+
+        let data = vec![
+            // ResponseHeader
+            0, 0, 0, 123,   // correlation_id
+            //0, 0, 0, 1,     // throttle_time
+            // topics: [TopicData]
+            0, 0, 0, 1,
+                0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
+                // partitions: [PartitionData]
+                0, 0, 0, 1,
+                    0, 0, 0, 1,             // partition
+                    0, 2,                   // error_code
+                    0, 0, 0, 0, 0, 0, 0, 3, // highwater_mark_offset
+                    // MessageSet
+                    0, 0, 0, 38,            // size
+                        // messages: [Message]
+                        0, 0, 0, 1,
+                            0, 0, 0, 0, 0, 0, 0, 0,             // offset
+                            0, 0, 0, 22,                        // size
+                            197, 70, 142, 169,                  // crc
+                            0,                                  // magic
+                            8,                                  // attributes
+                            //0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
+                            0, 0, 0, 3, 107, 101, 121,          // key
+                            0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+        ];
+
+        let res = parse_fetch_response(&data[..], 0);
+
+        display_parse_error::<_>(&data[..], res.clone());
+
+        assert_eq!(res, IResult::Done(&[][..], response));
+    }
+
+    #[test]
+    fn test_parse_fetch_response_v1() {
+        let response = FetchResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            throttle_time: Some(1),
+            topics: vec![TopicData {
+                topic_name: "topic".to_owned(),
+                partitions: vec![PartitionData {
+                    partition: 1,
+                    error_code: 2,
+                    highwater_mark_offset: 3,
+                    message_set: MessageSet {
+                        messages: vec![Message {
+                            offset: 0,
+                            compression: Compression::None,
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
+                            timestamp: Some(Timestamp::LogAppendTime(456)),
+                        }],
+                    },
+                }],
+            }],
+        };
+
+        let data = vec![
             // ResponseHeader
             0, 0, 0, 123,   // correlation_id
             0, 0, 0, 1,     // throttle_time
@@ -183,65 +292,10 @@ mod tests {
                             0, 0, 0, 5, 118, 97, 108, 117, 101  // value
         ];
 
-        static ref TEST_FETCH_RESPONSE: FetchResponse = FetchResponse {
-            header: ResponseHeader { correlation_id: 123 },
-            throttle_time: Some(1),
-            topics: vec![TopicData {
-                topic_name: "topic".to_owned(),
-                partitions: vec![PartitionData {
-                    partition: 1,
-                    error_code: 2,
-                    highwater_mark_offset: 3,
-                    message_set: MessageSet {
-                        messages: vec![Message {
-                            offset: 0,
-                            compression: Compression::None,
-                            key: Some(Bytes::from(&b"key"[..])),
-                            value: Some(Bytes::from(&b"value"[..])),
-                            timestamp: Some(Timestamp::LogAppendTime(456)),
-                        }],
-                    },
-                }],
-            }],
-        };
-    }
+        let res = parse_fetch_response(&data[..], 1);
 
-    #[test]
-    fn test_encode_fetch_request() {
-        let req = FetchRequest {
-            header: RequestHeader {
-                api_key: ApiKeys::Fetch as i16,
-                api_version: 1,
-                correlation_id: 123,
-                client_id: Some("client".to_owned()),
-            },
-            replica_id: 2,
-            max_wait_time: 3,
-            min_bytes: 4,
-            topics: vec![FetchTopic {
-                topic_name: "topic".to_owned(),
-                partitions: vec![FetchPartition {
-                    partition: 5,
-                    fetch_offset: 6,
-                    max_bytes: 7
-                }],
-            }],
-        };
+        display_parse_error::<_>(&data[..], res.clone());
 
-        let mut buf = BytesMut::with_capacity(128);
-
-        req.encode::<BigEndian>(&mut buf).unwrap();
-
-        assert_eq!(&buf[..], &TEST_FETCH_REQUEST_DATA[..]);
-    }
-
-    #[test]
-    fn test_parse_fetch_response() {
-        let buf = TEST_FETCH_RESPONSE_DATA.as_slice();
-        let res = parse_fetch_response(buf, 1);
-
-        display_parse_error::<_>(&buf[..], res.clone());
-
-        assert_eq!(res, IResult::Done(&[][..], TEST_FETCH_RESPONSE.clone()));
+        assert_eq!(res, IResult::Done(&[][..], response));
     }
 }

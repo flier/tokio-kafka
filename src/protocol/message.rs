@@ -159,7 +159,13 @@ named_args!(parse_message(api_version: i16)<Message>,
          >> data: peek!(take!(size))
          >> _crc: parse_tag!(ParseTag::MessageCrc,
             verify!(be_i32, |checksum: i32| {
-                crc32::checksum_ieee(&data[mem::size_of::<i32>()..]) == checksum as u32
+                let crc = crc32::checksum_ieee(&data[mem::size_of::<i32>()..]);
+
+                if crc != checksum as u32 {
+                    trace!("message checksum mismatched, expected={}, current={}", crc, checksum as u32);
+                }
+
+                crc == checksum as u32
             }))
          >> _magic: verify!(be_i8, |v: i8| v as i16 == api_version)
          >> attrs: be_i8
