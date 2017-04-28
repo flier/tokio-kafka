@@ -237,10 +237,6 @@ mod tests {
 
     #[test]
     fn test_parse_fetch_response() {
-        use pretty_env_logger;
-
-        pretty_env_logger::init().unwrap();
-
         let buf = TEST_FETCH_RESPONSE_DATA.as_slice();
         let res = parse_fetch_response(buf, 1);
 

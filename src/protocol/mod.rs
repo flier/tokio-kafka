@@ -9,8 +9,8 @@ mod message;
 mod metadata;
 mod produce;
 mod fetch;
-mod offset;
-mod versions;
+mod list_offset;
+mod api_versions;
 
 pub use self::parser::{Encodable, WriteExt, ParseTag, PARSE_TAGS, parse_str, parse_string,
                        parse_bytes, display_parse_error};
@@ -22,8 +22,10 @@ pub use self::produce::{ProduceRequest, ProduceResponse, ProduceTopic, ProducePa
                         parse_produce_response};
 pub use self::fetch::{FetchRequest, FetchTopic, FetchPartition, FetchResponse,
                       parse_fetch_response};
-pub use self::versions::{ApiVersion, ApiVersionsRequest, ApiVersionsResponse,
-                         parse_api_versions_response};
+pub use self::list_offset::{ListOffsetRequest, ListTopicOffset, ListPartitionOffset,
+                            ListOffsetResponse, parse_list_offset_response};
+pub use self::api_versions::{ApiVersion, ApiVersionsRequest, ApiVersionsResponse,
+                             parse_api_versions_response};
 
 /// The following are the numeric codes that the ApiKey in the request can take for each of the below request types.
 #[derive(Debug, Copy, Clone)]
@@ -31,7 +33,7 @@ pub use self::versions::{ApiVersion, ApiVersionsRequest, ApiVersionsResponse,
 pub enum ApiKeys {
     Produce = 0,
     Fetch = 1,
-    Offsets = 2,
+    ListOffsets = 2,
     Metadata = 3,
     LeaderAndIsr = 4,
     StopReplica = 5,
