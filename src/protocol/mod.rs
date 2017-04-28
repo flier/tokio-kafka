@@ -9,6 +9,7 @@ mod message;
 mod metadata;
 mod produce;
 mod fetch;
+mod offset;
 mod versions;
 
 pub use self::parser::{Encodable, WriteExt, ParseTag, PARSE_TAGS, parse_str, parse_string,
