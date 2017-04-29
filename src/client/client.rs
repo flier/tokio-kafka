@@ -2,8 +2,9 @@ use std::io;
 use std::rc::Rc;
 use std::fmt::Debug;
 use std::cell::RefCell;
-use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::collections::HashMap;
 
 use bytes::BytesMut;
 
@@ -18,10 +19,28 @@ use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
 
+use errors::{Error, ErrorKind};
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
-use protocol::MetadataRequest;
+use protocol::{ApiKeys, KafkaCode, FetchOffset};
 use network::{KafkaRequest, KafkaResponse, KafkaCodec};
 use client::{KafkaConfig, KafkaState, Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT};
+
+impl From<FetchOffset> for i64 {
+    fn from(offset: FetchOffset) -> Self {
+        match offset {
+            FetchOffset::Earliest => -2,
+            FetchOffset::Latest => -1,
+            FetchOffset::ByTime(t) => t.sec * 1000 + t.nsec as i64 / 1000_000,
+        }
+    }
+}
+
+/// A retrieved offset for a particular partition in the context of an already known topic.
+#[derive(Clone, Debug)]
+pub struct PartitionOffset {
+    pub partition: i32,
+    pub offset: i64,
+}
 
 pub struct KafkaClient {
     config: KafkaConfig,
@@ -74,6 +93,118 @@ impl KafkaClient {
         self.state.borrow().metadata()
     }
 
+    pub fn fetch_offsets<S: AsRef<str>>(&mut self,
+                                        topic_names: &[S],
+                                        offset: FetchOffset)
+                                        -> FetchOffsets {
+        let topics = {
+            let metadata = self.state.borrow().metadata();
+
+            let mut topics = HashMap::new();
+
+            for topic_name in topic_names {
+                if let Some(partitions) = metadata.partitions_for(topic_name.as_ref()) {
+                    for (id, partition) in partitions {
+                        if let Some(broker) = metadata.find_broker(partition.broker()) {
+                            let addr = broker
+                                .addr()
+                                .to_socket_addrs()
+                                .unwrap()
+                                .next()
+                                .unwrap(); // TODO
+                            let api_version = if let Some(api_versions) = broker.api_versions() {
+                                api_versions
+                                    .get(ApiKeys::ListOffsets as usize)
+                                    .map(|api_version| api_version.max_version)
+                                    .unwrap_or(0)
+                            } else {
+                                0
+                            };
+
+                            topics
+                                .entry((addr, api_version))
+                                .or_insert_with(|| HashMap::new())
+                                .entry(topic_name.as_ref().to_owned())
+                                .or_insert_with(|| Vec::new())
+                                .push(id);
+                        }
+                    }
+                }
+            }
+
+            topics
+        };
+
+        let responses = {
+            let mut correlation_ids = topics
+                .iter()
+                .map(|_| self.state.borrow_mut().next_correlation_id())
+                .collect::<Vec<i32>>();
+            let client_id = self.config.client_id();
+
+            let mut responses = Vec::new();
+
+            for ((addr, api_version), ref topics) in topics {
+                let request = KafkaRequest::list_offsets(api_version,
+                                                         correlation_ids.pop().unwrap(),
+                                                         client_id.clone(),
+                                                         topics.iter(),
+                                                         offset);
+                let response =
+                    self.send_request(&addr, request)
+                        .and_then(|res| {
+                            if let KafkaResponse::ListOffsets(res) = res {
+                                let topics =
+                                    res.topics
+                                        .iter()
+                                        .map(|topic| {
+                                            let partitions = topic
+                                 .partitions
+                                 .iter()
+                                 .flat_map(|partition| {
+                                if partition.error_code == KafkaCode::None as i16 {
+                                    Ok(PartitionOffset {
+                                           partition: partition.partition,
+                                           offset: *partition.offsets.iter().next().unwrap(), //TODO
+                                       })
+                                } else {
+                                    Err(ErrorKind::KafkaError(partition.error_code.into()))
+                                }
+                            }).collect();
+
+                                            (topic.topic_name.clone(), partitions)
+                                        })
+                                        .collect::<Vec<(String, Vec<PartitionOffset>)>>();
+
+                                Ok(topics)
+                            } else {
+                                bail!(ErrorKind::InvalidResponse)
+                            }
+                        });
+
+                responses.push(response);
+            }
+
+            responses
+        };
+
+        let offsets = future::join_all(responses).map(|responses| {
+            responses
+                .iter()
+                .fold(HashMap::new(), |mut offsets, topics| {
+                    for &(ref topic_name, ref partitions) in topics {
+                        offsets
+                            .entry(topic_name.clone())
+                            .or_insert_with(|| Vec::new())
+                            .extend(partitions.iter().map(|partition| partition.clone()))
+                    }
+                    offsets
+                })
+        });
+
+        FetchOffsets::new(offsets)
+    }
+
     pub fn load_metadata(&mut self) -> LoadMetadata {
         debug!("loading metadata...");
 
@@ -92,9 +223,26 @@ impl KafkaClient {
     {
         debug!("fetch metadata for toipcs: {:?}", topic_names);
 
-        let addrs = self.config.brokers().unwrap();
+        let addrs = self.config.brokers().unwrap(); // TODO
         let addr = addrs.iter().next().unwrap();
 
+        let api_version = 0;
+        let correlation_id = self.state.borrow_mut().next_correlation_id();
+        let client_id = self.config.client_id();
+        let request =
+            KafkaRequest::fetch_metadata(api_version, correlation_id, client_id, topic_names);
+
+        let response = self.send_request(addr, request)
+            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
+                          future::ok(Metadata::from(res))
+                      } else {
+                          future::err(ErrorKind::InvalidResponse.into())
+                      });
+
+        FetchMetadata::new(response)
+    }
+
+    fn send_request(&mut self, addr: &SocketAddr, request: KafkaRequest) -> FutureResponse {
         let checkout = self.pool.checkout(addr);
         let connect = {
             let handle = self.handle.clone();
@@ -126,14 +274,6 @@ impl KafkaClient {
                 err.into()
             });
 
-        let api_version = 0;
-        let correlation_id = self.state.borrow_mut().next_correlation_id();
-        let client_id = self.config.client_id();
-        let request = KafkaRequest::Metadata(MetadataRequest::new(api_version,
-                                                                  correlation_id,
-                                                                  client_id,
-                                                                  topic_names));
-
         let response = race.and_then(move |client| client.call(Message::WithoutBody(request)))
             .map(|msg| {
                      debug!("received message: {:?}", msg);
@@ -143,17 +283,13 @@ impl KafkaClient {
                          Message::WithBody(res, _) => res,
                      }
                  })
-            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                          future::ok(Metadata::from(res))
-                      } else {
-                          future::err(io::Error::new(io::ErrorKind::Other, "invalid response"))
-                      });
+            .map_err(Error::from);
 
-        FetchMetadata::new(response)
+        FutureResponse::new(response)
     }
 }
 
-pub struct StaticBoxFuture<F = (), E = io::Error>(Box<Future<Item = F, Error = E> + 'static>);
+pub struct StaticBoxFuture<F = (), E = Error>(Box<Future<Item = F, Error = E> + 'static>);
 
 impl<F, E> StaticBoxFuture<F, E> {
     pub fn new<T>(inner: T) -> Self
@@ -172,6 +308,8 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
     }
 }
 
+pub type SendRequest = StaticBoxFuture;
+pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 pub type LoadMetadata = StaticBoxFuture;
 pub type FetchMetadata = StaticBoxFuture<Metadata>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;

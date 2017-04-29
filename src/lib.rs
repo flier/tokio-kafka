@@ -38,7 +38,7 @@ mod producer;
 mod consumer;
 
 pub use compression::Compression;
-pub use protocol::RequiredAcks;
+pub use protocol::{FetchOffset, RequiredAcks};
 pub use client::{KafkaConfig, KafkaClient, Metadata, Broker, BrokerRef, TopicPartitions,
                  TopicPartition, TopicNames};
 pub use producer::KafkaProducer;

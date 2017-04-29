@@ -1,3 +1,5 @@
+use time::Timespec;
+
 use nom::{be_i16, be_i32, be_i64};
 
 use bytes::{BytesMut, BufMut, ByteOrder};
@@ -11,6 +13,20 @@ pub const EARLIEST_TIMESTAMP: i64 = -2;
 
 pub const CONSUMER_REPLICA_ID: i32 = -1;
 pub const DEBUGGING_REPLICA_ID: i32 = -2;
+
+/// Possible values when querying a topic's offset.
+/// See `KafkaClient::fetch_offsets`.
+#[derive(Debug, Copy, Clone)]
+pub enum FetchOffset {
+    /// Receive the earliest available offset.
+    Earliest,
+    /// Receive the latest offset.
+    Latest,
+    /// Used to ask for all messages before a certain time (ms); unix
+    /// timestamp in milliseconds.
+    /// See https://cwiki.apache.org/confluence/display/KAFKA/Writing+a+Driver+for+Kafka#WritingaDriverforKafka-Offsets
+    ByTime(Timespec),
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListOffsetRequest {

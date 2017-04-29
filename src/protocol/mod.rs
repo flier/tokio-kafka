@@ -22,7 +22,7 @@ pub use self::produce::{ProduceRequest, ProduceResponse, ProduceTopic, ProducePa
                         parse_produce_response};
 pub use self::fetch::{FetchRequest, FetchTopic, FetchPartition, FetchResponse,
                       parse_fetch_response};
-pub use self::list_offset::{ListOffsetRequest, ListTopicOffset, ListPartitionOffset,
+pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListTopicOffset, ListPartitionOffset,
                             ListOffsetResponse, parse_list_offset_response};
 pub use self::api_versions::{ApiVersion, ApiVersionsRequest, ApiVersionsResponse,
                              parse_api_versions_response};

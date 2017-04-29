@@ -3,34 +3,13 @@ use bytes::{BytesMut, ByteOrder};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{Encodable, ApiKeys, RequestHeader, ResponseHeader, ParseTag, parse_response_header,
+use protocol::{Encodable, RequestHeader, ResponseHeader, ParseTag, parse_response_header,
                parse_string, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest {
     pub header: RequestHeader,
     pub topic_names: Vec<String>,
-}
-
-impl MetadataRequest {
-    pub fn new<S: AsRef<str>>(api_version: i16,
-                              correlation_id: i32,
-                              client_id: Option<String>,
-                              topic_names: &[S])
-                              -> Self {
-        MetadataRequest {
-            header: RequestHeader {
-                api_key: ApiKeys::Metadata as i16,
-                api_version: api_version as i16,
-                correlation_id: correlation_id,
-                client_id: client_id,
-            },
-            topic_names: topic_names
-                .iter()
-                .map(|s| s.as_ref().to_owned())
-                .collect(),
-        }
-    }
 }
 
 impl Encodable for MetadataRequest {

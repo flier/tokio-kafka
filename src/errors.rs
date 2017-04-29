@@ -1,4 +1,4 @@
-use protocol::ApiKeys;
+use protocol::{ApiKeys, KafkaCode};
 
 error_chain!{
     foreign_links {
@@ -12,6 +12,8 @@ error_chain!{
         ParseError(reason: String)
         CodecError(reason: &'static str)
         UnsupportedApiKey(key: ApiKeys)
+        InvalidResponse
+        KafkaError(code: KafkaCode)
         OtherError
     }
 }

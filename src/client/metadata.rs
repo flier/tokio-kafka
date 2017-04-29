@@ -30,6 +30,14 @@ impl Metadata {
     pub fn topics(&self) -> &HashMap<String, TopicPartitions> {
         &self.topic_partitions
     }
+
+    pub fn partitions_for<'a>(&'a self, topic_name: &str) -> Option<&'a TopicPartitions> {
+        self.topic_partitions.get(topic_name)
+    }
+
+    pub fn find_broker(&self, broker: &BrokerRef) -> Option<&Broker> {
+        self.brokers.get(broker.index())
+    }
 }
 
 impl Default for Metadata {
@@ -198,6 +206,10 @@ pub struct TopicPartition(BrokerRef);
 impl TopicPartition {
     fn new() -> TopicPartition {
         TopicPartition(BrokerRef::new(UNKNOWN_BROKER_INDEX))
+    }
+
+    pub fn broker(&self) -> &BrokerRef {
+        &self.0
     }
 }
 
