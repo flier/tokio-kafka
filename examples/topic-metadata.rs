@@ -19,7 +19,7 @@ use getopts::Options;
 
 use futures::future::Future;
 use tokio_core::reactor::Core;
-use tokio_kafka::{KafkaClient, Metadata};
+use tokio_kafka::{Client, KafkaClient, Metadata};
 
 const DEFAULT_BROKER: &'static str = "localhost:9092";
 

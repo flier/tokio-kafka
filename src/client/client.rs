@@ -42,6 +42,15 @@ pub struct PartitionOffset {
     pub offset: Offset,
 }
 
+pub trait Client {
+    fn fetch_offsets<S: AsRef<str>>(&mut self,
+                                    topic_names: &[S],
+                                    offset: FetchOffset)
+                                    -> FetchOffsets;
+
+    fn load_metadata(&mut self) -> LoadMetadata;
+}
+
 pub struct KafkaClient {
     config: KafkaConfig,
     handle: Handle,
@@ -85,7 +94,7 @@ impl KafkaClient {
         KafkaClient::from_config(KafkaConfig::from_hosts(hosts), handle)
     }
 
-    pub fn handle(&self) -> &Handle {
+    fn handle(&self) -> &Handle {
         &self.handle
     }
 
@@ -93,10 +102,86 @@ impl KafkaClient {
         self.state.borrow().metadata()
     }
 
-    pub fn fetch_offsets<S: AsRef<str>>(&mut self,
-                                        topic_names: &[S],
-                                        offset: FetchOffset)
-                                        -> FetchOffsets {
+    fn fetch_metadata<S>(&mut self, topic_names: &[S]) -> FetchMetadata
+        where S: AsRef<str> + Debug
+    {
+        debug!("fetch metadata for toipcs: {:?}", topic_names);
+
+        let addrs = self.config.brokers().unwrap(); // TODO
+        let addr = addrs.iter().next().unwrap();
+
+        let api_version = 0;
+        let correlation_id = self.state.borrow_mut().next_correlation_id();
+        let client_id = self.config.client_id();
+        let request =
+            KafkaRequest::fetch_metadata(api_version, correlation_id, client_id, topic_names);
+
+        let response = self.send_request(addr, request)
+            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
+                          future::ok(Metadata::from(res))
+                      } else {
+                          future::err(ErrorKind::InvalidResponse.into())
+                      });
+
+        FetchMetadata::new(response)
+    }
+
+    fn send_request(&mut self, addr: &SocketAddr, request: KafkaRequest) -> FutureResponse {
+        let checkout = self.pool.checkout(addr);
+        let connect = {
+            let handle = self.handle.clone();
+            let connection_id = self.state.borrow_mut().next_connection_id();
+            let pool = self.pool.clone();
+            let key = Rc::new(addr.clone());
+
+            self.connector
+                .tcp(addr.clone())
+                .map(move |io| {
+                    let (tx, rx) = oneshot::channel();
+                    let client = RemoteClient {
+                            connection_id: connection_id,
+                            client_rx: RefCell::new(Some(rx)),
+                        }
+                        .bind_client(&handle, io);
+                    let pooled = pool.pooled(key, client);
+                    drop(tx.send(pooled.clone()));
+                    pooled
+                })
+        };
+
+        let race = checkout
+            .select(connect)
+            .map(|(conn, _work)| conn)
+            .map_err(|(err, _work)| {
+                warn!("fail to checkout connection, {}", err);
+                // the Pool Checkout cannot error, so the only error
+                // is from the Connector
+                // XXX: should wait on the Checkout? Problem is
+                // that if the connector is failing, it may be that we
+                // never had a pooled stream at all
+                err.into()
+            });
+
+        let response = race.and_then(move |client| client.call(Message::WithoutBody(request)))
+            .map(|msg| {
+                     debug!("received message: {:?}", msg);
+
+                     match msg {
+                         Message::WithoutBody(res) => res,
+                         Message::WithBody(res, _) => res,
+                     }
+                 })
+            .map_err(Error::from);
+
+        FutureResponse::new(response)
+    }
+}
+
+impl Client for KafkaClient {
+    fn fetch_offsets<S: AsRef<str>>(&mut self,
+                                    topic_names: &[S],
+                                    offset: FetchOffset)
+                                    -> FetchOffsets {
         let topics = {
             let metadata = self.state.borrow().metadata();
 
@@ -204,7 +289,7 @@ impl KafkaClient {
         FetchOffsets::new(offsets)
     }
 
-    pub fn load_metadata(&mut self) -> LoadMetadata {
+    fn load_metadata(&mut self) -> LoadMetadata {
         debug!("loading metadata...");
 
         let state = self.state.clone();
@@ -215,80 +300,6 @@ impl KafkaClient {
 
                                                future::ok(())
                                            }))
-    }
-
-    fn fetch_metadata<S>(&mut self, topic_names: &[S]) -> FetchMetadata
-        where S: AsRef<str> + Debug
-    {
-        debug!("fetch metadata for toipcs: {:?}", topic_names);
-
-        let addrs = self.config.brokers().unwrap(); // TODO
-        let addr = addrs.iter().next().unwrap();
-
-        let api_version = 0;
-        let correlation_id = self.state.borrow_mut().next_correlation_id();
-        let client_id = self.config.client_id();
-        let request =
-            KafkaRequest::fetch_metadata(api_version, correlation_id, client_id, topic_names);
-
-        let response = self.send_request(addr, request)
-            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                          future::ok(Metadata::from(res))
-                      } else {
-                          future::err(ErrorKind::InvalidResponse.into())
-                      });
-
-        FetchMetadata::new(response)
-    }
-
-    fn send_request(&mut self, addr: &SocketAddr, request: KafkaRequest) -> FutureResponse {
-        let checkout = self.pool.checkout(addr);
-        let connect = {
-            let handle = self.handle.clone();
-            let connection_id = self.state.borrow_mut().next_connection_id();
-            let pool = self.pool.clone();
-            let key = Rc::new(addr.clone());
-
-            self.connector
-                .tcp(addr.clone())
-                .map(move |io| {
-                    let (tx, rx) = oneshot::channel();
-                    let client = RemoteClient {
-                            connection_id: connection_id,
-                            client_rx: RefCell::new(Some(rx)),
-                        }
-                        .bind_client(&handle, io);
-                    let pooled = pool.pooled(key, client);
-                    drop(tx.send(pooled.clone()));
-                    pooled
-                })
-        };
-
-        let race = checkout
-            .select(connect)
-            .map(|(conn, _work)| conn)
-            .map_err(|(err, _work)| {
-                warn!("fail to checkout connection, {}", err);
-                // the Pool Checkout cannot error, so the only error
-                // is from the Connector
-                // XXX: should wait on the Checkout? Problem is
-                // that if the connector is failing, it may be that we
-                // never had a pooled stream at all
-                err.into()
-            });
-
-        let response = race.and_then(move |client| client.call(Message::WithoutBody(request)))
-            .map(|msg| {
-                     debug!("received message: {:?}", msg);
-
-                     match msg {
-                         Message::WithoutBody(res) => res,
-                         Message::WithBody(res, _) => res,
-                     }
-                 })
-            .map_err(Error::from);
-
-        FutureResponse::new(response)
     }
 }
 

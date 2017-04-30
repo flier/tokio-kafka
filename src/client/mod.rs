@@ -3,8 +3,8 @@ mod metadata;
 mod state;
 mod client;
 
-pub use self::config::{KafkaConfig, KafkaOption, DEFAULT_MAX_CONNECTION_TIMEOUT,
-                       DEFAULT_MAX_POOLED_CONNECTIONS};
-pub use self::metadata::{Metadata, Broker, BrokerRef, TopicPartitions, TopicPartition, TopicNames};
+pub use self::config::{DEFAULT_MAX_CONNECTION_TIMEOUT, DEFAULT_MAX_POOLED_CONNECTIONS,
+                       KafkaConfig, KafkaOption};
+pub use self::metadata::{Broker, BrokerRef, Metadata, TopicNames, TopicPartition, TopicPartitions};
 pub use self::state::KafkaState;
-pub use self::client::KafkaClient;
+pub use self::client::{Client, KafkaClient};
