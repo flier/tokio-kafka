@@ -286,9 +286,11 @@ impl Client for KafkaClient {
 
         StaticBoxFuture::new(self.fetch_metadata::<&str>(&[])
                                  .and_then(move |metadata| {
-                                               state.borrow_mut().update_metadata(metadata);
+                                               let metadata = Rc::new(metadata);
 
-                                               future::ok(())
+                                               state.borrow_mut().update_metadata(metadata.clone());
+
+                                               future::ok(metadata)
                                            }))
     }
 }
@@ -314,7 +316,7 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
 
 pub type SendRequest = StaticBoxFuture;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
-pub type LoadMetadata = StaticBoxFuture;
+pub type LoadMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchMetadata = StaticBoxFuture<Metadata>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 

@@ -7,4 +7,4 @@ pub use self::config::{DEFAULT_MAX_CONNECTION_TIMEOUT, DEFAULT_MAX_POOLED_CONNEC
                        KafkaConfig, KafkaOption};
 pub use self::metadata::{Broker, BrokerRef, Metadata, TopicNames, TopicPartition, TopicPartitions};
 pub use self::state::KafkaState;
-pub use self::client::{Client, KafkaClient};
+pub use self::client::{Client, KafkaClient, PartitionOffset};

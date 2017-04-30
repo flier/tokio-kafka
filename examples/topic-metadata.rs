@@ -1,6 +1,4 @@
 #[macro_use]
-extern crate log;
-#[macro_use]
 extern crate error_chain;
 extern crate pretty_env_logger;
 extern crate getopts;
@@ -9,17 +7,17 @@ extern crate tokio_core;
 extern crate tokio_kafka;
 
 use std::rc::Rc;
-use std::io;
 use std::env;
 use std::cmp;
 use std::process;
 use std::path::Path;
+use std::collections::HashMap;
 
 use getopts::Options;
 
-use futures::future::Future;
+use futures::future::{self, Future};
 use tokio_core::reactor::Core;
-use tokio_kafka::{Client, KafkaClient, Metadata};
+use tokio_kafka::{Client, FetchOffset, KafkaClient, Metadata, PartitionOffset};
 
 const DEFAULT_BROKER: &'static str = "localhost:9092";
 
@@ -31,10 +29,10 @@ error_chain!{
 
 struct Config {
     brokers: Vec<String>,
-    topics: Vec<String>,
-    header: bool,
-    host: bool,
-    size: bool,
+    topics: Option<Vec<String>>,
+    show_header: bool,
+    show_host: bool,
+    show_size: bool,
     topic_separators: bool,
 }
 
@@ -76,15 +74,14 @@ impl Config {
 
         let topics = matches
             .opt_str("t")
-            .map_or_else(|| Vec::new(),
-                         |s| s.split(',').map(|s| s.trim().to_owned()).collect());
+            .map(|s| s.split(',').map(|s| s.trim().to_owned()).collect());
 
         Ok(Config {
                brokers: brokers,
                topics: topics,
-               header: !matches.opt_present("no-header"),
-               host: !matches.opt_present("no-host"),
-               size: !matches.opt_present("no-size"),
+               show_header: !matches.opt_present("no-header"),
+               show_host: !matches.opt_present("no-host"),
+               show_size: !matches.opt_present("no-size"),
                topic_separators: !matches.opt_present("no-empty-lines"),
            })
     }
@@ -99,17 +96,104 @@ fn main() {
 
     let mut client = KafkaClient::from_hosts(&config.brokers, &core.handle());
 
+    let topics = config.topics.clone();
+
     let work = client
         .load_metadata()
-        .and_then(|_| {
-                      dump_metadata(client.metadata(), &config);
+        .and_then(|metadata| {
+            let topics = topics.unwrap_or_else(|| {
+                                                   metadata
+                                                       .topics()
+                                                       .keys()
+                                                       .map(|s| s.clone())
+                                                       .collect::<Vec<String>>()
+                                               });
 
-                      Ok(())
-                  });
+            let requests = vec![client.fetch_offsets(topics.as_slice(), FetchOffset::Earliest),
+                                client.fetch_offsets(topics.as_slice(), FetchOffset::Latest)];
+
+            future::join_all(requests).map(|responses| {
+                                               dump_metadata(&config,
+                                                             metadata,
+                                                             &responses[0],
+                                                             &responses[1]);
+                                           })
+        });
 
     core.run(work).unwrap();
 }
 
-fn dump_metadata(metadata: Rc<Metadata>, cfg: &Config) {
-    debug!("{:?}", metadata);
+fn dump_metadata(cfg: &Config,
+                 metadata: Rc<Metadata>,
+                 earliest_offsets: &HashMap<String, Vec<PartitionOffset>>,
+                 latest_offsets: &HashMap<String, Vec<PartitionOffset>>) {
+    let host_width = 2 +
+                     metadata
+                         .brokers()
+                         .iter()
+                         .map(|broker| broker.addr())
+                         .fold(0, |width, (host, port)| {
+        cmp::max(width, format!("{}:{}", host, port).len())
+    });
+    let topic_width = 2 +
+                      metadata
+                          .topics()
+                          .keys()
+                          .fold(0, |width, topic_name| cmp::max(width, topic_name.len()));
+
+    if cfg.show_header {
+        print!("{1:0$} {2:4} {3:4}", topic_width, "topic", "p-id", "l-id");
+
+        if cfg.show_host {
+            print!(" {1:>0$}", host_width, "(l-host)");
+        }
+
+        print!(" {:>12} {:>12}", "earliest", "latest");
+
+        if cfg.show_size {
+            print!(" {:>12}", "(size)");
+        }
+
+        println!("");
+    }
+
+    for (topic_name, partitions) in metadata.topics() {
+        if let (Some(earliest), Some(latest)) =
+            (earliest_offsets.get(topic_name), latest_offsets.get(topic_name)) {
+
+            for (partition_id, partition) in partitions.iter() {
+                if let (Some(broker), Some(earliest_offset), Some(latest_offset)) =
+                    (metadata.find_broker(partition.broker()),
+                     earliest
+                         .iter()
+                         .find(|offset| offset.partition == partition_id),
+                     latest
+                         .iter()
+                         .find(|offset| offset.partition == partition_id)) {
+
+                    print!("{1:0$} {2:>4} {3:>4}",
+                           topic_width,
+                           topic_name,
+                           partition_id,
+                           broker.id());
+
+                    if cfg.show_host {
+                        let (host, port) = broker.addr();
+                        print!(" {1:0$}", host_width, format!("({}:{})", host, port));
+                    }
+
+                    print!(" {:>12} {:>12}",
+                           earliest_offset.offset,
+                           latest_offset.offset);
+
+                    if cfg.show_size {
+                        print!(" {:>12}",
+                               format!("({})", latest_offset.offset - earliest_offset.offset));
+                    }
+
+                    println!("")
+                }
+            }
+        }
+    }
 }

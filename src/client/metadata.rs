@@ -35,8 +35,10 @@ impl Metadata {
         self.topic_partitions.get(topic_name)
     }
 
-    pub fn find_broker(&self, broker: &BrokerRef) -> Option<&Broker> {
-        self.brokers.get(broker.index())
+    pub fn find_broker(&self, broker_ref: &BrokerRef) -> Option<&Broker> {
+        self.brokers
+            .iter()
+            .find(|broker| broker.id() == broker_ref.index())
     }
 }
 
@@ -140,8 +142,8 @@ impl BrokerRef {
         BrokerRef(index)
     }
 
-    fn index(&self) -> usize {
-        self.0 as usize
+    pub fn index(&self) -> BrokerIndex {
+        self.0
     }
 
     fn set(&mut self, other: BrokerRef) {
