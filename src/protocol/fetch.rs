@@ -3,14 +3,15 @@ use bytes::{BytesMut, BufMut, ByteOrder};
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{Encodable, RequestHeader, ResponseHeader, MessageSet, parse_message_set, ParseTag,
-               parse_string, parse_response_header, WriteExt};
+use protocol::{ApiVersion, ErrorCode, PartitionId, ReplicaId, Encodable, RequestHeader,
+               ResponseHeader, MessageSet, parse_message_set, ParseTag, parse_string,
+               parse_response_header, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchRequest {
     pub header: RequestHeader,
     /// The replica id indicates the node id of the replica initiating this request.
-    pub replica_id: i32,
+    pub replica_id: ReplicaId,
     /// The maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued.
     pub max_wait_time: i32,
     /// This is the minimum number of bytes of messages that must be available to give a response.
@@ -28,7 +29,7 @@ pub struct FetchTopic {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchPartition {
     /// The id of the partition the fetch is for.
-    pub partition: i32,
+    pub partition: PartitionId,
     /// The offset to begin this fetch from.
     pub fetch_offset: i64,
     /// The maximum bytes to include in the message set for this partition.
@@ -72,14 +73,14 @@ pub struct TopicData {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartitionData {
     /// The id of the partition the fetch is for.
-    pub partition: i32,
-    pub error_code: i16,
+    pub partition: PartitionId,
+    pub error_code: ErrorCode,
     ///The offset at the end of the log for this partition.
     pub highwater_mark_offset: i64,
     pub message_set: MessageSet,
 }
 
-named_args!(pub parse_fetch_response(api_version: i16)<FetchResponse>,
+named_args!(pub parse_fetch_response(api_version: ApiVersion)<FetchResponse>,
     parse_tag!(ParseTag::FetchResponse,
         dbg_dmp!( do_parse!(
             header: parse_response_header
@@ -94,7 +95,7 @@ named_args!(pub parse_fetch_response(api_version: i16)<FetchResponse>,
     )
 );
 
-named_args!(parse_fetch_topic_data(api_version: i16)<TopicData>,
+named_args!(parse_fetch_topic_data(api_version: ApiVersion)<TopicData>,
     parse_tag!(ParseTag::TopicData,
         do_parse!(
             topic_name: parse_string
@@ -107,7 +108,7 @@ named_args!(parse_fetch_topic_data(api_version: i16)<TopicData>,
     )
 );
 
-named_args!(parse_fetch_partition_data(api_version: i16)<PartitionData>,
+named_args!(parse_fetch_partition_data(api_version: ApiVersion)<PartitionData>,
     parse_tag!(ParseTag::PartitionData,
         do_parse!(
             partition: be_i32
@@ -138,7 +139,7 @@ mod tests {
     fn test_encode_fetch_request() {
         let request = FetchRequest {
             header: RequestHeader {
-                api_key: ApiKeys::Fetch as i16,
+                api_key: ApiKeys::Fetch as ApiKey,
                 api_version: 1,
                 correlation_id: 123,
                 client_id: Some("client".to_owned()),

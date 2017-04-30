@@ -4,7 +4,7 @@ use log::LogLevel::Debug;
 
 use nom::{IResult, Needed};
 
-use protocol::{ApiKeys, ProduceResponse, parse_produce_response, FetchResponse,
+use protocol::{ApiKeys, ApiVersion, ProduceResponse, parse_produce_response, FetchResponse,
                parse_fetch_response, ListOffsetResponse, parse_list_offset_response,
                MetadataResponse, parse_metadata_response, ApiVersionsResponse,
                parse_api_versions_response, display_parse_error};
@@ -19,7 +19,12 @@ pub enum KafkaResponse {
 }
 
 impl KafkaResponse {
-    pub fn parse(buf: &[u8], api_key: ApiKeys, api_version: i16) -> io::Result<Option<Self>> {
+    pub fn parse<T: AsRef<[u8]>>(src: T,
+                                 api_key: ApiKeys,
+                                 api_version: ApiVersion)
+                                 -> io::Result<Option<Self>> {
+        let buf = src.as_ref();
+
         debug!("parsing {} bytes response as {:?} ({:?})",
                buf.len(),
                api_key,
@@ -27,13 +32,11 @@ impl KafkaResponse {
 
         let res = match api_key {
             ApiKeys::Produce => {
-                parse_produce_response(buf, api_version as i16).map(KafkaResponse::Produce)
+                parse_produce_response(buf, api_version).map(KafkaResponse::Produce)
             }
-            ApiKeys::Fetch => {
-                parse_fetch_response(buf, api_version as i16).map(KafkaResponse::Fetch)
-            }
+            ApiKeys::Fetch => parse_fetch_response(buf, api_version).map(KafkaResponse::Fetch),
             ApiKeys::ListOffsets => {
-                parse_list_offset_response(buf, api_version as i16).map(KafkaResponse::ListOffsets)
+                parse_list_offset_response(buf, api_version).map(KafkaResponse::ListOffsets)
             }
             ApiKeys::Metadata => parse_metadata_response(buf).map(KafkaResponse::Metadata),
             ApiKeys::ApiVersions => {

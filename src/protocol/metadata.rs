@@ -3,8 +3,8 @@ use bytes::{BytesMut, ByteOrder};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{Encodable, RequestHeader, ResponseHeader, ParseTag, parse_response_header,
-               parse_string, WriteExt};
+use protocol::{ErrorCode, PartitionId, BrokerId, ReplicaId, Encodable, RequestHeader,
+               ResponseHeader, ParseTag, parse_response_header, parse_string, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest {
@@ -30,24 +30,24 @@ pub struct MetadataResponse {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrokerMetadata {
-    pub node_id: i32,
+    pub node_id: BrokerId,
     pub host: String,
     pub port: i32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TopicMetadata {
-    pub error_code: i16,
+    pub error_code: ErrorCode,
     pub topic_name: String,
     pub partitions: Vec<PartitionMetadata>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartitionMetadata {
-    pub error_code: i16,
-    pub partition_id: i32,
-    pub leader: i32,
-    pub replicas: Vec<i32>,
+    pub error_code: ErrorCode,
+    pub partition: PartitionId,
+    pub leader: BrokerId,
+    pub replicas: Vec<ReplicaId>,
     pub isr: Vec<i32>,
 }
 
@@ -100,13 +100,13 @@ named!(parse_partition_metadata<PartitionMetadata>,
     parse_tag!(ParseTag::PartitionMetadata,
         do_parse!(
             error_code: be_i16
-         >> partition_id: be_i32
+         >> partition: be_i32
          >> leader: be_i32
          >> replicas: length_count!(be_i32, be_i32)
          >> isr: length_count!(be_i32, be_i32)
          >> (PartitionMetadata {
                 error_code: error_code,
-                partition_id: partition_id,
+                partition: partition,
                 leader: leader,
                 replicas: replicas,
                 isr: isr,
@@ -154,7 +154,7 @@ mod tests {
                     0, 3,                           // error_code
                     0, 0, 0, 4,                     // partition_id
                     0, 0, 0, 5,                     // leader
-                    // replicas: [i32]
+                    // replicas: [ReplicaId]
                     0, 0, 0, 1,
                         0, 0, 0, 6,
                     // isr: [i32]
@@ -174,7 +174,7 @@ mod tests {
                 topic_name: "topic".to_owned(),
                 partitions: vec![PartitionMetadata {
                     error_code: 3,
-                    partition_id: 4,
+                    partition: 4,
                     leader: 5,
                     replicas: vec![6],
                     isr: vec![7],
@@ -187,7 +187,7 @@ mod tests {
     fn test_encode_metadata_request() {
         let req = MetadataRequest {
             header: RequestHeader {
-                api_key: ApiKeys::Metadata as i16,
+                api_key: ApiKeys::Metadata as ApiKey,
                 api_version: 0,
                 correlation_id: 123,
                 client_id: Some("client".to_owned()),

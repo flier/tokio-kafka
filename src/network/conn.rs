@@ -18,11 +18,12 @@ use tokio_proto::streaming::pipeline::{Frame, Transport};
 use tokio_tls::{TlsConnectorExt, TlsStream, ConnectAsync};
 use native_tls::TlsConnector;
 
-use network::{KafkaRequest, KafkaResponse, KafkaCodec, Resolver, DnsResolver, DnsQuery};
+use network::{ConnectionId, KafkaRequest, KafkaResponse, KafkaCodec, Resolver, DnsResolver,
+              DnsQuery};
 
 #[derive(Debug)]
 pub struct KafkaConnection<I> {
-    id: u32,
+    id: ConnectionId,
     stream: Framed<I, KafkaCodec>,
 }
 
@@ -153,14 +154,14 @@ impl<I> Transport for KafkaConnection<I> where I: AsyncRead + AsyncWrite + 'stat
 impl<I> KafkaConnection<I>
     where I: AsyncRead + AsyncWrite
 {
-    pub fn new(id: u32, stream: I, codec: KafkaCodec) -> Self {
+    pub fn new(id: ConnectionId, stream: I, codec: KafkaCodec) -> Self {
         KafkaConnection {
             id: id,
             stream: stream.framed(codec),
         }
     }
 
-    pub fn id(&self) -> u32 {
+    pub fn id(&self) -> ConnectionId {
         self.id
     }
 }

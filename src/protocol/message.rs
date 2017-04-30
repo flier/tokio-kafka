@@ -10,7 +10,7 @@ use crc::crc32;
 
 use errors::Result;
 use compression::Compression;
-use protocol::{WriteExt, ParseTag, parse_bytes};
+use protocol::{ApiVersion, WriteExt, ParseTag, parse_bytes};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
@@ -81,11 +81,11 @@ impl Default for Timestamp {
 }
 
 pub struct MessageSetEncoder {
-    api_version: i16,
+    api_version: ApiVersion,
 }
 
 impl MessageSetEncoder {
-    pub fn new(api_version: i16) -> Self {
+    pub fn new(api_version: ApiVersion) -> Self {
         MessageSetEncoder { api_version: api_version }
     }
 
@@ -140,7 +140,7 @@ impl MessageSetEncoder {
     }
 }
 
-named_args!(pub parse_message_set(api_version: i16)<MessageSet>,
+named_args!(pub parse_message_set(api_version: ApiVersion)<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
         do_parse!(
             messages: length_count!(be_i32, apply!(parse_message, api_version))
@@ -151,7 +151,7 @@ named_args!(pub parse_message_set(api_version: i16)<MessageSet>,
     )
 );
 
-named_args!(parse_message(api_version: i16)<Message>,
+named_args!(parse_message(api_version: ApiVersion)<Message>,
     parse_tag!(ParseTag::Message,
         do_parse!(
             offset: be_i64
@@ -167,7 +167,7 @@ named_args!(parse_message(api_version: i16)<Message>,
 
                 crc == checksum as u32
             }))
-         >> _magic: verify!(be_i8, |v: i8| v as i16 == api_version)
+         >> _magic: verify!(be_i8, |v: i8| v as ApiVersion == api_version)
          >> attrs: be_i8
          >> timestamp: cond!(api_version > 0, be_i64)
          >> key: parse_bytes

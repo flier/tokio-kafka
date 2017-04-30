@@ -3,13 +3,14 @@ use bytes::{BytesMut, BufMut, ByteOrder};
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{Encodable, RequestHeader, ResponseHeader, MessageSet, MessageSetEncoder, ParseTag,
-               parse_string, parse_response_header, WriteExt};
+use protocol::{ApiVersion, ErrorCode, PartitionId, RequiredAck, Encodable, RequestHeader,
+               ResponseHeader, MessageSet, MessageSetEncoder, ParseTag, parse_string,
+               parse_response_header, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequest {
     pub header: RequestHeader,
-    pub required_acks: i16,
+    pub required_acks: RequiredAck,
     pub timeout: i32,
     pub topics: Vec<ProduceTopic>,
 }
@@ -22,7 +23,7 @@ pub struct ProduceTopic {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProducePartition {
-    pub partition: i32,
+    pub partition: PartitionId,
     pub message_set: MessageSet,
 }
 
@@ -59,13 +60,13 @@ pub struct TopicStatus {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartitionStatus {
-    pub partition: i32,
-    pub error_code: i16,
+    pub partition: PartitionId,
+    pub error_code: ErrorCode,
     pub offset: i64,
     pub timestamp: Option<i64>,
 }
 
-named_args!(pub parse_produce_response(api_version: i16)<ProduceResponse>,
+named_args!(pub parse_produce_response(api_version: ApiVersion)<ProduceResponse>,
     parse_tag!(ParseTag::ProduceResponse,
         do_parse!(
             header: parse_response_header
@@ -80,7 +81,7 @@ named_args!(pub parse_produce_response(api_version: i16)<ProduceResponse>,
     )
 );
 
-named_args!(parse_produce_topic_status(api_version: i16)<TopicStatus>,
+named_args!(parse_produce_topic_status(api_version: ApiVersion)<TopicStatus>,
     parse_tag!(ParseTag::TopicStatus,
         do_parse!(
             topic_name: parse_string
@@ -93,7 +94,7 @@ named_args!(parse_produce_topic_status(api_version: i16)<TopicStatus>,
     )
 );
 
-named_args!(parse_produce_partition_status(api_version: i16)<PartitionStatus>,
+named_args!(parse_produce_partition_status(api_version: ApiVersion)<PartitionStatus>,
     parse_tag!(ParseTag::PartitionStatus,
         do_parse!(
             partition: be_i32
@@ -185,12 +186,12 @@ mod tests {
     fn test_encode_produce_request() {
         let req = ProduceRequest {
             header: RequestHeader {
-                api_key: ApiKeys::Produce as i16,
+                api_key: ApiKeys::Produce as ApiVersion,
                 api_version: 1,
                 correlation_id: 123,
                 client_id: Some("client".to_owned()),
             },
-            required_acks: RequiredAcks::All as i16,
+            required_acks: RequiredAcks::All as RequiredAck,
             timeout: 123,
             topics: vec![ProduceTopic {
                 topic_name: "topic".to_owned(),

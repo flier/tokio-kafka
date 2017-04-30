@@ -24,8 +24,17 @@ pub use self::fetch::{FetchRequest, FetchTopic, FetchPartition, FetchResponse,
                       parse_fetch_response};
 pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListTopicOffset, ListPartitionOffset,
                             ListOffsetResponse, parse_list_offset_response};
-pub use self::api_versions::{ApiVersion, ApiVersionsRequest, ApiVersionsResponse,
-                             parse_api_versions_response};
+pub use self::api_versions::{SupportedApiVersion, SupportedApiVersions, ApiVersionsRequest,
+                             ApiVersionsResponse, parse_api_versions_response};
+
+pub type ApiKey = i16;
+pub type ApiVersion = i16;
+pub type CorrelationId = i32;
+pub type PartitionId = i32;
+pub type ErrorCode = i16;
+pub type BrokerId = i32;
+pub type ReplicaId = i32;
+pub type RequiredAck = i16;
 
 /// The following are the numeric codes that the ApiKey in the request can take for each of the below request types.
 #[derive(Debug, Copy, Clone)]
@@ -54,8 +63,8 @@ pub enum ApiKeys {
     DeleteTopics = 20,
 }
 
-impl From<i16> for ApiKeys {
-    fn from(v: i16) -> Self {
+impl From<ApiKey> for ApiKeys {
+    fn from(v: ApiKey) -> Self {
         unsafe { mem::transmute(v) }
     }
 }
@@ -80,8 +89,8 @@ pub enum RequiredAcks {
     All = -1,
 }
 
-impl From<i16> for RequiredAcks {
-    fn from(v: i16) -> Self {
+impl From<RequiredAck> for RequiredAcks {
+    fn from(v: RequiredAck) -> Self {
         unsafe { mem::transmute(v) }
     }
 }
@@ -230,8 +239,8 @@ pub enum KafkaCode {
     PolicyViolation = 44,
 }
 
-impl From<i16> for KafkaCode {
-    fn from(v: i16) -> Self {
+impl From<ErrorCode> for KafkaCode {
+    fn from(v: ErrorCode) -> Self {
         unsafe { mem::transmute(v) }
     }
 }

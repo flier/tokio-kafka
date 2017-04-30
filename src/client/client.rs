@@ -21,7 +21,7 @@ use tokio_service::Service;
 
 use errors::{Error, ErrorKind};
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
-use protocol::{ApiKeys, KafkaCode, FetchOffset};
+use protocol::{PartitionId, CorrelationId, ErrorCode, ApiKeys, KafkaCode, FetchOffset};
 use network::{KafkaRequest, KafkaResponse, KafkaCodec};
 use client::{KafkaConfig, KafkaState, Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT};
 
@@ -38,7 +38,7 @@ impl From<FetchOffset> for i64 {
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
 pub struct PartitionOffset {
-    pub partition: i32,
+    pub partition: PartitionId,
     pub offset: i64,
 }
 
@@ -112,15 +112,14 @@ impl KafkaClient {
                                 .unwrap()
                                 .next()
                                 .unwrap(); // TODO
-                            let api_version = if let Some(api_versions) = broker.api_versions() {
-                                api_versions
-                                    .get(ApiKeys::ListOffsets as usize)
-                                    .map(|api_version| api_version.max_version)
-                                    .unwrap_or(0)
-                            } else {
-                                0
-                            };
-
+                            let api_version = broker
+                                .api_versions()
+                                .map_or(0, |api_versions| {
+                                    api_versions
+                                        .find(ApiKeys::ListOffsets)
+                                        .map(|api_version| api_version.max_version)
+                                        .unwrap_or(0)
+                                });
                             topics
                                 .entry((addr, api_version))
                                 .or_insert_with(|| HashMap::new())
@@ -139,7 +138,7 @@ impl KafkaClient {
             let mut correlation_ids = topics
                 .iter()
                 .map(|_| self.state.borrow_mut().next_correlation_id())
-                .collect::<Vec<i32>>();
+                .collect::<Vec<CorrelationId>>();
             let client_id = self.config.client_id();
 
             let mut responses = Vec::new();
@@ -162,7 +161,7 @@ impl KafkaClient {
                                  .partitions
                                  .iter()
                                  .flat_map(|partition| {
-                                if partition.error_code == KafkaCode::None as i16 {
+                                if partition.error_code == KafkaCode::None as ErrorCode {
                                     Ok(PartitionOffset {
                                            partition: partition.partition,
                                            offset: *partition.offsets.iter().next().unwrap(), //TODO

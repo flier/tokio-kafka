@@ -1,11 +1,13 @@
 use std::rc::Rc;
 
+use protocol::CorrelationId;
+use network::ConnectionId;
 use client::Metadata;
 
 pub struct KafkaState {
-    connection_id: u32,
+    connection_id: ConnectionId,
 
-    correlation_id: i32,
+    correlation_id: CorrelationId,
 
     metadata: Rc<Metadata>,
 }
@@ -19,12 +21,12 @@ impl KafkaState {
         }
     }
 
-    pub fn next_connection_id(&mut self) -> u32 {
+    pub fn next_connection_id(&mut self) -> ConnectionId {
         self.connection_id = self.connection_id.wrapping_add(1);
         self.connection_id - 1
     }
 
-    pub fn next_correlation_id(&mut self) -> i32 {
+    pub fn next_correlation_id(&mut self) -> CorrelationId {
         self.correlation_id = self.correlation_id.wrapping_add(1);
         self.correlation_id - 1
     }

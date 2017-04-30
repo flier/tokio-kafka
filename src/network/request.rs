@@ -1,9 +1,9 @@
 use bytes::{BytesMut, ByteOrder};
 
 use errors::Result;
-use protocol::{ApiKeys, FetchOffset, Encodable, RequestHeader, ProduceRequest, FetchRequest,
-               ListOffsetRequest, ListTopicOffset, ListPartitionOffset, MetadataRequest,
-               ApiVersionsRequest};
+use protocol::{ApiKeys, ApiKey, ApiVersion, PartitionId, CorrelationId, FetchOffset, Encodable,
+               RequestHeader, ProduceRequest, FetchRequest, ListOffsetRequest, ListTopicOffset,
+               ListPartitionOffset, MetadataRequest, ApiVersionsRequest};
 
 #[derive(Debug)]
 pub enum KafkaRequest {
@@ -25,15 +25,15 @@ impl KafkaRequest {
         }
     }
 
-    pub fn list_offsets<'a, I, S, P>(api_version: i16,
-                                     correlation_id: i32,
+    pub fn list_offsets<'a, I, S, P>(api_version: ApiVersion,
+                                     correlation_id: CorrelationId,
                                      client_id: Option<String>,
                                      topics: I,
                                      offset: FetchOffset)
                                      -> Self
         where I: Iterator<Item = (S, P)>,
               S: AsRef<str>,
-              P: AsRef<[i32]>
+              P: AsRef<[PartitionId]>
     {
         let topics = topics
             .map(|(topic_name, partitions)| {
@@ -56,7 +56,7 @@ impl KafkaRequest {
 
         KafkaRequest::ListOffsets(ListOffsetRequest {
                                       header: RequestHeader {
-                                          api_key: ApiKeys::ListOffsets as i16,
+                                          api_key: ApiKeys::ListOffsets as ApiKey,
                                           api_version: api_version,
                                           correlation_id: correlation_id,
                                           client_id: client_id,
@@ -66,15 +66,15 @@ impl KafkaRequest {
                                   })
     }
 
-    pub fn fetch_metadata<S: AsRef<str>>(api_version: i16,
-                                         correlation_id: i32,
+    pub fn fetch_metadata<S: AsRef<str>>(api_version: ApiVersion,
+                                         correlation_id: CorrelationId,
                                          client_id: Option<String>,
                                          topic_names: &[S])
                                          -> Self {
         KafkaRequest::Metadata(MetadataRequest {
                                    header: RequestHeader {
-                                       api_key: ApiKeys::Metadata as i16,
-                                       api_version: api_version as i16,
+                                       api_key: ApiKeys::Metadata as ApiKey,
+                                       api_version: api_version,
                                        correlation_id: correlation_id,
                                        client_id: client_id,
                                    },

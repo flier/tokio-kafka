@@ -5,14 +5,14 @@ use nom::{be_i16, be_i32, be_i64};
 use bytes::{BytesMut, BufMut, ByteOrder};
 
 use errors::Result;
-use protocol::{RequestHeader, ResponseHeader, Encodable, ParseTag, parse_string,
-               parse_response_header, WriteExt};
+use protocol::{ApiVersion, ErrorCode, PartitionId, ReplicaId, RequestHeader, ResponseHeader,
+               Encodable, ParseTag, parse_string, parse_response_header, WriteExt};
 
 pub const LATEST_TIMESTAMP: i64 = -1;
 pub const EARLIEST_TIMESTAMP: i64 = -2;
 
-pub const CONSUMER_REPLICA_ID: i32 = -1;
-pub const DEBUGGING_REPLICA_ID: i32 = -2;
+pub const CONSUMER_REPLICA_ID: ReplicaId = -1;
+pub const DEBUGGING_REPLICA_ID: ReplicaId = -2;
 
 /// Possible values when querying a topic's offset.
 /// See `KafkaClient::fetch_offsets`.
@@ -32,7 +32,7 @@ pub enum FetchOffset {
 pub struct ListOffsetRequest {
     pub header: RequestHeader,
     /// Broker id of the follower. For normal consumers, use -1.
-    pub replica_id: i32,
+    pub replica_id: ReplicaId,
     /// Topics to list offsets.
     pub topics: Vec<ListTopicOffset>,
 }
@@ -48,7 +48,7 @@ pub struct ListTopicOffset {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListPartitionOffset {
     /// The id of the partition the fetch is for.
-    pub partition: i32,
+    pub partition: PartitionId,
     /// Used to ask for all messages before a certain time (ms).
     pub timestamp: i64,
     /// Maximum offsets to return.
@@ -92,13 +92,13 @@ pub struct TopicOffset {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartitionOffset {
     /// The id of the partition the fetch is for.
-    pub partition: i32,
-    pub error_code: i16,
+    pub partition: PartitionId,
+    pub error_code: ErrorCode,
     pub timestamp: Option<i64>,
     pub offsets: Vec<i64>,
 }
 
-named_args!(pub parse_list_offset_response(api_version: i16)<ListOffsetResponse>,
+named_args!(pub parse_list_offset_response(api_version: ApiVersion)<ListOffsetResponse>,
     parse_tag!(ParseTag::ListOffsetResponse,
         do_parse!(
             header: parse_response_header
@@ -111,7 +111,7 @@ named_args!(pub parse_list_offset_response(api_version: i16)<ListOffsetResponse>
     )
 );
 
-named_args!(parse_list_topic_offset(api_version: i16)<TopicOffset>,
+named_args!(parse_list_topic_offset(api_version: ApiVersion)<TopicOffset>,
     parse_tag!(ParseTag::TopicOffset,
         do_parse!(
             topic_name: parse_string
@@ -124,7 +124,7 @@ named_args!(parse_list_topic_offset(api_version: i16)<TopicOffset>,
     )
 );
 
-named_args!(parse_list_partition_offset(api_version: i16)<PartitionOffset>,
+named_args!(parse_list_partition_offset(api_version: ApiVersion)<PartitionOffset>,
     parse_tag!(ParseTag::PartitionOffset,
         do_parse!(
             partition: be_i32
@@ -155,7 +155,7 @@ mod tests {
     fn test_encode_list_offset_request_v0() {
         let req = ListOffsetRequest {
             header: RequestHeader {
-                api_key: ApiKeys::ListOffsets as i16,
+                api_key: ApiKeys::ListOffsets as ApiKey,
                 api_version: 0,
                 correlation_id: 123,
                 client_id: Some("client".to_owned()),
@@ -202,7 +202,7 @@ mod tests {
     fn test_encode_list_offset_request_v1() {
         let req = ListOffsetRequest {
             header: RequestHeader {
-                api_key: ApiKeys::ListOffsets as i16,
+                api_key: ApiKeys::ListOffsets as ApiKey,
                 api_version: 1,
                 correlation_id: 123,
                 client_id: Some("client".to_owned()),

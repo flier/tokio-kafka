@@ -2,7 +2,7 @@ use std::slice;
 use std::iter::FromIterator;
 use std::collections::hash_map::{HashMap, Keys};
 
-use protocol::{ApiVersion, MetadataResponse};
+use protocol::{BrokerId, PartitionId, SupportedApiVersions, MetadataResponse};
 
 #[derive(Debug)]
 pub struct Metadata {
@@ -86,7 +86,7 @@ impl From<MetadataResponse> for Metadata {
 pub struct Broker {
     /// The identifier of this broker as understood in a Kafka
     /// cluster.
-    node_id: i32,
+    node_id: BrokerId,
 
     /// host of this broker. This information is advertised by
     /// and originating from Kafka cluster itself.
@@ -95,14 +95,14 @@ pub struct Broker {
     port: u16,
 
     /// The version ranges of requests supported by the broker.
-    api_versions: Option<Vec<ApiVersion>>,
+    api_versions: Option<SupportedApiVersions>,
 }
 
 impl Broker {
     /// Retrives the node_id of this broker as identified with the
     /// remote Kafka cluster.
     #[inline]
-    pub fn id(&self) -> i32 {
+    pub fn id(&self) -> BrokerId {
         self.node_id
     }
 
@@ -112,13 +112,15 @@ impl Broker {
         (&self.host, self.port)
     }
 
-    pub fn api_versions(&self) -> Option<&[ApiVersion]> {
-        self.api_versions.as_ref().map(|ref v| v.as_slice())
+    pub fn api_versions(&self) -> Option<&SupportedApiVersions> {
+        self.api_versions.as_ref()
     }
 }
 
+pub type BrokerIndex = i32;
+
 // See `Brokerref`
-static UNKNOWN_BROKER_INDEX: i32 = ::std::i32::MAX;
+static UNKNOWN_BROKER_INDEX: BrokerIndex = ::std::i32::MAX;
 
 /// ~ A custom identifier for a broker.  This type hides the fact that
 /// a `TopicPartition` references a `Broker` indirectly, loosely
@@ -130,11 +132,11 @@ static UNKNOWN_BROKER_INDEX: i32 = ::std::i32::MAX;
 // `self.brokers` using a `BrokerRef` _must_ check against this
 // constant and/or treat it conditionally.
 #[derive(Debug, Copy, Clone)]
-pub struct BrokerRef(i32);
+pub struct BrokerRef(BrokerIndex);
 
 impl BrokerRef {
     // ~ private constructor on purpose
-    fn new(index: i32) -> Self {
+    fn new(index: BrokerIndex) -> Self {
         BrokerRef(index)
     }
 
@@ -178,7 +180,7 @@ impl TopicPartitions {
         self.partitions.is_empty()
     }
 
-    pub fn partition(&self, partition_id: i32) -> Option<&TopicPartition> {
+    pub fn partition(&self, partition_id: PartitionId) -> Option<&TopicPartition> {
         self.partitions.get(partition_id as usize)
     }
 
@@ -188,7 +190,7 @@ impl TopicPartitions {
 }
 
 impl<'a> IntoIterator for &'a TopicPartitions {
-    type Item = (i32, &'a TopicPartition);
+    type Item = (PartitionId, &'a TopicPartition);
     type IntoIter = TopicPartitionIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -216,11 +218,11 @@ impl TopicPartition {
 /// An iterator over a topic's partitions.
 pub struct TopicPartitionIter<'a> {
     iter: slice::Iter<'a, TopicPartition>,
-    partition_id: i32,
+    partition_id: PartitionId,
 }
 
 impl<'a> Iterator for TopicPartitionIter<'a> {
-    type Item = (i32, &'a TopicPartition);
+    type Item = (PartitionId, &'a TopicPartition);
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()

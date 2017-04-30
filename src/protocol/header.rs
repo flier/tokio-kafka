@@ -3,13 +3,13 @@ use bytes::{BytesMut, BufMut, ByteOrder};
 use nom::be_i32;
 
 use errors::Result;
-use protocol::{Encodable, WriteExt, ParseTag};
+use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, WriteExt, ParseTag};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestHeader {
-    pub api_key: i16,
-    pub api_version: i16,
-    pub correlation_id: i32,
+    pub api_key: ApiKey,
+    pub api_version: ApiVersion,
+    pub correlation_id: CorrelationId,
     pub client_id: Option<String>,
 }
 
@@ -24,7 +24,7 @@ impl Encodable for RequestHeader {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResponseHeader {
-    pub correlation_id: i32,
+    pub correlation_id: CorrelationId,
 }
 
 named!(pub parse_response_header<ResponseHeader>,
@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn test_request_header() {
         let hdr = RequestHeader {
-            api_key: ApiKeys::Fetch as i16,
+            api_key: ApiKeys::Fetch as ApiKey,
             api_version: 2,
             correlation_id: 123,
             client_id: Some("test".to_owned()),
