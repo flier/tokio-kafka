@@ -29,6 +29,16 @@ pub enum FetchOffset {
     ByTime(Timespec),
 }
 
+impl From<FetchOffset> for Offset {
+    fn from(offset: FetchOffset) -> Self {
+        match offset {
+            FetchOffset::Earliest => -2,
+            FetchOffset::Latest => -1,
+            FetchOffset::ByTime(t) => t.sec * 1000 + t.nsec as Offset / 1000_000,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListOffsetRequest {
     pub header: RequestHeader,

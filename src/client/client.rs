@@ -25,16 +25,6 @@ use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, Offset
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
 use client::{DEFAULT_MAX_CONNECTION_TIMEOUT, KafkaConfig, KafkaState, Metadata};
 
-impl From<FetchOffset> for Offset {
-    fn from(offset: FetchOffset) -> Self {
-        match offset {
-            FetchOffset::Earliest => -2,
-            FetchOffset::Latest => -1,
-            FetchOffset::ByTime(t) => t.sec * 1000 + t.nsec as Offset / 1000_000,
-        }
-    }
-}
-
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
 pub struct PartitionOffset {
