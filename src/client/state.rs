@@ -3,9 +3,9 @@ use std::rc::Rc;
 use client::Metadata;
 
 pub struct KafkaState {
-    // ~ the last correlation used when communicating with kafka
-    // (see `#next_correlation_id`)
-    correlation: i32,
+    connection_id: u32,
+
+    correlation_id: i32,
 
     metadata: Rc<Metadata>,
 }
@@ -13,14 +13,20 @@ pub struct KafkaState {
 impl KafkaState {
     pub fn new() -> Self {
         KafkaState {
-            correlation: 0,
+            connection_id: 0,
+            correlation_id: 0,
             metadata: Rc::new(Metadata::default()),
         }
     }
 
+    pub fn next_connection_id(&mut self) -> u32 {
+        self.connection_id = self.connection_id.wrapping_add(1);
+        self.connection_id - 1
+    }
+
     pub fn next_correlation_id(&mut self) -> i32 {
-        self.correlation = self.correlation.wrapping_add(1);
-        self.correlation
+        self.correlation_id = self.correlation_id.wrapping_add(1);
+        self.correlation_id - 1
     }
 
     pub fn metadata(&self) -> Rc<Metadata> {

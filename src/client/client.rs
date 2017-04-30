@@ -246,19 +246,23 @@ impl KafkaClient {
         let checkout = self.pool.checkout(addr);
         let connect = {
             let handle = self.handle.clone();
+            let connection_id = self.state.borrow_mut().next_connection_id();
             let pool = self.pool.clone();
             let key = Rc::new(addr.clone());
 
             self.connector
                 .tcp(addr.clone())
                 .map(move |io| {
-                         let (tx, rx) = oneshot::channel();
-                         let client = RemoteClient { client_rx: RefCell::new(Some(rx)) }
-                             .bind_client(&handle, io);
-                         let pooled = pool.pooled(key, client);
-                         drop(tx.send(pooled.clone()));
-                         pooled
-                     })
+                    let (tx, rx) = oneshot::channel();
+                    let client = RemoteClient {
+                            connection_id: connection_id,
+                            client_rx: RefCell::new(Some(rx)),
+                        }
+                        .bind_client(&handle, io);
+                    let pooled = pool.pooled(key, client);
+                    drop(tx.send(pooled.clone()));
+                    pooled
+                })
         };
 
         let race = checkout
@@ -332,6 +336,7 @@ type TokioClient = ClientProxy<Message<KafkaRequest, KafkaBody>,
                                io::Error>;
 
 struct RemoteClient {
+    connection_id: u32,
     client_rx: RefCell<Option<oneshot::Receiver<Pooled<SocketAddr, TokioClient>>>>,
 }
 
@@ -350,6 +355,7 @@ impl<T> ClientProto<T> for RemoteClient
         trace!("bind transport for {:?}", io);
 
         BindingClient {
+            connection_id: self.connection_id,
             rx: self.client_rx
                 .borrow_mut()
                 .take()
@@ -360,6 +366,7 @@ impl<T> ClientProto<T> for RemoteClient
 }
 
 struct BindingClient<T> {
+    connection_id: u32,
     rx: oneshot::Receiver<Pooled<SocketAddr, TokioClient>>,
     io: Option<T>,
 }
@@ -373,11 +380,14 @@ impl<T> Future for BindingClient<T>
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.rx.poll() {
             Ok(Async::Ready(client)) => {
-                trace!("got connection for {:?}", self.io);
+                trace!("got connection #{} for {:?}, client {:?}",
+                       self.connection_id,
+                       self.io,
+                       client);
 
                 let codec = KafkaCodec::new();
 
-                Ok(Async::Ready(KafkaConnection::new(0, self.io.take().expect("binding client io lost"), codec)))
+                Ok(Async::Ready(KafkaConnection::new(self.connection_id, self.io.take().expect("binding client io lost"), codec)))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(_canceled) => unreachable!(),
