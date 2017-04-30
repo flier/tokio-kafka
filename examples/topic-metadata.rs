@@ -19,7 +19,7 @@ use futures::future::{self, Future};
 use tokio_core::reactor::Core;
 use tokio_kafka::{Client, FetchOffset, KafkaClient, Metadata, PartitionOffset};
 
-const DEFAULT_BROKER: &'static str = "localhost:9092";
+const DEFAULT_BROKER: &'static str = "127.0.0.1:9092";
 
 error_chain!{
     foreign_links {
@@ -157,7 +157,11 @@ fn dump_metadata(cfg: &Config,
         println!("");
     }
 
-    for (topic_name, partitions) in metadata.topics() {
+    for (idx, (topic_name, partitions)) in metadata.topics().iter().enumerate() {
+        if cfg.topic_separators && idx > 0 {
+            println!("")
+        }
+
         if let (Some(earliest), Some(latest)) =
             (earliest_offsets.get(topic_name), latest_offsets.get(topic_name)) {
 
@@ -194,6 +198,8 @@ fn dump_metadata(cfg: &Config,
                     println!("")
                 }
             }
+        } else {
+            println!("{1:0$} - not available!\n", topic_width, topic_name);
         }
     }
 }
