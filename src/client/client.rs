@@ -337,9 +337,11 @@ type TokioClient = ClientProxy<Message<KafkaRequest, KafkaBody>,
                                Message<KafkaResponse, TokioBody>,
                                io::Error>;
 
+type PooledClient = Pooled<SocketAddr, TokioClient>;
+
 struct RemoteClient {
     connection_id: u32,
-    client_rx: RefCell<Option<oneshot::Receiver<Pooled<SocketAddr, TokioClient>>>>,
+    client_rx: RefCell<Option<oneshot::Receiver<PooledClient>>>,
 }
 
 impl<T> ClientProto<T> for RemoteClient
@@ -350,7 +352,7 @@ impl<T> ClientProto<T> for RemoteClient
     type Response = KafkaResponse;
     type ResponseBody = BytesMut;
     type Error = io::Error;
-    type Transport = KafkaConnection<T>;
+    type Transport = KafkaConnection<T, PooledClient>;
     type BindTransport = BindingClient<T>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
@@ -369,14 +371,14 @@ impl<T> ClientProto<T> for RemoteClient
 
 struct BindingClient<T> {
     connection_id: u32,
-    rx: oneshot::Receiver<Pooled<SocketAddr, TokioClient>>,
+    rx: oneshot::Receiver<PooledClient>,
     io: Option<T>,
 }
 
 impl<T> Future for BindingClient<T>
     where T: AsyncRead + AsyncWrite + Debug + 'static
 {
-    type Item = KafkaConnection<T>;
+    type Item = KafkaConnection<T, PooledClient>;
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -389,7 +391,10 @@ impl<T> Future for BindingClient<T>
 
                 let codec = KafkaCodec::new();
 
-                Ok(Async::Ready(KafkaConnection::new(self.connection_id, self.io.take().expect("binding client io lost"), codec)))
+                Ok(Async::Ready(KafkaConnection::new(self.connection_id,
+                                                self.io.take().expect("binding client io lost"),
+                                                codec,
+                                                client)))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(_canceled) => unreachable!(),

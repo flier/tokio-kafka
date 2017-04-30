@@ -7,10 +7,12 @@ use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
 use std::collections::vec_deque::VecDeque;
 
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
-use futures::{Future, Async, Poll};
+use futures::{Async, Future, Poll};
 use futures::unsync::oneshot;
+
+use network::{KeepAlive, Status};
 
 #[derive(Clone, Debug)]
 pub struct Pool<K, T>
@@ -157,13 +159,6 @@ struct Entry<T>
     status: Rc<Cell<Status>>,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Status {
-    Idle(Instant),
-    Busy,
-    Closed,
-}
-
 impl<K, T> Deref for Pooled<K, T>
     where K: Clone + Hash + Eq,
           T: Clone
@@ -183,32 +178,38 @@ impl<K, T> DerefMut for Pooled<K, T>
     }
 }
 
-impl<K, T> Pooled<K, T>
+impl<K, T> KeepAlive for Pooled<K, T>
     where K: Clone + Debug + Hash + Eq,
-          T: Clone
+          T: Clone + Debug
 {
-    pub fn status(&self) -> Status {
+    fn status(&self) -> Status {
         self.entry.status.get()
     }
 
-    pub fn busy(&mut self) {
+    fn busy(&mut self) {
+        trace!("busy: {:?}", self);
+
         self.entry.status.set(Status::Busy)
     }
 
-    pub fn close(&mut self) {
+    fn close(&mut self) {
+        trace!("closed: {:?}", self);
+
         self.entry.status.set(Status::Closed)
     }
 
-    pub fn idle(&mut self) {
+    fn idle(&mut self) {
         let previous = self.status();
         self.entry.status.set(Status::Idle(Instant::now()));
         if let Status::Idle(..) = previous {
-            trace!("already idle");
+            trace!("already idle, {:?}", self);
 
             return;
         }
         self.entry.reused = true;
         if self.pool.is_enabled() {
+            trace!("idle, {:?}", self);
+
             self.pool.put(self.key.clone(), self.entry.clone());
         }
     }
