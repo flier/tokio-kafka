@@ -1,9 +1,9 @@
-use bytes::{BytesMut, BufMut, ByteOrder};
+use bytes::{BufMut, ByteOrder, BytesMut};
 
 use nom::be_i32;
 
 use errors::Result;
-use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, WriteExt, ParseTag};
+use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, ParseTag, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestHeader {
@@ -38,9 +38,9 @@ named!(pub parse_response_header<ResponseHeader>,
 
 #[cfg(test)]
 mod tests {
-    use bytes::BigEndian;
 
     use super::*;
+    use bytes::BigEndian;
     use protocol::*;
 
     #[test]

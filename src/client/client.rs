@@ -14,23 +14,23 @@ use futures::unsync::oneshot;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_core::reactor::Handle;
 use tokio_proto::BindClient;
-use tokio_proto::streaming::{Message, Body};
+use tokio_proto::streaming::{Body, Message};
 use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
 
 use errors::{Error, ErrorKind};
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
-use protocol::{PartitionId, CorrelationId, ErrorCode, ApiKeys, KafkaCode, FetchOffset};
-use network::{KafkaRequest, KafkaResponse, KafkaCodec};
-use client::{KafkaConfig, KafkaState, Metadata, DEFAULT_MAX_CONNECTION_TIMEOUT};
+use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId};
+use network::{KafkaCodec, KafkaRequest, KafkaResponse};
+use client::{DEFAULT_MAX_CONNECTION_TIMEOUT, KafkaConfig, KafkaState, Metadata};
 
-impl From<FetchOffset> for i64 {
+impl From<FetchOffset> for Offset {
     fn from(offset: FetchOffset) -> Self {
         match offset {
             FetchOffset::Earliest => -2,
             FetchOffset::Latest => -1,
-            FetchOffset::ByTime(t) => t.sec * 1000 + t.nsec as i64 / 1000_000,
+            FetchOffset::ByTime(t) => t.sec * 1000 + t.nsec as Offset / 1000_000,
         }
     }
 }
@@ -39,7 +39,7 @@ impl From<FetchOffset> for i64 {
 #[derive(Clone, Debug)]
 pub struct PartitionOffset {
     pub partition: PartitionId,
-    pub offset: i64,
+    pub offset: Offset,
 }
 
 pub struct KafkaClient {

@@ -1,8 +1,8 @@
 use std::mem;
 
-use bytes::{Bytes, BytesMut, BufMut, ByteOrder};
+use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 
-use nom::{be_i8, be_i32, be_i64};
+use nom::{be_i32, be_i64, be_i8};
 
 use time;
 
@@ -10,7 +10,7 @@ use crc::crc32;
 
 use errors::Result;
 use compression::Compression;
-use protocol::{ApiVersion, WriteExt, ParseTag, parse_bytes};
+use protocol::{ApiVersion, Offset, ParseTag, Timestamp, WriteExt, parse_bytes};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
@@ -50,33 +50,33 @@ pub struct MessageSet {
 ///   Value => bytes
 #[derive(Clone, Debug, PartialEq)]
 pub struct Message {
-    pub offset: i64,
-    pub timestamp: Option<Timestamp>,
+    pub offset: Offset,
+    pub timestamp: Option<MessageTimestamp>,
     pub compression: Compression,
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Timestamp {
-    CreateTime(i64),
-    LogAppendTime(i64),
+pub enum MessageTimestamp {
+    CreateTime(Timestamp),
+    LogAppendTime(Timestamp),
 }
 
-impl Timestamp {
-    pub fn value(&self) -> i64 {
+impl MessageTimestamp {
+    pub fn value(&self) -> Timestamp {
         match self {
-            &Timestamp::CreateTime(v) |
-            &Timestamp::LogAppendTime(v) => v,
+            &MessageTimestamp::CreateTime(v) |
+            &MessageTimestamp::LogAppendTime(v) => v,
         }
     }
 }
 
-impl Default for Timestamp {
+impl Default for MessageTimestamp {
     fn default() -> Self {
         let ts = time::now_utc().to_timespec();
 
-        Timestamp::CreateTime(ts.sec * 1000_000 + ts.nsec as i64 / 1000)
+        MessageTimestamp::CreateTime(ts.sec * 1000_000 + ts.nsec as Timestamp / 1000)
     }
 }
 
@@ -90,7 +90,7 @@ impl MessageSetEncoder {
     }
 
     pub fn encode<T: ByteOrder>(&self, message_set: MessageSet, buf: &mut BytesMut) -> Result<()> {
-        let mut offset: i64 = 0;
+        let mut offset: Offset = 0;
 
         buf.put_array::<T, _, _>(message_set.messages, move |buf, message| {
             let offset = if message.compression == Compression::None {
@@ -106,7 +106,7 @@ impl MessageSetEncoder {
 
     fn encode_message<T: ByteOrder>(&self,
                                     message: Message,
-                                    offset: i64,
+                                    offset: Offset,
                                     buf: &mut BytesMut)
                                     -> Result<()> {
         buf.put_i64::<T>(offset);
@@ -117,7 +117,7 @@ impl MessageSetEncoder {
         let data_off = buf.len();
         buf.put_i8(self.api_version as i8);
         buf.put_i8((message.compression as i8 & COMPRESSION_CODEC_MASK) |
-                   if let Some(Timestamp::LogAppendTime(_)) = message.timestamp {
+                   if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
                        TIMESTAMP_TYPE_MASK
                    } else {
                        0
@@ -175,9 +175,9 @@ named_args!(parse_message(api_version: ApiVersion)<Message>,
          >> (Message {
                 offset: offset,
                 timestamp: timestamp.map(|ts| if (attrs & TIMESTAMP_TYPE_MASK) == 0 {
-                    Timestamp::CreateTime(ts)
+                    MessageTimestamp::CreateTime(ts)
                 }else {
-                    Timestamp::LogAppendTime(ts)
+                    MessageTimestamp::LogAppendTime(ts)
                 }),
                 compression: Compression::from(attrs & COMPRESSION_CODEC_MASK),
                 key: key,

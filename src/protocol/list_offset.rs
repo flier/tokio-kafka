@@ -1,15 +1,16 @@
+use bytes::{BufMut, ByteOrder, BytesMut};
+
 use time::Timespec;
 
 use nom::{be_i16, be_i32, be_i64};
 
-use bytes::{BytesMut, BufMut, ByteOrder};
-
 use errors::Result;
-use protocol::{ApiVersion, ErrorCode, PartitionId, ReplicaId, RequestHeader, ResponseHeader,
-               Encodable, ParseTag, parse_string, parse_response_header, WriteExt};
+use protocol::{ApiVersion, Encodable, ErrorCode, Offset, ParseTag, PartitionId, ReplicaId,
+               RequestHeader, ResponseHeader, Timestamp, WriteExt, parse_response_header,
+               parse_string};
 
-pub const LATEST_TIMESTAMP: i64 = -1;
-pub const EARLIEST_TIMESTAMP: i64 = -2;
+pub const LATEST_TIMESTAMP: Timestamp = -1;
+pub const EARLIEST_TIMESTAMP: Timestamp = -2;
 
 pub const CONSUMER_REPLICA_ID: ReplicaId = -1;
 pub const DEBUGGING_REPLICA_ID: ReplicaId = -2;
@@ -50,7 +51,7 @@ pub struct ListPartitionOffset {
     /// The id of the partition the fetch is for.
     pub partition: PartitionId,
     /// Used to ask for all messages before a certain time (ms).
-    pub timestamp: i64,
+    pub timestamp: Timestamp,
     /// Maximum offsets to return.
     pub max_number_of_offsets: i32,
 }
@@ -94,8 +95,8 @@ pub struct PartitionOffset {
     /// The id of the partition the fetch is for.
     pub partition: PartitionId,
     pub error_code: ErrorCode,
-    pub timestamp: Option<i64>,
-    pub offsets: Vec<i64>,
+    pub timestamp: Option<Timestamp>,
+    pub offsets: Vec<Offset>,
 }
 
 named_args!(pub parse_list_offset_response(api_version: ApiVersion)<ListOffsetResponse>,
@@ -144,11 +145,11 @@ named_args!(parse_list_partition_offset(api_version: ApiVersion)<PartitionOffset
 
 #[cfg(test)]
 mod tests {
+
+    use super::*;
     use bytes::BigEndian;
 
     use nom::IResult;
-
-    use super::*;
     use protocol::*;
 
     #[test]
@@ -269,7 +270,7 @@ mod tests {
                 0, 0, 0, 1,
                     0, 0, 0, 1,             // partition
                     0, 2,                   // error_code
-                    // offsets: [i64]
+                    // offsets: [Offset]
                     0, 0, 0, 4,
                         0, 0, 0, 0, 0, 0, 0, 3,
                         0, 0, 0, 0, 0, 0, 0, 4,

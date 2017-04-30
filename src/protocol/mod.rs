@@ -12,26 +12,29 @@ mod fetch;
 mod list_offset;
 mod api_versions;
 
-pub use self::parser::{Encodable, WriteExt, ParseTag, PARSE_TAGS, parse_str, parse_string,
-                       parse_bytes, display_parse_error};
-pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
-pub use self::message::{Message, MessageSet, MessageSetEncoder, parse_message_set, Timestamp};
-pub use self::metadata::{MetadataRequest, MetadataResponse, BrokerMetadata, TopicMetadata,
-                         PartitionMetadata, parse_metadata_response};
-pub use self::produce::{ProduceRequest, ProduceResponse, ProduceTopic, ProducePartition,
-                        parse_produce_response};
-pub use self::fetch::{FetchRequest, FetchTopic, FetchPartition, FetchResponse,
+pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, SupportedApiVersion,
+                             SupportedApiVersions, parse_api_versions_response};
+pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic,
                       parse_fetch_response};
-pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListTopicOffset, ListPartitionOffset,
-                            ListOffsetResponse, parse_list_offset_response};
-pub use self::api_versions::{SupportedApiVersion, SupportedApiVersions, ApiVersionsRequest,
-                             ApiVersionsResponse, parse_api_versions_response};
+pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
+pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListOffsetResponse,
+                            ListPartitionOffset, ListTopicOffset, parse_list_offset_response};
+pub use self::message::{Message, MessageSet, MessageSetEncoder, MessageTimestamp,
+                        parse_message_set};
+pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
+                         TopicMetadata, parse_metadata_response};
+pub use self::parser::{Encodable, PARSE_TAGS, ParseTag, WriteExt, display_parse_error,
+                       parse_bytes, parse_str, parse_string};
+pub use self::produce::{ProducePartition, ProduceRequest, ProduceResponse, ProduceTopic,
+                        parse_produce_response};
 
 pub type ApiKey = i16;
 pub type ApiVersion = i16;
 pub type CorrelationId = i32;
 pub type PartitionId = i32;
 pub type ErrorCode = i16;
+pub type Offset = i64;
+pub type Timestamp = i64;
 pub type BrokerId = i32;
 pub type ReplicaId = i32;
 pub type RequiredAck = i16;

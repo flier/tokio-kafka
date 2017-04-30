@@ -1,8 +1,8 @@
-use std::slice;
-use std::iter::FromIterator;
 use std::collections::hash_map::{HashMap, Keys};
+use std::iter::FromIterator;
+use std::slice;
 
-use protocol::{BrokerId, PartitionId, SupportedApiVersions, MetadataResponse};
+use protocol::{BrokerId, MetadataResponse, PartitionId, SupportedApiVersions};
 
 #[derive(Debug)]
 pub struct Metadata {

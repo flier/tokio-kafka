@@ -1,11 +1,11 @@
-use bytes::{BytesMut, BufMut, ByteOrder};
+use bytes::{BufMut, ByteOrder, BytesMut};
 
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ApiVersion, ErrorCode, PartitionId, RequiredAck, Encodable, RequestHeader,
-               ResponseHeader, MessageSet, MessageSetEncoder, ParseTag, parse_string,
-               parse_response_header, WriteExt};
+use protocol::{ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder, Offset, ParseTag,
+               PartitionId, RequestHeader, RequiredAck, ResponseHeader, Timestamp, WriteExt,
+               parse_response_header, parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequest {
@@ -62,8 +62,8 @@ pub struct TopicStatus {
 pub struct PartitionStatus {
     pub partition: PartitionId,
     pub error_code: ErrorCode,
-    pub offset: i64,
-    pub timestamp: Option<i64>,
+    pub offset: Offset,
+    pub timestamp: Option<Timestamp>,
 }
 
 named_args!(pub parse_produce_response(api_version: ApiVersion)<ProduceResponse>,
@@ -113,7 +113,7 @@ named_args!(parse_produce_partition_status(api_version: ApiVersion)<PartitionSta
 
 #[cfg(test)]
 mod tests {
-    use bytes::{Bytes, BigEndian};
+    use bytes::{BigEndian, Bytes};
 
     use nom::IResult;
 
@@ -203,7 +203,7 @@ mod tests {
                             compression: Compression::None,
                             key: Some(Bytes::from(&b"key"[..])),
                             value: Some(Bytes::from(&b"value"[..])),
-                            timestamp: Some(Timestamp::CreateTime(456)),
+                            timestamp: Some(MessageTimestamp::CreateTime(456)),
                         }],
                     },
                 }],

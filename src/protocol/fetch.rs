@@ -1,11 +1,12 @@
-use bytes::{BytesMut, BufMut, ByteOrder};
+use bytes::{BufMut, ByteOrder, BytesMut};
 
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ApiVersion, ErrorCode, PartitionId, ReplicaId, Encodable, RequestHeader,
-               ResponseHeader, MessageSet, parse_message_set, ParseTag, parse_string,
-               parse_response_header, WriteExt};
+use protocol::{ApiVersion, Encodable, ErrorCode, MessageSet, Offset, ParseTag, PartitionId,
+               ReplicaId, RequestHeader, ResponseHeader, WriteExt, parse_message_set,
+               parse_response_header, parse_string};
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchRequest {
@@ -31,7 +32,7 @@ pub struct FetchPartition {
     /// The id of the partition the fetch is for.
     pub partition: PartitionId,
     /// The offset to begin this fetch from.
-    pub fetch_offset: i64,
+    pub fetch_offset: Offset,
     /// The maximum bytes to include in the message set for this partition.
     pub max_bytes: i32,
 }
@@ -76,7 +77,7 @@ pub struct PartitionData {
     pub partition: PartitionId,
     pub error_code: ErrorCode,
     ///The offset at the end of the log for this partition.
-    pub highwater_mark_offset: i64,
+    pub highwater_mark_offset: Offset,
     pub message_set: MessageSet,
 }
 
@@ -127,13 +128,13 @@ named_args!(parse_fetch_partition_data(api_version: ApiVersion)<PartitionData>,
 
 #[cfg(test)]
 mod tests {
-    use bytes::{Bytes, BigEndian};
-
-    use nom::IResult;
 
     use super::*;
-    use protocol::*;
+    use bytes::{BigEndian, Bytes};
     use compression::Compression;
+
+    use nom::IResult;
+    use protocol::*;
 
     #[test]
     fn test_encode_fetch_request() {
@@ -260,7 +261,7 @@ mod tests {
                             compression: Compression::None,
                             key: Some(Bytes::from(&b"key"[..])),
                             value: Some(Bytes::from(&b"value"[..])),
-                            timestamp: Some(Timestamp::LogAppendTime(456)),
+                            timestamp: Some(MessageTimestamp::LogAppendTime(456)),
                         }],
                     },
                 }],
