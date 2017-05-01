@@ -13,7 +13,7 @@ lazy_static!{
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum KafkaOption {
-    /// Initial list of brokers (host or host:port)
+    /// A list of host/port pairs to use for establishing the initial connection to the Kafka cluster.
     #[serde(rename = "bootstrap.servers")]
     Brokers(Vec<SocketAddr>),
 
@@ -36,7 +36,12 @@ pub enum KafkaOption {
     /// How many acknowledgements the leader broker must receive
     /// from ISR brokers before responding to the request
     #[serde(rename = "request.required.acks")]
-    Acks(RequiredAcks),
+    RequestRequiredAcks(RequiredAcks),
+
+    /// How many times to retry sending a failing MessageSet.
+    /// Note: retrying may cause reordering.
+    #[serde(rename = "message.send.max.retries")]
+    MessageSendMaxRetries(usize),
 }
 
 macro_rules! get_property {
@@ -145,12 +150,20 @@ impl KafkaConfig {
         set_property!(self, KafkaOption::MaxPooledConnections => max_pooled_connections)
     }
 
-    pub fn required_acks(&self) -> Option<RequiredAcks> {
-        get_property!(self, KafkaOption::Acks)
+    pub fn request_required_acks(&self) -> Option<RequiredAcks> {
+        get_property!(self, KafkaOption::RequestRequiredAcks)
     }
 
-    pub fn with_required_acks(&mut self, acks: RequiredAcks) -> &mut Self {
-        set_property!(self, KafkaOption::Acks => acks)
+    pub fn with_request_required_acks(&mut self, acks: RequiredAcks) -> &mut Self {
+        set_property!(self, KafkaOption::RequestRequiredAcks => acks)
+    }
+
+    pub fn message_send_max_retries(&self) -> Option<usize> {
+        get_property!(self, KafkaOption::MessageSendMaxRetries)
+    }
+
+    pub fn with_message_send_max_retries(&mut self, retries: usize) -> &mut Self {
+        set_property!(self, KafkaOption::MessageSendMaxRetries => retries)
     }
 }
 
@@ -177,9 +190,14 @@ mod tests {
                    Some(Compression::LZ4));
 
         assert_eq!(config
-                       .with_required_acks(RequiredAcks::All)
-                       .required_acks(),
+                       .with_request_required_acks(RequiredAcks::All)
+                       .request_required_acks(),
                    Some(RequiredAcks::All));
+
+        assert_eq!(config
+                       .with_message_send_max_retries(3)
+                       .message_send_max_retries(),
+                   Some(3));
     }
 
     #[test]
@@ -190,7 +208,8 @@ mod tests {
                                    KafkaOption::CompressionCodec(Compression::Snappy),
                                    KafkaOption::MaxConnectionIdle(5000),
                                    KafkaOption::MaxPooledConnections(100),
-                                   KafkaOption::Acks(RequiredAcks::All)]);
+                                   KafkaOption::RequestRequiredAcks(RequiredAcks::All),
+                                   KafkaOption::MessageSendMaxRetries(3)]);
         let json = r#"[
   {
     "bootstrap.servers": [
@@ -211,6 +230,9 @@ mod tests {
   },
   {
     "request.required.acks": "all"
+  },
+  {
+    "message.send.max.retries": 3
   }
 ]"#;
 
