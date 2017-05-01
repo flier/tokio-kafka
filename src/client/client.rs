@@ -180,27 +180,29 @@ impl Client for KafkaClient {
             for topic_name in topic_names {
                 if let Some(partitions) = metadata.partitions_for(topic_name.as_ref()) {
                     for (id, partition) in partitions {
-                        if let Some(broker) = metadata.find_broker(partition.broker()) {
-                            let addr = broker
-                                .addr()
-                                .to_socket_addrs()
-                                .unwrap()
-                                .next()
-                                .unwrap(); // TODO
-                            let api_version = broker
-                                .api_versions()
-                                .map_or(0, |api_versions| {
-                                    api_versions
-                                        .find(ApiKeys::ListOffsets)
-                                        .map(|api_version| api_version.max_version)
-                                        .unwrap_or(0)
-                                });
-                            topics
-                                .entry((addr, api_version))
-                                .or_insert_with(|| HashMap::new())
-                                .entry(topic_name.as_ref().to_owned())
-                                .or_insert_with(|| Vec::new())
-                                .push(id);
+                        if let Some(ref leader) = partition.leader() {
+                            if let Some(broker) = metadata.find_broker(leader) {
+                                let addr = broker
+                                    .addr()
+                                    .to_socket_addrs()
+                                    .unwrap()
+                                    .next()
+                                    .unwrap(); // TODO
+                                let api_version = broker
+                                    .api_versions()
+                                    .map_or(0, |api_versions| {
+                                        api_versions
+                                            .find(ApiKeys::ListOffsets)
+                                            .map(|api_version| api_version.max_version)
+                                            .unwrap_or(0)
+                                    });
+                                topics
+                                    .entry((addr, api_version))
+                                    .or_insert_with(|| HashMap::new())
+                                    .entry(topic_name.as_ref().to_owned())
+                                    .or_insert_with(|| Vec::new())
+                                    .push(id);
+                            }
                         }
                     }
                 }

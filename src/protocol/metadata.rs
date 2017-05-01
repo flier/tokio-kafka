@@ -3,7 +3,7 @@ use bytes::{ByteOrder, BytesMut};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{BrokerId, Encodable, ErrorCode, ParseTag, PartitionId, ReplicaId, RequestHeader,
+use protocol::{BrokerId, Encodable, ErrorCode, ParseTag, PartitionId, RequestHeader,
                ResponseHeader, WriteExt, parse_response_header, parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -47,7 +47,7 @@ pub struct PartitionMetadata {
     pub error_code: ErrorCode,
     pub partition: PartitionId,
     pub leader: BrokerId,
-    pub replicas: Vec<ReplicaId>,
+    pub replicas: Vec<BrokerId>,
     pub isr: Vec<BrokerId>,
 }
 

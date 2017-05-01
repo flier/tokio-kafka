@@ -1,4 +1,4 @@
-use std::collections::hash_map::{HashMap, Keys};
+use std::collections::hash_map::HashMap;
 use std::iter::FromIterator;
 use std::slice;
 
@@ -74,7 +74,22 @@ impl From<MetadataResponse> for Metadata {
                      partitions: topic
                          .partitions
                          .iter()
-                         .map(|partition| TopicPartition(BrokerRef(partition.leader)))
+                         .map(|partition| {
+                    TopicPartition {
+                        partition: partition.partition,
+                        leader: Some(BrokerRef(partition.leader)),
+                        replicas: partition
+                            .replicas
+                            .iter()
+                            .map(|node| BrokerRef(*node))
+                            .collect(),
+                        in_sync_replicas: partition
+                            .isr
+                            .iter()
+                            .map(|node| BrokerRef(*node))
+                            .collect(),
+                    }
+                })
                          .collect(),
                  })
             })),
@@ -171,7 +186,7 @@ pub struct TopicPartitions {
 impl TopicPartitions {
     /// Creates a new partitions vector with all partitions leaderless
     fn new_with_partitions(n: usize) -> TopicPartitions {
-        TopicPartitions { partitions: (0..n).map(|_| TopicPartition::new()).collect() }
+        TopicPartitions { partitions: (0..n).map(|_| TopicPartition::default()).collect() }
     }
 
     pub fn len(&self) -> usize {
@@ -203,17 +218,43 @@ impl<'a> IntoIterator for &'a TopicPartitions {
     }
 }
 
-/// Metadata for a single topic partition.
+/// Information about a topic-partition.
 #[derive(Debug)]
-pub struct TopicPartition(BrokerRef);
+pub struct TopicPartition {
+    partition: PartitionId,
+    /// The node id of the node currently acting as a leader
+    /// for this partition or None if there is no leader
+    leader: Option<BrokerRef>,
+    replicas: Vec<BrokerRef>,
+    in_sync_replicas: Vec<BrokerRef>,
+}
+
+impl Default for TopicPartition {
+    fn default() -> Self {
+        TopicPartition {
+            partition: -1,
+            leader: None,
+            replicas: Vec::new(),
+            in_sync_replicas: Vec::new(),
+        }
+    }
+}
 
 impl TopicPartition {
-    fn new() -> TopicPartition {
-        TopicPartition(BrokerRef::new(UNKNOWN_BROKER_INDEX))
+    pub fn partition(&self) -> PartitionId {
+        self.partition
     }
 
-    pub fn broker(&self) -> &BrokerRef {
-        &self.0
+    pub fn leader(&self) -> Option<&BrokerRef> {
+        self.leader.as_ref()
+    }
+
+    pub fn replicas(&self) -> &[BrokerRef] {
+        self.replicas.as_slice()
+    }
+
+    pub fn in_sync_replicas(&self) -> &[BrokerRef] {
+        self.in_sync_replicas.as_slice()
     }
 }
 
@@ -233,23 +274,5 @@ impl<'a> Iterator for TopicPartitionIter<'a> {
                      self.partition_id += 1;
                      (partition_id, tp)
                  })
-    }
-}
-
-// --------------------------------------------------------------------
-
-// ~ note: this type is re-exported to the crate's public api through
-// client::metadata
-/// An iterator over the topic names.
-pub struct TopicNames<'a> {
-    iter: Keys<'a, String, TopicPartitions>,
-}
-
-impl<'a> Iterator for TopicNames<'a> {
-    type Item = &'a str;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(AsRef::as_ref)
     }
 }

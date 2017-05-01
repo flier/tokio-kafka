@@ -166,36 +166,47 @@ fn dump_metadata(cfg: &Config,
             (earliest_offsets.get(topic_name), latest_offsets.get(topic_name)) {
 
             for (partition_id, partition) in partitions.iter() {
-                if let (Some(broker), Some(earliest_offset), Some(latest_offset)) =
-                    (metadata.find_broker(partition.broker()),
-                     earliest
-                         .iter()
-                         .find(|offset| offset.partition == partition_id),
-                     latest
-                         .iter()
-                         .find(|offset| offset.partition == partition_id)) {
+                if let Some(leader) = partition.leader() {
+                    if let (Some(broker), Some(earliest_offset), Some(latest_offset)) =
+                        (metadata.find_broker(leader),
+                         earliest
+                             .iter()
+                             .find(|offset| offset.partition == partition_id),
+                         latest
+                             .iter()
+                             .find(|offset| offset.partition == partition_id)) {
 
-                    print!("{1:0$} {2:>4} {3:>4}",
-                           topic_width,
-                           topic_name,
-                           partition_id,
-                           broker.id());
+                        print!("{1:0$} {2:>4} {3:>4}",
+                               topic_width,
+                               topic_name,
+                               partition_id,
+                               broker.id());
 
-                    if cfg.show_host {
-                        let (host, port) = broker.addr();
-                        print!(" {1:0$}", host_width, format!("({}:{})", host, port));
+                        if cfg.show_host {
+                            let (host, port) = broker.addr();
+                            print!(" {1:0$}", host_width, format!("({}:{})", host, port));
+                        }
+
+                        print!(" {:>12} {:>12}",
+                               earliest_offset.offset,
+                               latest_offset.offset);
+
+                        if cfg.show_size {
+                            print!(" {:>12}",
+                                   format!("({})", latest_offset.offset - earliest_offset.offset));
+                        }
+
+                        println!("")
+                    } else {
+                        println!("{1:0$} - leader or offsets not found!\n",
+                                 topic_width,
+                                 topic_name);
                     }
-
-                    print!(" {:>12} {:>12}",
-                           earliest_offset.offset,
-                           latest_offset.offset);
-
-                    if cfg.show_size {
-                        print!(" {:>12}",
-                               format!("({})", latest_offset.offset - earliest_offset.offset));
-                    }
-
-                    println!("")
+                } else {
+                    println!("{1:0$} - partition #{2} haven't leader!\n",
+                             topic_width,
+                             topic_name,
+                             partition_id);
                 }
             }
         } else {

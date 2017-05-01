@@ -44,6 +44,7 @@ mod consumer;
 pub use compression::Compression;
 pub use protocol::{FetchOffset, PartitionId, RequiredAcks};
 pub use client::{Broker, BrokerRef, Client, KafkaClient, KafkaConfig, KafkaOption, Metadata,
-                 PartitionOffset, TopicNames, TopicPartition, TopicPartitions};
-pub use producer::KafkaProducer;
+                 PartitionOffset, TopicPartition, TopicPartitions};
+pub use producer::{KafkaProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
+                   ProducerRecord};
 pub use consumer::KafkaConsumer;
