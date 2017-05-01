@@ -3,10 +3,12 @@ use protocol::{ApiKeys, KafkaCode};
 error_chain!{
     foreign_links {
         IoError(::std::io::Error);
+        ParseIntError(::std::num::ParseIntError);
         TlsError(::native_tls::Error);
     }
 
     errors {
+        ConfigError(reason: String)
         NoHostError
         LockError
         ParseError(reason: String)

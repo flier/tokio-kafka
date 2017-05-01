@@ -222,7 +222,7 @@ impl Client for KafkaClient {
                 let request = KafkaRequest::list_offsets(api_version,
                                                          correlation_ids.pop().unwrap(),
                                                          client_id.clone(),
-                                                         topics.iter(),
+                                                         topics,
                                                          offset);
                 let response =
                     self.send_request(&addr, request)

@@ -14,6 +14,10 @@ extern crate twox_hash;
 extern crate time;
 extern crate hexplay;
 
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+
 extern crate futures;
 extern crate futures_cpupool;
 extern crate tokio_core;

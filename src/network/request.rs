@@ -1,9 +1,9 @@
-use bytes::{BytesMut, ByteOrder};
+use bytes::{ByteOrder, BytesMut};
 
 use errors::Result;
-use protocol::{ApiKeys, ApiKey, ApiVersion, PartitionId, CorrelationId, FetchOffset, Encodable,
-               RequestHeader, ProduceRequest, FetchRequest, ListOffsetRequest, ListTopicOffset,
-               ListPartitionOffset, MetadataRequest, ApiVersionsRequest};
+use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, Encodable,
+               FetchOffset, FetchRequest, ListOffsetRequest, ListPartitionOffset, ListTopicOffset,
+               MetadataRequest, PartitionId, ProduceRequest, RequestHeader};
 
 #[derive(Debug)]
 pub enum KafkaRequest {
@@ -31,11 +31,12 @@ impl KafkaRequest {
                                      topics: I,
                                      offset: FetchOffset)
                                      -> Self
-        where I: Iterator<Item = (S, P)>,
+        where I: IntoIterator<Item = (S, P)>,
               S: AsRef<str>,
               P: AsRef<[PartitionId]>
     {
         let topics = topics
+            .into_iter()
             .map(|(topic_name, partitions)| {
                 ListTopicOffset {
                     topic_name: topic_name.as_ref().to_owned(),

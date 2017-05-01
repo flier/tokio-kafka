@@ -10,17 +10,22 @@ lazy_static!{
     pub static ref DEFAULT_MAX_CONNECTION_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum KafkaOption {
     /// Initial list of brokers (host or host:port)
+    #[serde(rename = "bootstrap.servers")]
     Brokers(Vec<SocketAddr>),
     /// Client identifier.
+    #[serde(rename = "client.id")]
     ClientId(String),
     /// Compression codec to use for compressing message sets.
+    #[serde(rename = "compression.codec")]
     CompressionCodec(Compression),
     /// Maximum connection idle timeout
-    MaxConnectionIdle(Duration),
+    #[serde(rename = "connection.max.idle.ms")]
+    MaxConnectionIdle(u64),
     /// Maximum pooled connections per broker
+    #[serde(rename = "connection.max.pooled")]
     MaxPooledConnections(usize),
 }
 
@@ -56,14 +61,14 @@ macro_rules! set_property {
     })
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct KafkaConfig(Vec<KafkaOption>);
 
 impl<T> From<T> for KafkaConfig
-    where T: Iterator<Item = KafkaOption>
+    where T: IntoIterator<Item = KafkaOption>
 {
     fn from(opts: T) -> Self {
-        KafkaConfig(opts.collect())
+        KafkaConfig(opts.into_iter().collect())
     }
 }
 
@@ -112,11 +117,14 @@ impl KafkaConfig {
     }
 
     pub fn max_connection_idle(&self) -> Option<Duration> {
-        get_property!(self, KafkaOption::MaxConnectionIdle)
+        get_property!(self, KafkaOption::MaxConnectionIdle).map(Duration::from_millis)
     }
 
     pub fn with_max_connection_idle(&mut self, max_connection_idle: Duration) -> &mut Self {
-        set_property!(self, KafkaOption::MaxConnectionIdle => max_connection_idle)
+        let d = max_connection_idle.as_secs() * 1000 +
+                max_connection_idle.subsec_nanos() as u64 / 1000_000;
+
+        set_property!(self, KafkaOption::MaxConnectionIdle => d)
     }
 
     pub fn max_pooled_connections(&self) -> Option<usize> {
@@ -130,6 +138,8 @@ impl KafkaConfig {
 
 #[cfg(test)]
 mod tests {
+    extern crate serde_json;
+
     use super::*;
 
     #[test]
@@ -147,5 +157,37 @@ mod tests {
                        .with_compression_codec(Compression::LZ4)
                        .compression_codec(),
                    Some(Compression::LZ4));
+    }
+
+    #[test]
+    fn test_serialize() {
+        let config =
+            KafkaConfig::from(vec![KafkaOption::Brokers(vec!["127.0.0.1:9092".parse().unwrap()]),
+                                   KafkaOption::ClientId("tokio-kafka".to_owned()),
+                                   KafkaOption::CompressionCodec(Compression::Snappy),
+                                   KafkaOption::MaxConnectionIdle(5000),
+                                   KafkaOption::MaxPooledConnections(100)]);
+        let json = r#"[
+  {
+    "bootstrap.servers": [
+      "127.0.0.1:9092"
+    ]
+  },
+  {
+    "client.id": "tokio-kafka"
+  },
+  {
+    "compression.codec": "snappy"
+  },
+  {
+    "connection.max.idle.ms": 5000
+  },
+  {
+    "connection.max.pooled": 100
+  }
+]"#;
+
+        assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);
+        assert_eq!(serde_json::from_str::<KafkaConfig>(json).unwrap(), config);
     }
 }

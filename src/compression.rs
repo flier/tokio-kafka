@@ -1,11 +1,15 @@
 use std::mem;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[repr(i8)]
 pub enum Compression {
+    #[serde(rename = "none")]
     None = 0,
+    #[serde(rename = "gzip")]
     GZIP = 1,
+    #[serde(rename = "snappy")]
     Snappy = 2,
+    #[serde(rename = "lz4")]
     LZ4 = 3,
 }
 
