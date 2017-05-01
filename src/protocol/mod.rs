@@ -75,7 +75,8 @@ impl From<ApiKey> for ApiKeys {
 /// Possible choices on acknowledgement requirements when
 /// producing/sending messages to Kafka. See
 /// `KafkaClient::produce_messages`.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 #[repr(i16)]
 pub enum RequiredAcks {
     /// Indicates to the receiving Kafka broker not to acknowlegde

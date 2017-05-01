@@ -1,10 +1,10 @@
-use bytes::{BytesMut, ByteOrder};
+use bytes::{ByteOrder, BytesMut};
 
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ErrorCode, PartitionId, BrokerId, ReplicaId, Encodable, RequestHeader,
-               ResponseHeader, ParseTag, parse_response_header, parse_string, WriteExt};
+use protocol::{BrokerId, Encodable, ErrorCode, ParseTag, PartitionId, ReplicaId, RequestHeader,
+               ResponseHeader, WriteExt, parse_response_header, parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest {
@@ -48,7 +48,7 @@ pub struct PartitionMetadata {
     pub partition: PartitionId,
     pub leader: BrokerId,
     pub replicas: Vec<ReplicaId>,
-    pub isr: Vec<i32>,
+    pub isr: Vec<BrokerId>,
 }
 
 named!(pub parse_metadata_response<MetadataResponse>,
@@ -117,7 +117,7 @@ named!(parse_partition_metadata<PartitionMetadata>,
 
 #[cfg(test)]
 mod tests {
-    use bytes::{BytesMut, BigEndian};
+    use bytes::{BigEndian, BytesMut};
 
     use nom::IResult;
 

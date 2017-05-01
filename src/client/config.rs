@@ -3,6 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use compression::Compression;
+use protocol::RequiredAcks;
 
 pub const DEFAULT_MAX_POOLED_CONNECTIONS: usize = 4;
 
@@ -15,18 +16,27 @@ pub enum KafkaOption {
     /// Initial list of brokers (host or host:port)
     #[serde(rename = "bootstrap.servers")]
     Brokers(Vec<SocketAddr>),
+
     /// Client identifier.
     #[serde(rename = "client.id")]
     ClientId(String),
+
     /// Compression codec to use for compressing message sets.
     #[serde(rename = "compression.codec")]
     CompressionCodec(Compression),
+
     /// Maximum connection idle timeout
     #[serde(rename = "connection.max.idle.ms")]
     MaxConnectionIdle(u64),
+
     /// Maximum pooled connections per broker
     #[serde(rename = "connection.max.pooled")]
     MaxPooledConnections(usize),
+
+    /// How many acknowledgements the leader broker must receive
+    /// from ISR brokers before responding to the request
+    #[serde(rename = "request.required.acks")]
+    Acks(RequiredAcks),
 }
 
 macro_rules! get_property {
@@ -134,6 +144,14 @@ impl KafkaConfig {
     pub fn with_max_pooled_connections(&mut self, max_pooled_connections: usize) -> &mut Self {
         set_property!(self, KafkaOption::MaxPooledConnections => max_pooled_connections)
     }
+
+    pub fn required_acks(&self) -> Option<RequiredAcks> {
+        get_property!(self, KafkaOption::Acks)
+    }
+
+    pub fn with_required_acks(&mut self, acks: RequiredAcks) -> &mut Self {
+        set_property!(self, KafkaOption::Acks => acks)
+    }
 }
 
 #[cfg(test)]
@@ -157,6 +175,11 @@ mod tests {
                        .with_compression_codec(Compression::LZ4)
                        .compression_codec(),
                    Some(Compression::LZ4));
+
+        assert_eq!(config
+                       .with_required_acks(RequiredAcks::All)
+                       .required_acks(),
+                   Some(RequiredAcks::All));
     }
 
     #[test]
@@ -166,7 +189,8 @@ mod tests {
                                    KafkaOption::ClientId("tokio-kafka".to_owned()),
                                    KafkaOption::CompressionCodec(Compression::Snappy),
                                    KafkaOption::MaxConnectionIdle(5000),
-                                   KafkaOption::MaxPooledConnections(100)]);
+                                   KafkaOption::MaxPooledConnections(100),
+                                   KafkaOption::Acks(RequiredAcks::All)]);
         let json = r#"[
   {
     "bootstrap.servers": [
@@ -184,6 +208,9 @@ mod tests {
   },
   {
     "connection.max.pooled": 100
+  },
+  {
+    "request.required.acks": "all"
   }
 ]"#;
 
