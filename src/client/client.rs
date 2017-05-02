@@ -1,14 +1,14 @@
 use std::io;
 use std::rc::Rc;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::collections::HashMap;
+use std::time::Duration;
 
 use bytes::BytesMut;
-
-use time::Duration;
 
 use futures::{Async, Poll, Stream};
 use futures::future::{self, Future};
@@ -26,7 +26,7 @@ use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
 use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet, Offset,
                PartitionId, RequiredAcks};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
-use client::{Cluster, DEFAULT_MAX_CONNECTION_TIMEOUT, KafkaConfig, KafkaState, Metadata};
+use client::{Cluster, KafkaConfig, KafkaState, Metadata};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
@@ -75,15 +75,13 @@ impl<'a> KafkaClient<'a>
     pub fn from_config(config: KafkaConfig, handle: Handle) -> KafkaClient<'a> {
         debug!("client with config: {:?}", config);
 
-        let max_connection_idle = config
-            .max_connection_idle()
-            .unwrap_or(*DEFAULT_MAX_CONNECTION_TIMEOUT);
+        let pool = Pool::new(config.max_connection_idle());
 
         KafkaClient {
             config: config,
             handle: handle.clone(),
             connector: KafkaConnector::new(handle),
-            pool: Pool::new(max_connection_idle),
+            pool: pool,
             state: Rc::new(RefCell::new(KafkaState::new())),
         }
     }
@@ -105,12 +103,11 @@ impl<'a> KafkaClient<'a>
     {
         debug!("fetch metadata for toipcs: {:?}", topic_names);
 
-        let addrs = self.config.brokers().unwrap(); // TODO
-        let addr = addrs.iter().next().unwrap();
+        let addr = self.config.hosts.iter().next().unwrap(); // TODO
 
         let api_version = 0;
         let correlation_id = self.state.borrow_mut().next_correlation_id();
-        let client_id = self.config.client_id();
+        let client_id = self.config.client_id.clone().map(Cow::from);
         let request =
             KafkaRequest::fetch_metadata(api_version, correlation_id, client_id, topic_names);
 
@@ -185,15 +182,14 @@ impl<'a> Client<'a> for KafkaClient<'a>
                        -> ProduceRecords {
         let api_version = 0;
         let correlation_id = self.state.borrow_mut().next_correlation_id();
-        let client_id = self.config.client_id();
+        let client_id = self.config.client_id.clone().map(Cow::from);
         let request = KafkaRequest::produce_records(api_version,
                                                     correlation_id,
                                                     client_id,
                                                     required_acks,
                                                     timeout,
                                                     records);
-        let addrs = self.config.brokers().unwrap(); // TODO
-        let addr = addrs.iter().next().unwrap();
+        let addr = self.config.hosts.iter().next().unwrap(); // TODO
         let response = self.send_request(addr, request)
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
                           future::ok(res.topics
@@ -266,7 +262,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                 .iter()
                 .map(|_| self.state.borrow_mut().next_correlation_id())
                 .collect::<Vec<CorrelationId>>();
-            let client_id = self.config.client_id();
+            let client_id = self.config.client_id.clone().map(Cow::from);
 
             let mut responses = Vec::new();
 
