@@ -1,9 +1,12 @@
 use bytes::{ByteOrder, BytesMut};
 
+use time::Duration;
+
 use errors::Result;
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, Encodable,
                FetchOffset, FetchRequest, ListOffsetRequest, ListPartitionOffset, ListTopicOffset,
-               MetadataRequest, PartitionId, ProduceRequest, RequestHeader};
+               MessageSet, MetadataRequest, PartitionId, ProducePartition, ProduceRequest,
+               ProduceTopic, RequestHeader, RequiredAck, RequiredAcks};
 
 #[derive(Debug)]
 pub enum KafkaRequest {
@@ -23,6 +26,44 @@ impl KafkaRequest {
             &KafkaRequest::Metadata(ref req) => &req.header,
             &KafkaRequest::ApiVersions(ref req) => &req.header,
         }
+    }
+
+    pub fn produce_records(api_version: ApiVersion,
+                           correlation_id: CorrelationId,
+                           client_id: Option<String>,
+                           required_acks: RequiredAcks,
+                           timeout: Duration,
+                           records: &[(&str, &[(PartitionId, MessageSet)])])
+                           -> Self {
+        let request = ProduceRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Produce as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            required_acks: required_acks as RequiredAck,
+            timeout: timeout.num_milliseconds() as i32,
+            topics: records
+                .iter()
+                .map(move |&(topic_name, partitions)| {
+                    ProduceTopic {
+                        topic_name: topic_name.to_owned(),
+                        partitions: partitions
+                            .iter()
+                            .map(|&(ref partition, ref message_set)| {
+                                     ProducePartition {
+                                         partition: *partition,
+                                         message_set: message_set.clone(),
+                                     }
+                                 })
+                            .collect(),
+                    }
+                })
+                .collect(),
+        };
+
+        KafkaRequest::Produce(request)
     }
 
     pub fn list_offsets<'a, I, S, P>(api_version: ApiVersion,
@@ -55,16 +96,18 @@ impl KafkaRequest {
             })
             .collect();
 
-        KafkaRequest::ListOffsets(ListOffsetRequest {
-                                      header: RequestHeader {
-                                          api_key: ApiKeys::ListOffsets as ApiKey,
-                                          api_version: api_version,
-                                          correlation_id: correlation_id,
-                                          client_id: client_id,
-                                      },
-                                      replica_id: -1,
-                                      topics: topics,
-                                  })
+        let request = ListOffsetRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::ListOffsets as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            replica_id: -1,
+            topics: topics,
+        };
+
+        KafkaRequest::ListOffsets(request)
     }
 
     pub fn fetch_metadata<S: AsRef<str>>(api_version: ApiVersion,
@@ -72,18 +115,20 @@ impl KafkaRequest {
                                          client_id: Option<String>,
                                          topic_names: &[S])
                                          -> Self {
-        KafkaRequest::Metadata(MetadataRequest {
-                                   header: RequestHeader {
-                                       api_key: ApiKeys::Metadata as ApiKey,
-                                       api_version: api_version,
-                                       correlation_id: correlation_id,
-                                       client_id: client_id,
-                                   },
-                                   topic_names: topic_names
-                                       .iter()
-                                       .map(|s| s.as_ref().to_owned())
-                                       .collect(),
-                               })
+        let request = MetadataRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Metadata as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            topic_names: topic_names
+                .iter()
+                .map(|s| s.as_ref().to_owned())
+                .collect(),
+        };
+
+        KafkaRequest::Metadata(request)
     }
 }
 

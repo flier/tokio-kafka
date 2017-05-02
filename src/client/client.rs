@@ -8,6 +8,8 @@ use std::collections::HashMap;
 
 use bytes::BytesMut;
 
+use time::Duration;
+
 use futures::{Async, Poll, Stream};
 use futures::future::{self, Future};
 use futures::unsync::oneshot;
@@ -19,9 +21,10 @@ use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
 
-use errors::{Error, ErrorKind};
+use errors::{Error, ErrorKind, Result};
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
-use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId};
+use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet, Offset,
+               PartitionId, RequiredAcks};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
 use client::{Cluster, DEFAULT_MAX_CONNECTION_TIMEOUT, KafkaConfig, KafkaState, Metadata};
 
@@ -33,6 +36,12 @@ pub struct PartitionOffset {
 }
 
 pub trait Client {
+    fn produce_records(&mut self,
+                       acks: RequiredAcks,
+                       timeout: Duration,
+                       records: &[(&str, &[(PartitionId, MessageSet)])])
+                       -> ProduceRecords;
+
     fn fetch_offsets<S: AsRef<str>>(&mut self,
                                     topic_names: &[S],
                                     offset: FetchOffset)
@@ -168,6 +177,47 @@ impl KafkaClient {
 }
 
 impl Client for KafkaClient {
+    fn produce_records(&mut self,
+                       required_acks: RequiredAcks,
+                       timeout: Duration,
+                       records: &[(&str, &[(PartitionId, MessageSet)])])
+                       -> ProduceRecords {
+        let api_version = 0;
+        let correlation_id = self.state.borrow_mut().next_correlation_id();
+        let client_id = self.config.client_id();
+        let request = KafkaRequest::produce_records(api_version,
+                                                    correlation_id,
+                                                    client_id,
+                                                    required_acks,
+                                                    timeout,
+                                                    records);
+        let addrs = self.config.brokers().unwrap(); // TODO
+        let addr = addrs.iter().next().unwrap();
+        let response = self.send_request(addr, request)
+            .and_then(|res| if let KafkaResponse::Produce(res) = res {
+                          future::ok(res.topics
+                                         .iter()
+                                         .map(|ref topic| {
+                    (topic.topic_name.to_owned(),
+                     topic
+                         .partitions
+                         .iter()
+                         .map(|partition| if partition.error_code ==
+                                             KafkaCode::None as ErrorCode {
+                                  Ok((partition.partition, partition.offset))
+                              } else {
+                                  Err(ErrorKind::KafkaError(partition.error_code.into()).into())
+                              })
+                         .collect())
+                })
+                                         .collect())
+                      } else {
+                          future::err(ErrorKind::InvalidResponse.into())
+                      });
+
+        ProduceRecords::new(response)
+    }
+
     fn fetch_offsets<S: AsRef<str>>(&mut self,
                                     topic_names: &[S],
                                     offset: FetchOffset)
@@ -319,6 +369,7 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
 }
 
 pub type SendRequest = StaticBoxFuture;
+pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<Result<(PartitionId, Offset)>>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 pub type LoadMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchMetadata = StaticBoxFuture<Metadata>;
