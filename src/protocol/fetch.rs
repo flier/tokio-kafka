@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use bytes::{BufMut, ByteOrder, BytesMut};
 
 use nom::{be_i16, be_i32, be_i64};
@@ -23,7 +25,7 @@ pub struct FetchRequest<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchTopic<'a> {
     /// The name of the topic.
-    pub topic_name: &'a str,
+    pub topic_name: Cow<'a, str>,
     pub partitions: Vec<FetchPartition>,
 }
 
@@ -149,7 +151,7 @@ mod tests {
             max_wait_time: 3,
             min_bytes: 4,
             topics: vec![FetchTopic {
-                topic_name: "topic",
+                topic_name: "topic".into(),
                 partitions: vec![FetchPartition {
                     partition: 5,
                     fetch_offset: 6,

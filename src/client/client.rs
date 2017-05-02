@@ -244,7 +244,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                     topics
                                         .entry((addr, api_version))
                                         .or_insert_with(|| HashMap::new())
-                                        .entry(topic_name.as_ref().to_owned())
+                                        .entry(Cow::from(topic_name.as_ref().to_owned()))
                                         .or_insert_with(|| Vec::new())
                                         .push(topic_partition.partition);
                                 }

@@ -71,14 +71,14 @@ impl<'a> KafkaRequest<'a> {
     pub fn list_offsets(api_version: ApiVersion,
                         correlation_id: CorrelationId,
                         client_id: Option<Cow<'a, str>>,
-                        topics: HashMap<String, Vec<PartitionId>>,
+                        topics: HashMap<Cow<'a, str>, Vec<PartitionId>>,
                         offset: FetchOffset)
                         -> KafkaRequest<'a> {
         let topics = topics
             .iter()
             .map(|(topic_name, partitions)| {
                 ListTopicOffset {
-                    topic_name: topic_name.to_owned(),
+                    topic_name: topic_name.clone(),
                     partitions: partitions
                         .iter()
                         .map(|&id| {

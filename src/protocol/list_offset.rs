@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use bytes::{BufMut, ByteOrder, BytesMut};
 
 use time::Timespec;
@@ -45,13 +46,13 @@ pub struct ListOffsetRequest<'a> {
     /// Broker id of the follower. For normal consumers, use -1.
     pub replica_id: ReplicaId,
     /// Topics to list offsets.
-    pub topics: Vec<ListTopicOffset>,
+    pub topics: Vec<ListTopicOffset<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListTopicOffset {
+pub struct ListTopicOffset<'a> {
     /// The name of the topic.
-    pub topic_name: String,
+    pub topic_name: Cow<'a, str>,
     /// Partitions to list offset.
     pub partitions: Vec<ListPartitionOffset>,
 }
@@ -173,7 +174,7 @@ mod tests {
             },
             replica_id: 2,
             topics: vec![ListTopicOffset {
-                topic_name: "topic".to_owned(),
+                topic_name: "topic".into(),
                 partitions: vec![ListPartitionOffset {
                     partition: 5,
                     timestamp: 6,
@@ -220,7 +221,7 @@ mod tests {
             },
             replica_id: 2,
             topics: vec![ListTopicOffset {
-                topic_name: "topic".to_owned(),
+                topic_name: "topic".into(),
                 partitions: vec![ListPartitionOffset {
                     partition: 5,
                     timestamp: 6,
