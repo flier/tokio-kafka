@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use bytes::{BufMut, ByteOrder, BytesMut};
 
 use nom::be_i32;
@@ -6,14 +7,14 @@ use errors::Result;
 use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, ParseTag, WriteExt};
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RequestHeader {
+pub struct RequestHeader<'a> {
     pub api_key: ApiKey,
     pub api_version: ApiVersion,
     pub correlation_id: CorrelationId,
-    pub client_id: Option<String>,
+    pub client_id: Option<Cow<'a, str>>,
 }
 
-impl Encodable for RequestHeader {
+impl<'a> Encodable for RequestHeader<'a> {
     fn encode<T: ByteOrder>(self, buf: &mut BytesMut) -> Result<()> {
         buf.put_i16::<T>(self.api_key);
         buf.put_i16::<T>(self.api_version);
@@ -49,7 +50,7 @@ mod tests {
             api_key: ApiKeys::Fetch as ApiKey,
             api_version: 2,
             correlation_id: 123,
-            client_id: Some("test".to_owned()),
+            client_id: Some("test".into()),
         };
 
         let mut buf = BytesMut::with_capacity(64);

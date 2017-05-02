@@ -1,17 +1,17 @@
-use bytes::{BytesMut, ByteOrder};
+use bytes::{ByteOrder, BytesMut};
 
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ApiKeys, ApiKey, ApiVersion, ErrorCode, Encodable, RequestHeader, ResponseHeader,
-               ParseTag, parse_response_header};
+use protocol::{ApiKey, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, RequestHeader,
+               ResponseHeader, parse_response_header};
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ApiVersionsRequest {
-    pub header: RequestHeader,
+pub struct ApiVersionsRequest<'a> {
+    pub header: RequestHeader<'a>,
 }
 
-impl Encodable for ApiVersionsRequest {
+impl<'a> Encodable for ApiVersionsRequest<'a> {
     fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
         self.header.encode::<T>(dst)
     }
@@ -79,7 +79,7 @@ named!(parse_api_version<SupportedApiVersion>,
 
 #[cfg(test)]
 mod tests {
-    use bytes::{BytesMut, BigEndian};
+    use bytes::{BigEndian, BytesMut};
 
     use nom::IResult;
 
@@ -125,7 +125,7 @@ mod tests {
                 api_key: ApiKeys::ApiVersions as ApiKey,
                 api_version: 0,
                 correlation_id: 123,
-                client_id: Some("client".to_owned()),
+                client_id: Some("client".into()),
             },
         };
 

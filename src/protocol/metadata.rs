@@ -7,12 +7,12 @@ use protocol::{Encodable, ErrorCode, NodeId, ParseTag, PartitionId, RequestHeade
                WriteExt, parse_response_header, parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct MetadataRequest {
-    pub header: RequestHeader,
+pub struct MetadataRequest<'a> {
+    pub header: RequestHeader<'a>,
     pub topic_names: Vec<String>,
 }
 
-impl Encodable for MetadataRequest {
+impl<'a> Encodable for MetadataRequest<'a> {
     fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
         self.header.encode::<T>(dst)?;
 
@@ -190,7 +190,7 @@ mod tests {
                 api_key: ApiKeys::Metadata as ApiKey,
                 api_version: 0,
                 correlation_id: 123,
-                client_id: Some("client".to_owned()),
+                client_id: Some("client".into()),
             },
             topic_names: vec!["topic".to_owned()],
         };

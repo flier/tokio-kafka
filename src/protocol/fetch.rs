@@ -10,7 +10,7 @@ use protocol::{ApiVersion, Encodable, ErrorCode, MessageSet, Offset, ParseTag, P
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchRequest<'a> {
-    pub header: RequestHeader,
+    pub header: RequestHeader<'a>,
     /// The replica id indicates the node id of the replica initiating this request.
     pub replica_id: ReplicaId,
     /// The maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued.
@@ -143,7 +143,7 @@ mod tests {
                 api_key: ApiKeys::Fetch as ApiKey,
                 api_version: 1,
                 correlation_id: 123,
-                client_id: Some("client".to_owned()),
+                client_id: Some("client".into()),
             },
             replica_id: 2,
             max_wait_time: 3,

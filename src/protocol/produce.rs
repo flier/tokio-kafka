@@ -9,7 +9,7 @@ use protocol::{ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder, 
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequest<'a> {
-    pub header: RequestHeader,
+    pub header: RequestHeader<'a>,
     pub required_acks: RequiredAck,
     pub timeout: i32,
     pub topics: Vec<ProduceTopic<'a>>,
@@ -189,7 +189,7 @@ mod tests {
                 api_key: ApiKeys::Produce as ApiVersion,
                 api_version: 1,
                 correlation_id: 123,
-                client_id: Some("client".to_owned()),
+                client_id: Some("client".into()),
             },
             required_acks: RequiredAcks::All as RequiredAck,
             timeout: 123,

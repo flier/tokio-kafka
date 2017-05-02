@@ -6,7 +6,6 @@ use std::cell::{Cell, RefCell};
 use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
 use std::collections::vec_deque::VecDeque;
-
 use std::time::{Duration, Instant};
 
 use futures::{Async, Future, Poll};

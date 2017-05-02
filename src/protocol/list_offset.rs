@@ -40,8 +40,8 @@ impl From<FetchOffset> for Offset {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListOffsetRequest {
-    pub header: RequestHeader,
+pub struct ListOffsetRequest<'a> {
+    pub header: RequestHeader<'a>,
     /// Broker id of the follower. For normal consumers, use -1.
     pub replica_id: ReplicaId,
     /// Topics to list offsets.
@@ -66,7 +66,7 @@ pub struct ListPartitionOffset {
     pub max_number_of_offsets: i32,
 }
 
-impl Encodable for ListOffsetRequest {
+impl<'a> Encodable for ListOffsetRequest<'a> {
     fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
         let api_version = self.header.api_version;
 
@@ -169,7 +169,7 @@ mod tests {
                 api_key: ApiKeys::ListOffsets as ApiKey,
                 api_version: 0,
                 correlation_id: 123,
-                client_id: Some("client".to_owned()),
+                client_id: Some("client".into()),
             },
             replica_id: 2,
             topics: vec![ListTopicOffset {
@@ -216,7 +216,7 @@ mod tests {
                 api_key: ApiKeys::ListOffsets as ApiKey,
                 api_version: 1,
                 correlation_id: 123,
-                client_id: Some("client".to_owned()),
+                client_id: Some("client".into()),
             },
             replica_id: 2,
             topics: vec![ListTopicOffset {

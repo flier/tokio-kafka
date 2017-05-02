@@ -1,8 +1,8 @@
+use std::borrow::Cow;
+use std::time::Duration;
 use std::collections::HashMap;
 
 use bytes::{ByteOrder, BytesMut};
-
-use time::Duration;
 
 use errors::Result;
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, Encodable,
@@ -14,9 +14,9 @@ use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, E
 pub enum KafkaRequest<'a> {
     Produce(ProduceRequest<'a>),
     Fetch(FetchRequest<'a>),
-    ListOffsets(ListOffsetRequest),
-    Metadata(MetadataRequest),
-    ApiVersions(ApiVersionsRequest),
+    ListOffsets(ListOffsetRequest<'a>),
+    Metadata(MetadataRequest<'a>),
+    ApiVersions(ApiVersionsRequest<'a>),
 }
 
 impl<'a> KafkaRequest<'a> {
@@ -32,7 +32,7 @@ impl<'a> KafkaRequest<'a> {
 
     pub fn produce_records(api_version: ApiVersion,
                            correlation_id: CorrelationId,
-                           client_id: Option<String>,
+                           client_id: Option<Cow<'a, str>>,
                            required_acks: RequiredAcks,
                            timeout: Duration,
                            records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
@@ -45,7 +45,7 @@ impl<'a> KafkaRequest<'a> {
                 client_id: client_id,
             },
             required_acks: required_acks as RequiredAck,
-            timeout: timeout.num_milliseconds() as i32,
+            timeout: timeout.as_secs() as i32 * 1000 + timeout.subsec_nanos() as i32 / 1000_000,
             topics: records
                 .into_iter()
                 .map(|(topic_name, partitions)| {
@@ -70,7 +70,7 @@ impl<'a> KafkaRequest<'a> {
 
     pub fn list_offsets(api_version: ApiVersion,
                         correlation_id: CorrelationId,
-                        client_id: Option<String>,
+                        client_id: Option<Cow<'a, str>>,
                         topics: HashMap<String, Vec<PartitionId>>,
                         offset: FetchOffset)
                         -> KafkaRequest<'a> {
@@ -109,7 +109,7 @@ impl<'a> KafkaRequest<'a> {
 
     pub fn fetch_metadata<S: AsRef<str>>(api_version: ApiVersion,
                                          correlation_id: CorrelationId,
-                                         client_id: Option<String>,
+                                         client_id: Option<Cow<'a, str>>,
                                          topic_names: &[S])
                                          -> Self {
         let request = MetadataRequest {
