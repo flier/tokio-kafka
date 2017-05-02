@@ -88,8 +88,6 @@ mod tests {
     use super::*;
     use super::super::producer::mock::MockProducer;
 
-    use client::TopicPartition;
-
     #[test]
     fn test_key_partitioning() {
         let mut record = ProducerRecord::from_key_value("topic", "key", "value");
@@ -107,12 +105,7 @@ mod tests {
             .topics
             .entry("topic".to_owned())
             .or_insert(vec![])
-            .extend((0..3).map(|id| {
-                                   TopicPartition {
-                                       topic_name: "topic",
-                                       partition: id,
-                                   }
-                               }));
+            .extend((0..3).map(|id| ("topic".to_owned(), id)));
 
         // partition with key
         partitioner.partition(&producer, &mut record);

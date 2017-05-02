@@ -81,7 +81,7 @@ pub trait Producer {
     type Value;
 
     /// Get a list of partitions for the given topic for custom partition assignment.
-    fn partitions_for(&self, topic: &str) -> Option<&[TopicPartition]>;
+    fn partitions_for<'a>(&self, topic: &'a str) -> Option<Vec<TopicPartition<'a>>>;
 
     /// Send the given record asynchronously and
     /// return a future which will eventually contain the response information.
@@ -93,3 +93,9 @@ pub trait Producer {
 
 pub type SendRecord = StaticBoxFuture<RecordMetadata>;
 pub type FlushProducer = StaticBoxFuture;
+
+pub trait Serialize {}
+
+pub trait Serializer {
+    type Item: Serialize;
+}

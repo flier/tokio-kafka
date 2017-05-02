@@ -7,7 +7,7 @@ use errors::{ErrorKind, Result};
 use client::KafkaClient;
 use producer::{DefaultPartitioner, KafkaProducer, Partitioner, ProducerConfig};
 
-pub struct ProducerBuilder<A, P = DefaultPartitioner>
+pub struct ProducerBuilder<A, K, V, P = DefaultPartitioner>
     where A: ToSocketAddrs,
           P: Partitioner
 {
@@ -15,9 +15,11 @@ pub struct ProducerBuilder<A, P = DefaultPartitioner>
     handle: Option<Handle>,
     config: ProducerConfig<A>,
     partitioner: P,
+    key_serializer: Option<K>,
+    value_serializer: Option<V>,
 }
 
-impl<A, P> Deref for ProducerBuilder<A, P>
+impl<A, K, V, P> Deref for ProducerBuilder<A, K, V, P>
     where A: ToSocketAddrs,
           P: Partitioner
 {
@@ -28,7 +30,7 @@ impl<A, P> Deref for ProducerBuilder<A, P>
     }
 }
 
-impl<A, P> DerefMut for ProducerBuilder<A, P>
+impl<A, K, V, P> DerefMut for ProducerBuilder<A, K, V, P>
     where A: ToSocketAddrs,
           P: Partitioner
 {
@@ -37,37 +39,41 @@ impl<A, P> DerefMut for ProducerBuilder<A, P>
     }
 }
 
-impl<A> ProducerBuilder<A, DefaultPartitioner>
+impl<A, K, V> ProducerBuilder<A, K, V, DefaultPartitioner>
     where A: ToSocketAddrs
 {
     pub fn from_client(client: KafkaClient,
                        config: ProducerConfig<A>)
-                       -> ProducerBuilder<A, DefaultPartitioner> {
+                       -> ProducerBuilder<A, K, V, DefaultPartitioner> {
         ProducerBuilder {
             client: Some(client),
             handle: None,
             config: config,
             partitioner: DefaultPartitioner::default(),
+            key_serializer: None,
+            value_serializer: None,
         }
     }
 
     pub fn from_config(config: ProducerConfig<A>,
                        handle: Handle)
-                       -> ProducerBuilder<A, DefaultPartitioner> {
+                       -> ProducerBuilder<A, K, V, DefaultPartitioner> {
         ProducerBuilder {
             client: None,
             handle: Some(handle),
             config: config,
             partitioner: DefaultPartitioner::default(),
+            key_serializer: None,
+            value_serializer: None,
         }
     }
 }
 
-impl<A, P> ProducerBuilder<A, P>
+impl<A, K, V, P> ProducerBuilder<A, K, V, P>
     where A: ToSocketAddrs + Clone,
           P: Partitioner
 {
-    pub fn build(self) -> Result<KafkaProducer<A>> {
+    pub fn build(self) -> Result<KafkaProducer<A, K, V>> {
         let client = if let Some(client) = self.client {
             client
         } else if let Some(handle) = self.handle {
