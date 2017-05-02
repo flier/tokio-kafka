@@ -8,6 +8,7 @@ use producer::{Producer, ProducerRecord};
 /// A partitioner is given a chance to choose/redefine a partition
 /// for a message to be sent to Kafka.
 pub trait Partitioner {
+    /// Compute the partition for the given record.
     fn partition<'a, P: Producer>(&mut self,
                                   producer: &P,
                                   record: &mut ProducerRecord<'a, P::Key, P::Value>)
@@ -16,6 +17,11 @@ pub trait Partitioner {
 
 pub type DefaultHasher = XxHash;
 
+/// The default partitioning strategy:
+///
+/// - If a partition is specified in the record, use it
+/// - If no partition is specified but a key is present choose a partition based on a hash of the key
+/// - If no partition or key is present choose a partition in a round-robin fashion
 #[derive(Default)]
 pub struct DefaultPartitioner<H: BuildHasher = BuildHasherDefault<DefaultHasher>> {
     hash_builder: H,
