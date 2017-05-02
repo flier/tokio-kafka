@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use bytes::{BufMut, ByteOrder, BytesMut};
 
 use nom::{be_i16, be_i32, be_i64};
@@ -17,7 +19,7 @@ pub struct ProduceRequest<'a> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceTopic<'a> {
-    pub topic_name: &'a str,
+    pub topic_name: Cow<'a, str>,
     pub partitions: Vec<ProducePartition>,
 }
 
@@ -194,7 +196,7 @@ mod tests {
             required_acks: RequiredAcks::All as RequiredAck,
             timeout: 123,
             topics: vec![ProduceTopic {
-                topic_name: "topic",
+                topic_name: "topic".into(),
                 partitions: vec![ProducePartition {
                     partition: 1,
                     message_set: MessageSet {

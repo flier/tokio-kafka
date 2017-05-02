@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use bytes::{ByteOrder, BytesMut};
 
 use nom::{be_i16, be_i32};
@@ -9,7 +11,7 @@ use protocol::{Encodable, ErrorCode, NodeId, ParseTag, PartitionId, RequestHeade
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest<'a> {
     pub header: RequestHeader<'a>,
-    pub topic_names: Vec<String>,
+    pub topic_names: Vec<Cow<'a, str>>,
 }
 
 impl<'a> Encodable for MetadataRequest<'a> {
@@ -192,7 +194,7 @@ mod tests {
                 correlation_id: 123,
                 client_id: Some("client".into()),
             },
-            topic_names: vec!["topic".to_owned()],
+            topic_names: vec!["topic".into()],
         };
 
         let mut buf = BytesMut::with_capacity(128);

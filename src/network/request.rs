@@ -50,7 +50,7 @@ impl<'a> KafkaRequest<'a> {
                 .into_iter()
                 .map(|(topic_name, partitions)| {
                     ProduceTopic {
-                        topic_name: topic_name,
+                        topic_name: topic_name.into(),
                         partitions: partitions
                             .into_iter()
                             .map(|(partition, message_set)| {
@@ -121,7 +121,7 @@ impl<'a> KafkaRequest<'a> {
             },
             topic_names: topic_names
                 .iter()
-                .map(|s| s.as_ref().to_owned())
+                .map(|s| Cow::from(s.as_ref().to_owned()))
                 .collect(),
         };
 
