@@ -9,15 +9,15 @@ use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, E
                ProduceTopic, RequestHeader, RequiredAck, RequiredAcks};
 
 #[derive(Debug)]
-pub enum KafkaRequest {
-    Produce(ProduceRequest),
+pub enum KafkaRequest<'a> {
+    Produce(ProduceRequest<'a>),
     Fetch(FetchRequest),
     ListOffsets(ListOffsetRequest),
     Metadata(MetadataRequest),
     ApiVersions(ApiVersionsRequest),
 }
 
-impl KafkaRequest {
+impl<'a> KafkaRequest<'a> {
     pub fn header(&self) -> &RequestHeader {
         match self {
             &KafkaRequest::Produce(ref req) => &req.header,
@@ -33,8 +33,8 @@ impl KafkaRequest {
                            client_id: Option<String>,
                            required_acks: RequiredAcks,
                            timeout: Duration,
-                           records: &[(&str, &[(PartitionId, MessageSet)])])
-                           -> Self {
+                           records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
+                           -> KafkaRequest<'a> {
         let request = ProduceRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Produce as ApiKey,
@@ -45,16 +45,16 @@ impl KafkaRequest {
             required_acks: required_acks as RequiredAck,
             timeout: timeout.num_milliseconds() as i32,
             topics: records
-                .iter()
-                .map(move |&(topic_name, partitions)| {
+                .into_iter()
+                .map(|(topic_name, partitions)| {
                     ProduceTopic {
-                        topic_name: topic_name.to_owned(),
+                        topic_name: topic_name,
                         partitions: partitions
-                            .iter()
-                            .map(|&(ref partition, ref message_set)| {
+                            .into_iter()
+                            .map(|(partition, message_set)| {
                                      ProducePartition {
-                                         partition: *partition,
-                                         message_set: message_set.clone(),
+                                         partition: partition,
+                                         message_set: message_set,
                                      }
                                  })
                             .collect(),
@@ -66,12 +66,12 @@ impl KafkaRequest {
         KafkaRequest::Produce(request)
     }
 
-    pub fn list_offsets<'a, I, S, P>(api_version: ApiVersion,
-                                     correlation_id: CorrelationId,
-                                     client_id: Option<String>,
-                                     topics: I,
-                                     offset: FetchOffset)
-                                     -> Self
+    pub fn list_offsets<I, S, P>(api_version: ApiVersion,
+                                 correlation_id: CorrelationId,
+                                 client_id: Option<String>,
+                                 topics: I,
+                                 offset: FetchOffset)
+                                 -> Self
         where I: IntoIterator<Item = (S, P)>,
               S: AsRef<str>,
               P: AsRef<[PartitionId]>
@@ -132,7 +132,7 @@ impl KafkaRequest {
     }
 }
 
-impl Encodable for KafkaRequest {
+impl<'a> Encodable for KafkaRequest<'a> {
     fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
         match self {
             KafkaRequest::Produce(req) => req.encode::<T>(dst),

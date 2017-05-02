@@ -35,11 +35,11 @@ pub struct PartitionOffset {
     pub offset: Offset,
 }
 
-pub trait Client {
+pub trait Client<'a>: 'static {
     fn produce_records(&mut self,
                        acks: RequiredAcks,
                        timeout: Duration,
-                       records: &[(&str, &[(PartitionId, MessageSet)])])
+                       records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
                        -> ProduceRecords;
 
     fn fetch_offsets<S: AsRef<str>>(&mut self,
@@ -47,18 +47,18 @@ pub trait Client {
                                     offset: FetchOffset)
                                     -> FetchOffsets;
 
-    fn load_metadata(&mut self) -> LoadMetadata;
+    fn load_metadata(&'a mut self) -> LoadMetadata<'a>;
 }
 
-pub struct KafkaClient {
+pub struct KafkaClient<'a> {
     config: KafkaConfig,
     handle: Handle,
     connector: KafkaConnector,
-    pool: Pool<SocketAddr, TokioClient>,
-    state: Rc<RefCell<KafkaState>>,
+    pool: Pool<SocketAddr, TokioClient<'a>>,
+    state: Rc<RefCell<KafkaState<'a>>>,
 }
 
-impl Deref for KafkaClient {
+impl<'a> Deref for KafkaClient<'a> {
     type Target = KafkaConfig;
 
     fn deref(&self) -> &Self::Target {
@@ -66,13 +66,15 @@ impl Deref for KafkaClient {
     }
 }
 
-impl DerefMut for KafkaClient {
+impl<'a> DerefMut for KafkaClient<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.config
     }
 }
 
-impl KafkaClient {
+impl<'a> KafkaClient<'a>
+    where Self: 'static
+{
     pub fn from_config(config: KafkaConfig, handle: Handle) -> Self {
         debug!("client with config: {:?}", config);
 
@@ -97,11 +99,11 @@ impl KafkaClient {
         &self.handle
     }
 
-    pub fn metadata(&self) -> Rc<Metadata> {
+    pub fn metadata(&'a self) -> Rc<Metadata<'a>> {
         self.state.borrow().metadata()
     }
 
-    fn fetch_metadata<S>(&mut self, topic_names: &[S]) -> FetchMetadata
+    fn fetch_metadata<S>(&'a mut self, topic_names: &[S]) -> FetchMetadata<'a>
         where S: AsRef<str> + Debug
     {
         debug!("fetch metadata for toipcs: {:?}", topic_names);
@@ -125,7 +127,7 @@ impl KafkaClient {
         FetchMetadata::new(response)
     }
 
-    fn send_request(&mut self, addr: &SocketAddr, request: KafkaRequest) -> FutureResponse {
+    fn send_request(&mut self, addr: &SocketAddr, request: KafkaRequest<'a>) -> FutureResponse {
         let checkout = self.pool.checkout(addr);
         let connect = {
             let handle = self.handle.clone();
@@ -176,11 +178,13 @@ impl KafkaClient {
     }
 }
 
-impl Client for KafkaClient {
+impl<'a> Client<'a> for KafkaClient<'a>
+    where Self: 'static
+{
     fn produce_records(&mut self,
                        required_acks: RequiredAcks,
                        timeout: Duration,
-                       records: &[(&str, &[(PartitionId, MessageSet)])])
+                       records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
                        -> ProduceRecords {
         let api_version = 0;
         let correlation_id = self.state.borrow_mut().next_correlation_id();
@@ -333,19 +337,18 @@ impl Client for KafkaClient {
         FetchOffsets::new(offsets)
     }
 
-    fn load_metadata(&mut self) -> LoadMetadata {
+    fn load_metadata(&'a mut self) -> LoadMetadata<'a> {
         debug!("loading metadata...");
 
         let state = self.state.clone();
 
-        StaticBoxFuture::new(self.fetch_metadata::<&str>(&[])
-                                 .and_then(move |metadata| {
-                                               let metadata = Rc::new(metadata);
+        LoadMetadata::new(self.fetch_metadata::<&str>(&[])
+                              .and_then(move |metadata| {
+                                            let metadata =
+                                                state.borrow_mut().update_metadata(metadata);
 
-                                               state.borrow_mut().update_metadata(metadata.clone());
-
-                                               future::ok(metadata)
-                                           }))
+                                            future::ok(metadata)
+                                        }))
     }
 }
 
@@ -371,8 +374,8 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
 pub type SendRequest = StaticBoxFuture;
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<Result<(PartitionId, Offset)>>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
-pub type LoadMetadata = StaticBoxFuture<Rc<Metadata>>;
-pub type FetchMetadata = StaticBoxFuture<Metadata>;
+pub type LoadMetadata<'a> = StaticBoxFuture<Rc<Metadata<'a>>>;
+pub type FetchMetadata<'a> = StaticBoxFuture<Metadata<'a>>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 
 type TokioBody = Body<BytesMut, io::Error>;
@@ -388,27 +391,28 @@ impl Stream for KafkaBody {
     }
 }
 
-type TokioClient = ClientProxy<Message<KafkaRequest, KafkaBody>,
-                               Message<KafkaResponse, TokioBody>,
-                               io::Error>;
+type TokioClient<'a> = ClientProxy<Message<KafkaRequest<'a>, KafkaBody>,
+                                   Message<KafkaResponse, TokioBody>,
+                                   io::Error>;
 
-type PooledClient = Pooled<SocketAddr, TokioClient>;
+type PooledClient<'a> = Pooled<SocketAddr, TokioClient<'a>>;
 
-struct RemoteClient {
+struct RemoteClient<'a> {
     connection_id: u32,
-    client_rx: RefCell<Option<oneshot::Receiver<PooledClient>>>,
+    client_rx: RefCell<Option<oneshot::Receiver<PooledClient<'a>>>>,
 }
 
-impl<T> ClientProto<T> for RemoteClient
-    where T: AsyncRead + AsyncWrite + Debug + 'static
+impl<'a, T> ClientProto<T> for RemoteClient<'a>
+    where T: AsyncRead + AsyncWrite + Debug + 'static,
+          Self: 'static
 {
-    type Request = KafkaRequest;
+    type Request = KafkaRequest<'a>;
     type RequestBody = <KafkaBody as Stream>::Item;
     type Response = KafkaResponse;
     type ResponseBody = BytesMut;
     type Error = io::Error;
-    type Transport = KafkaConnection<T, PooledClient>;
-    type BindTransport = BindingClient<T>;
+    type Transport = KafkaConnection<'a, T, PooledClient<'a>>;
+    type BindTransport = BindingClient<'a, T>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
         trace!("bind transport for {:?}", io);
@@ -424,16 +428,16 @@ impl<T> ClientProto<T> for RemoteClient
     }
 }
 
-struct BindingClient<T> {
+struct BindingClient<'a, T> {
     connection_id: u32,
-    rx: oneshot::Receiver<PooledClient>,
+    rx: oneshot::Receiver<PooledClient<'a>>,
     io: Option<T>,
 }
 
-impl<T> Future for BindingClient<T>
+impl<'a, T> Future for BindingClient<'a, T>
     where T: AsyncRead + AsyncWrite + Debug + 'static
 {
-    type Item = KafkaConnection<T, PooledClient>;
+    type Item = KafkaConnection<'a, T, PooledClient<'a>>;
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {

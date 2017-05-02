@@ -9,19 +9,21 @@ use client::{Cluster, KafkaClient, TopicPartition};
 use producer::{DefaultPartitioner, FlushProducer, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordMetadata, SendRecord, Serializer};
 
-pub struct KafkaProducer<A, K, V>
+pub struct KafkaProducer<'a, A, K, V>
     where A: ToSocketAddrs
 {
-    client: KafkaClient,
+    client: KafkaClient<'a>,
     config: ProducerConfig<A>,
     key_serializer: Option<K>,
     value_serializer: Option<V>,
 }
 
-impl<A, K, V> KafkaProducer<A, K, V>
+impl<'a, A, K, V> KafkaProducer<'a, A, K, V>
     where A: ToSocketAddrs
 {
-    pub fn from_client(client: KafkaClient, config: ProducerConfig<A>) -> Self {
+    pub fn from_client(client: KafkaClient<'a>,
+                       config: ProducerConfig<A>)
+                       -> KafkaProducer<'a, A, K, V> {
         KafkaProducer {
             client: client,
             config: config,
@@ -30,16 +32,16 @@ impl<A, K, V> KafkaProducer<A, K, V>
         }
     }
 
-    pub fn client(&self) -> &KafkaClient {
+    pub fn client(&self) -> &KafkaClient<'a> {
         &self.client
     }
 
-    pub fn into_client(self) -> KafkaClient {
+    pub fn into_client(self) -> KafkaClient<'a> {
         self.client
     }
 }
 
-impl<A, K, V> KafkaProducer<A, K, V>
+impl<'a, A, K, V> KafkaProducer<'a, A, K, V>
     where A: ToSocketAddrs
 {
     pub fn from_hosts(hosts: &[A], handle: Handle) -> ProducerBuilder<A, K, V, DefaultPartitioner>
@@ -49,16 +51,17 @@ impl<A, K, V> KafkaProducer<A, K, V>
     }
 }
 
-impl<A, K, V> Producer for KafkaProducer<A, K, V>
+impl<'a, A, K, V> Producer<'a> for KafkaProducer<'a, A, K, V>
     where A: ToSocketAddrs,
           K: Serializer,
           K::Item: Hash,
-          V: Serializer
+          V: Serializer,
+          Self: 'static
 {
     type Key = K::Item;
     type Value = V::Item;
 
-    fn partitions_for<'a>(&self, toipc_name: &'a str) -> Option<Vec<TopicPartition<'a>>> {
+    fn partitions_for(&'a self, toipc_name: &'a str) -> Option<Vec<TopicPartition<'a>>> {
         self.client.metadata().partitions_for_topic(toipc_name)
     }
 
@@ -91,14 +94,14 @@ pub mod mock {
         pub records: Vec<(Option<K>, V)>,
     }
 
-    impl<K, V> Producer for MockProducer<K, V>
+    impl<'a, K, V> Producer<'a> for MockProducer<K, V>
         where K: Hash + Clone,
               V: Clone
     {
         type Key = K;
         type Value = V;
 
-        fn partitions_for<'a>(&self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>> {
+        fn partitions_for(&self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>> {
             self.topics
                 .get(topic_name)
                 .map(|partitions| {

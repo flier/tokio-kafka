@@ -1,27 +1,32 @@
 use std::io;
 use std::mem;
 use std::collections::VecDeque;
+use std::marker::PhantomData;
 
-use bytes::{BufMut, BytesMut, ByteOrder, BigEndian};
+use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
 
-use tokio_io::codec::{Encoder, Decoder};
+use tokio_io::codec::{Decoder, Encoder};
 
-use protocol::{Encodable, ApiKeys, ApiVersion, RequestHeader, CorrelationId};
+use protocol::{ApiKeys, ApiVersion, CorrelationId, Encodable, RequestHeader};
 use network::{KafkaRequest, KafkaResponse};
 
 #[derive(Debug)]
-pub struct KafkaCodec {
+pub struct KafkaCodec<'a> {
     requests: VecDeque<(ApiKeys, ApiVersion, CorrelationId)>,
+    phantom: PhantomData<&'a u8>,
 }
 
-impl KafkaCodec {
+impl<'a> KafkaCodec<'a> {
     pub fn new() -> Self {
-        KafkaCodec { requests: VecDeque::new() }
+        KafkaCodec {
+            requests: VecDeque::new(),
+            phantom: PhantomData,
+        }
     }
 }
 
-impl Encoder for KafkaCodec {
-    type Item = KafkaRequest;
+impl<'a> Encoder for KafkaCodec<'a> {
+    type Item = KafkaRequest<'a>;
     type Error = io::Error;
 
     fn encode(&mut self, request: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -58,7 +63,7 @@ impl Encoder for KafkaCodec {
     }
 }
 
-impl Decoder for KafkaCodec {
+impl<'a> Decoder for KafkaCodec<'a> {
     type Item = KafkaResponse;
     type Error = io::Error;
 

@@ -100,7 +100,7 @@ fn main() {
 
     let work = client
         .load_metadata()
-        .and_then(|metadata| {
+        .and_then(move |metadata| {
             let topics = topics.unwrap_or_else(|| {
                                                    metadata
                                                        .topic_names()
@@ -113,7 +113,7 @@ fn main() {
                                 client.fetch_offsets(topics.as_slice(), FetchOffset::Latest)];
 
             future::join_all(requests).map(|responses| {
-                                               dump_metadata(&config,
+                                               dump_metadata(config,
                                                              metadata,
                                                              &responses[0],
                                                              &responses[1]);
@@ -123,10 +123,10 @@ fn main() {
     core.run(work).unwrap();
 }
 
-fn dump_metadata(cfg: &Config,
-                 metadata: Rc<Metadata>,
-                 earliest_offsets: &HashMap<String, Vec<PartitionOffset>>,
-                 latest_offsets: &HashMap<String, Vec<PartitionOffset>>) {
+fn dump_metadata<'a>(cfg: Config,
+                     metadata: Rc<Metadata<'a>>,
+                     earliest_offsets: &HashMap<String, Vec<PartitionOffset>>,
+                     latest_offsets: &HashMap<String, Vec<PartitionOffset>>) {
     let host_width = 2 +
                      metadata
                          .brokers()

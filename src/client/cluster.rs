@@ -1,14 +1,15 @@
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 use protocol::{NodeId, PartitionId, SupportedApiVersions};
 
 /// A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
-pub trait Cluster {
+pub trait Cluster<'a> {
     /// The known set of brokers.
     fn brokers(&self) -> &[Broker];
 
     /// Get all topics.
-    fn topics(&self) -> HashMap<&str, &[PartitionInfo]>;
+    fn topics(&'a self) -> HashMap<&'a str, &[PartitionInfo<'a>]>;
 
     /// Get all topic names.
     fn topic_names(&self) -> Vec<&str>;
@@ -20,13 +21,13 @@ pub trait Cluster {
     fn leader_for(&self, tp: &TopicPartition) -> Option<&Broker>;
 
     /// Get the metadata for the specified partition
-    fn find_partition(&self, tp: &TopicPartition) -> Option<&PartitionInfo>;
+    fn find_partition(&'a self, tp: &TopicPartition) -> Option<&PartitionInfo<'a>>;
 
     /// Get the list of partitions for this topic
-    fn partitions_for_topic<'a>(&self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>>;
+    fn partitions_for_topic(&self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>>;
 
     /// Get the list of partitions whose leader is this node
-    fn partitions_for_broker(&self, broker: BrokerRef) -> Vec<TopicPartition>;
+    fn partitions_for_broker(&'a self, broker: BrokerRef) -> Vec<TopicPartition<'a>>;
 }
 
 /// Describes a Kafka broker node is communicating with.
@@ -134,31 +135,34 @@ pub struct TopicPartition<'a> {
 
 /// Information about a topic-partition.
 #[derive(Debug, Clone)]
-pub struct PartitionInfo {
+pub struct PartitionInfo<'a> {
     pub partition: PartitionId,
     pub leader: Option<BrokerRef>,
     pub replicas: Vec<BrokerRef>,
     pub in_sync_replicas: Vec<BrokerRef>,
+    pub phantom: PhantomData<&'a u8>,
 }
 
-impl Default for PartitionInfo {
+impl<'a> Default for PartitionInfo<'a> {
     fn default() -> Self {
         PartitionInfo {
             partition: -1,
             leader: None,
             replicas: Vec::new(),
             in_sync_replicas: Vec::new(),
+            phantom: PhantomData,
         }
     }
 }
 
-impl PartitionInfo {
+impl<'a> PartitionInfo<'a> {
     pub fn new(partition: PartitionId, leader: BrokerRef) -> Self {
         PartitionInfo {
             partition: partition,
             leader: Some(leader),
             replicas: vec![],
             in_sync_replicas: vec![],
+            phantom: PhantomData,
         }
     }
 

@@ -9,10 +9,10 @@ use producer::{Producer, ProducerRecord};
 /// for a message to be sent to Kafka.
 pub trait Partitioner {
     /// Compute the partition for the given record.
-    fn partition<'a, P: Producer>(&mut self,
-                                  producer: &P,
-                                  record: &mut ProducerRecord<'a, P::Key, P::Value>)
-                                  -> Option<PartitionId>;
+    fn partition<'a, P: Producer<'a>>(&mut self,
+                                      producer: &'a P,
+                                      record: &mut ProducerRecord<'a, P::Key, P::Value>)
+                                      -> Option<PartitionId>;
 }
 
 pub type DefaultHasher = XxHash;
@@ -48,10 +48,10 @@ impl DefaultPartitioner {
 impl<H> Partitioner for DefaultPartitioner<H>
     where H: BuildHasher
 {
-    fn partition<'a, P: Producer>(&mut self,
-                                  producer: &P,
-                                  record: &mut ProducerRecord<'a, P::Key, P::Value>)
-                                  -> Option<PartitionId> {
+    fn partition<'a, P: Producer<'a>>(&mut self,
+                                      producer: &'a P,
+                                      record: &mut ProducerRecord<'a, P::Key, P::Value>)
+                                      -> Option<PartitionId> {
         if let Some(partition) = record.partition {
             if partition >= 0 {
                 // If a partition is specified in the record, use it
@@ -89,10 +89,10 @@ mod tests {
     use super::super::producer::mock::MockProducer;
 
     #[test]
-    fn test_key_partitioning() {
-        let mut record = ProducerRecord::from_key_value("topic", "key", "value");
-        let mut producer = MockProducer::default();
+    fn test_skip_partitioning() {
+        let producer = MockProducer::default();
         let mut partitioner = DefaultPartitioner::new();
+        let mut record = ProducerRecord::from_key_value("topic", "key", "value");
 
         assert_eq!(record.partition, None);
 
@@ -100,12 +100,20 @@ mod tests {
         partitioner.partition(&producer, &mut record);
 
         assert_eq!(record.partition, None);
+    }
+
+    #[test]
+    fn test_key_partitioning() {
+        let mut producer = MockProducer::default();
 
         producer
             .topics
             .entry("topic".to_owned())
             .or_insert(vec![])
             .extend((0..3).map(|id| ("topic".to_owned(), id)));
+
+        let mut partitioner = DefaultPartitioner::new();
+        let mut record = ProducerRecord::from_key_value("topic", "key", "value");
 
         // partition with key
         partitioner.partition(&producer, &mut record);

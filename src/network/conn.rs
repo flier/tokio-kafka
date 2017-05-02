@@ -34,13 +34,13 @@ struct State<K> {
 }
 
 #[derive(Debug)]
-pub struct KafkaConnection<I, K> {
+pub struct KafkaConnection<'a, I, K> {
     id: ConnectionId,
-    stream: Framed<I, KafkaCodec>,
+    stream: Framed<I, KafkaCodec<'a>>,
     state: State<K>,
 }
 
-impl<I, K> Deref for KafkaConnection<I, K> {
+impl<'a, I, K> Deref for KafkaConnection<'a, I, K> {
     type Target = I;
 
     fn deref(&self) -> &Self::Target {
@@ -48,13 +48,13 @@ impl<I, K> Deref for KafkaConnection<I, K> {
     }
 }
 
-impl<I, K> DerefMut for KafkaConnection<I, K> {
+impl<'a, I, K> DerefMut for KafkaConnection<'a, I, K> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.stream.get_mut()
     }
 }
 
-impl<I, K> Read for KafkaConnection<I, K>
+impl<'a, I, K> Read for KafkaConnection<'a, I, K>
     where I: AsyncRead + AsyncWrite
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
@@ -73,7 +73,7 @@ impl<I, K> Read for KafkaConnection<I, K>
     }
 }
 
-impl<I, K> Write for KafkaConnection<I, K>
+impl<'a, I, K> Write for KafkaConnection<'a, I, K>
     where I: AsyncRead + AsyncWrite
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -89,9 +89,9 @@ impl<I, K> Write for KafkaConnection<I, K>
     }
 }
 
-impl<I, K> AsyncRead for KafkaConnection<I, K> where I: AsyncRead + AsyncWrite {}
+impl<'a, I, K> AsyncRead for KafkaConnection<'a, I, K> where I: AsyncRead + AsyncWrite {}
 
-impl<I, K> AsyncWrite for KafkaConnection<I, K>
+impl<'a, I, K> AsyncWrite for KafkaConnection<'a, I, K>
     where I: AsyncRead + AsyncWrite
 {
     fn shutdown(&mut self) -> Poll<(), io::Error> {
@@ -101,7 +101,7 @@ impl<I, K> AsyncWrite for KafkaConnection<I, K>
     }
 }
 
-impl<I, K> Stream for KafkaConnection<I, K>
+impl<'a, I, K> Stream for KafkaConnection<'a, I, K>
     where I: AsyncRead + AsyncWrite
 {
     type Item = Frame<KafkaResponse, BytesMut, io::Error>;
@@ -124,11 +124,11 @@ impl<I, K> Stream for KafkaConnection<I, K>
     }
 }
 
-impl<I, K> Sink for KafkaConnection<I, K>
+impl<'a, I, K> Sink for KafkaConnection<'a, I, K>
     where I: AsyncRead + AsyncWrite,
           K: KeepAlive
 {
-    type SinkItem = Frame<KafkaRequest, BytesMut, io::Error>;
+    type SinkItem = Frame<KafkaRequest<'a>, BytesMut, io::Error>;
     type SinkError = io::Error;
 
     fn start_send(&mut self, frame: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
@@ -165,17 +165,18 @@ impl<I, K> Sink for KafkaConnection<I, K>
     }
 }
 
-impl<I, K> Transport for KafkaConnection<I, K>
-    where I: AsyncRead + AsyncWrite + 'static,
-          K: KeepAlive + 'static
+impl<'a, I, K> Transport for KafkaConnection<'a, I, K>
+    where I: AsyncRead + AsyncWrite,
+          K: KeepAlive,
+          Self: 'static
 {
 }
 
-impl<I, K> KafkaConnection<I, K>
+impl<'a, I, K> KafkaConnection<'a, I, K>
     where I: AsyncRead + AsyncWrite,
           K: KeepAlive
 {
-    pub fn new(id: ConnectionId, stream: I, codec: KafkaCodec, keep_alive: K) -> Self {
+    pub fn new(id: ConnectionId, stream: I, codec: KafkaCodec<'a>, keep_alive: K) -> Self {
         KafkaConnection {
             id: id,
             stream: stream.framed(codec),

@@ -1,23 +1,24 @@
 use std::rc::Rc;
+use std::marker::PhantomData;
 
 use protocol::CorrelationId;
 use network::ConnectionId;
 use client::Metadata;
 
-pub struct KafkaState {
+pub struct KafkaState<'a> {
     connection_id: ConnectionId,
-
     correlation_id: CorrelationId,
-
-    metadata: Rc<Metadata>,
+    metadata: Rc<Metadata<'a>>,
+    phantom: PhantomData<&'a u8>,
 }
 
-impl KafkaState {
+impl<'a> KafkaState<'a> {
     pub fn new() -> Self {
         KafkaState {
             connection_id: 0,
             correlation_id: 0,
             metadata: Rc::new(Metadata::default()),
+            phantom: PhantomData,
         }
     }
 
@@ -31,13 +32,14 @@ impl KafkaState {
         self.correlation_id - 1
     }
 
-    pub fn metadata(&self) -> Rc<Metadata> {
+    pub fn metadata(&self) -> Rc<Metadata<'a>> {
         self.metadata.clone()
     }
 
-    pub fn update_metadata(&mut self, metadata: Rc<Metadata>) {
+    pub fn update_metadata(&mut self, metadata: Metadata<'a>) -> Rc<Metadata<'a>> {
         debug!("updating metadata, {:?}", metadata);
 
-        self.metadata = metadata.clone();
+        self.metadata = Rc::new(metadata);
+        self.metadata.clone()
     }
 }

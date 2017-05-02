@@ -76,12 +76,12 @@ pub struct RecordMetadata {
     pub serialized_value_size: usize,
 }
 
-pub trait Producer {
+pub trait Producer<'a> {
     type Key: Hash;
     type Value;
 
     /// Get a list of partitions for the given topic for custom partition assignment.
-    fn partitions_for<'a>(&self, topic: &'a str) -> Option<Vec<TopicPartition<'a>>>;
+    fn partitions_for(&'a self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>>;
 
     /// Send the given record asynchronously and
     /// return a future which will eventually contain the response information.

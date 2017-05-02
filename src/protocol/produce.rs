@@ -8,16 +8,16 @@ use protocol::{ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder, 
                parse_response_header, parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProduceRequest {
+pub struct ProduceRequest<'a> {
     pub header: RequestHeader,
     pub required_acks: RequiredAck,
     pub timeout: i32,
-    pub topics: Vec<ProduceTopic>,
+    pub topics: Vec<ProduceTopic<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProduceTopic {
-    pub topic_name: String,
+pub struct ProduceTopic<'a> {
+    pub topic_name: &'a str,
     pub partitions: Vec<ProducePartition>,
 }
 
@@ -27,7 +27,7 @@ pub struct ProducePartition {
     pub message_set: MessageSet,
 }
 
-impl Encodable for ProduceRequest {
+impl<'a> Encodable for ProduceRequest<'a> {
     fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
         let encoder = MessageSetEncoder::new(self.header.api_version);
 
@@ -194,7 +194,7 @@ mod tests {
             required_acks: RequiredAcks::All as RequiredAck,
             timeout: 123,
             topics: vec![ProduceTopic {
-                topic_name: "topic".to_owned(),
+                topic_name: "topic",
                 partitions: vec![ProducePartition {
                     partition: 1,
                     message_set: MessageSet {
