@@ -35,7 +35,7 @@ pub type PartitionId = i32;
 pub type ErrorCode = i16;
 pub type Offset = i64;
 pub type Timestamp = i64;
-pub type BrokerId = i32;
+pub type NodeId = i32;
 pub type ReplicaId = i32;
 pub type RequiredAck = i16;
 

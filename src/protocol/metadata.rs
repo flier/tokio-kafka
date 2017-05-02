@@ -3,8 +3,8 @@ use bytes::{ByteOrder, BytesMut};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{BrokerId, Encodable, ErrorCode, ParseTag, PartitionId, RequestHeader,
-               ResponseHeader, WriteExt, parse_response_header, parse_string};
+use protocol::{Encodable, ErrorCode, NodeId, ParseTag, PartitionId, RequestHeader, ResponseHeader,
+               WriteExt, parse_response_header, parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest {
@@ -30,7 +30,7 @@ pub struct MetadataResponse {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrokerMetadata {
-    pub node_id: BrokerId,
+    pub node_id: NodeId,
     pub host: String,
     pub port: i32,
 }
@@ -46,9 +46,9 @@ pub struct TopicMetadata {
 pub struct PartitionMetadata {
     pub error_code: ErrorCode,
     pub partition: PartitionId,
-    pub leader: BrokerId,
-    pub replicas: Vec<BrokerId>,
-    pub isr: Vec<BrokerId>,
+    pub leader: NodeId,
+    pub replicas: Vec<NodeId>,
+    pub isr: Vec<NodeId>,
 }
 
 named!(pub parse_metadata_response<MetadataResponse>,

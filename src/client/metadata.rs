@@ -2,7 +2,8 @@ use std::collections::hash_map::HashMap;
 use std::iter::FromIterator;
 use std::slice;
 
-use protocol::{BrokerId, MetadataResponse, PartitionId, SupportedApiVersions};
+use protocol::{MetadataResponse, PartitionId};
+use client::{Broker, BrokerRef, Cluster, PartitionInfo, TopicPartition};
 
 #[derive(Debug)]
 pub struct Metadata {
@@ -22,23 +23,80 @@ pub struct Metadata {
     group_coordinators: HashMap<String, BrokerRef>,
 }
 
-impl Metadata {
-    pub fn brokers(&self) -> &[Broker] {
-        &self.brokers
+impl Cluster for Metadata {
+    fn brokers(&self) -> &[Broker] {
+        self.brokers.as_slice()
     }
 
-    pub fn topics(&self) -> &HashMap<String, TopicPartitions> {
-        &self.topic_partitions
+    fn topics(&self) -> HashMap<&str, &[PartitionInfo]> {
+        HashMap::from_iter(self.topic_partitions
+                               .iter()
+                               .map(|(topic_name, topic_partitions)| {
+                                        (topic_name.as_str(), topic_partitions.partitions())
+                                    }))
     }
 
-    pub fn partitions_for<'a>(&'a self, topic_name: &str) -> Option<&'a TopicPartitions> {
-        self.topic_partitions.get(topic_name)
+    fn topic_names(&self) -> Vec<&str> {
+        self.topic_partitions
+            .keys()
+            .map(|topic_name| topic_name.as_str())
+            .collect()
     }
 
-    pub fn find_broker(&self, broker_ref: &BrokerRef) -> Option<&Broker> {
+    fn find_broker(&self, broker_ref: BrokerRef) -> Option<&Broker> {
         self.brokers
             .iter()
             .find(|broker| broker.id() == broker_ref.index())
+    }
+
+    fn leader_for(&self, tp: &TopicPartition) -> Option<&Broker> {
+        self.find_partition(tp)
+            .and_then(|partition| partition.leader())
+            .and_then(|leader| self.find_broker(leader))
+    }
+
+    fn find_partition(&self, tp: &TopicPartition) -> Option<&PartitionInfo> {
+        self.topic_partitions
+            .get(tp.topic_name)
+            .and_then(|partitions| {
+                          partitions
+                              .iter()
+                              .find(|&(id, _)| id == tp.partition)
+                              .map(|(_, partition)| partition)
+                      })
+    }
+
+    fn partitions_for_topic<'a>(&self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>> {
+        self.topic_partitions
+            .get(topic_name)
+            .map(|partitions| {
+                partitions
+                    .iter()
+                    .map(|(id, _)| {
+                             TopicPartition {
+                                 topic_name: topic_name,
+                                 partition: id,
+                             }
+                         })
+                    .collect()
+            })
+    }
+
+    fn partitions_for_broker(&self, leader: BrokerRef) -> Vec<TopicPartition> {
+        self.topic_partitions
+            .iter()
+            .flat_map(|(topic_name, partitions)| {
+                partitions
+                    .iter()
+                    .find(|&(_, partition)| partition.leader() == Some(leader))
+                    .map(|(id, _)| {
+                             TopicPartition {
+                                 topic_name: topic_name,
+                                 partition: id,
+                             }
+                         })
+            })
+            .collect()
     }
 }
 
@@ -57,14 +115,7 @@ impl From<MetadataResponse> for Metadata {
         Metadata {
             brokers: md.brokers
                 .iter()
-                .map(|broker| {
-                         Broker {
-                             node_id: broker.node_id,
-                             host: broker.host.clone(),
-                             port: broker.port as u16,
-                             api_versions: None,
-                         }
-                     })
+                .map(|broker| Broker::new(broker.node_id, &broker.host, broker.port as u16))
                 .collect(),
             topic_partitions: HashMap::from_iter(md.topics
                                                      .iter()
@@ -75,18 +126,18 @@ impl From<MetadataResponse> for Metadata {
                          .partitions
                          .iter()
                          .map(|partition| {
-                    TopicPartition {
+                    PartitionInfo {
                         partition: partition.partition,
-                        leader: Some(BrokerRef(partition.leader)),
+                        leader: Some(BrokerRef::new(partition.leader)),
                         replicas: partition
                             .replicas
                             .iter()
-                            .map(|node| BrokerRef(*node))
+                            .map(|node| BrokerRef::new(*node))
                             .collect(),
                         in_sync_replicas: partition
                             .isr
                             .iter()
-                            .map(|node| BrokerRef(*node))
+                            .map(|node| BrokerRef::new(*node))
                             .collect(),
                     }
                 })
@@ -98,86 +149,6 @@ impl From<MetadataResponse> for Metadata {
     }
 }
 
-/// Describes a Kafka broker node `kafka-rust` is communicating with.
-#[derive(Debug)]
-pub struct Broker {
-    /// The identifier of this broker as understood in a Kafka
-    /// cluster.
-    node_id: BrokerId,
-
-    /// host of this broker. This information is advertised by
-    /// and originating from Kafka cluster itself.
-    host: String,
-
-    port: u16,
-
-    /// The version ranges of requests supported by the broker.
-    api_versions: Option<SupportedApiVersions>,
-}
-
-impl Broker {
-    /// Retrives the node_id of this broker as identified with the
-    /// remote Kafka cluster.
-    #[inline]
-    pub fn id(&self) -> BrokerId {
-        self.node_id
-    }
-
-    /// Retrieves the host:port of the this Kafka broker.
-    #[inline]
-    pub fn addr(&self) -> (&str, u16) {
-        (&self.host, self.port)
-    }
-
-    pub fn api_versions(&self) -> Option<&SupportedApiVersions> {
-        self.api_versions.as_ref()
-    }
-}
-
-pub type BrokerIndex = i32;
-
-// See `Brokerref`
-static UNKNOWN_BROKER_INDEX: BrokerIndex = ::std::i32::MAX;
-
-/// ~ A custom identifier for a broker.  This type hides the fact that
-/// a `TopicPartition` references a `Broker` indirectly, loosely
-/// through an index, thereby being able to share broker data without
-/// having to fallback to `Rc` or `Arc` or otherwise fighting the
-/// borrowck.
-// ~ The value `UNKNOWN_BROKER_INDEX` is artificial and represents an
-// index to an unknown broker (aka the null value.) Code indexing
-// `self.brokers` using a `BrokerRef` _must_ check against this
-// constant and/or treat it conditionally.
-#[derive(Debug, Copy, Clone)]
-pub struct BrokerRef(BrokerIndex);
-
-impl BrokerRef {
-    // ~ private constructor on purpose
-    fn new(index: BrokerIndex) -> Self {
-        BrokerRef(index)
-    }
-
-    pub fn index(&self) -> BrokerIndex {
-        self.0
-    }
-
-    fn set(&mut self, other: BrokerRef) {
-        if self.0 != other.0 {
-            self.0 = other.0;
-        }
-    }
-
-    fn set_unknown(&mut self) {
-        self.set(BrokerRef::new(UNKNOWN_BROKER_INDEX))
-    }
-}
-
-impl From<BrokerIndex> for BrokerRef {
-    fn from(index: BrokerIndex) -> Self {
-        BrokerRef::new(index)
-    }
-}
-
 /// A representation of partitions for a single topic.
 #[derive(Debug)]
 pub struct TopicPartitions {
@@ -186,13 +157,17 @@ pub struct TopicPartitions {
     // leader.  The index into this list specifies the partition
     // identifier.  (This works due to Kafka numbering partitions 0..N
     // where N is the number of partitions of the topic.)
-    partitions: Vec<TopicPartition>,
+    partitions: Vec<PartitionInfo>,
 }
 
 impl TopicPartitions {
     /// Creates a new partitions vector with all partitions leaderless
     fn new_with_partitions(n: usize) -> TopicPartitions {
-        TopicPartitions { partitions: (0..n).map(|_| TopicPartition::default()).collect() }
+        TopicPartitions { partitions: (0..n).map(|_| PartitionInfo::default()).collect() }
+    }
+
+    pub fn partitions(&self) -> &[PartitionInfo] {
+        &self.partitions
     }
 
     pub fn len(&self) -> usize {
@@ -203,84 +178,35 @@ impl TopicPartitions {
         self.partitions.is_empty()
     }
 
-    pub fn partition(&self, partition_id: PartitionId) -> Option<&TopicPartition> {
+    pub fn partition(&self, partition_id: PartitionId) -> Option<&PartitionInfo> {
         self.partitions.get(partition_id as usize)
     }
 
-    pub fn iter(&self) -> TopicPartitionIter {
+    pub fn iter(&self) -> PartitionInfoIter {
         self.into_iter()
     }
 }
 
 impl<'a> IntoIterator for &'a TopicPartitions {
-    type Item = (PartitionId, &'a TopicPartition);
-    type IntoIter = TopicPartitionIter<'a>;
+    type Item = (PartitionId, &'a PartitionInfo);
+    type IntoIter = PartitionInfoIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        TopicPartitionIter {
+        PartitionInfoIter {
             partition_id: 0,
             iter: self.partitions.iter(),
         }
     }
 }
 
-/// Information about a topic-partition.
-#[derive(Debug)]
-pub struct TopicPartition {
-    partition: PartitionId,
-    /// The node id of the node currently acting as a leader
-    /// for this partition or None if there is no leader
-    leader: Option<BrokerRef>,
-    replicas: Vec<BrokerRef>,
-    in_sync_replicas: Vec<BrokerRef>,
-}
-
-impl Default for TopicPartition {
-    fn default() -> Self {
-        TopicPartition {
-            partition: -1,
-            leader: None,
-            replicas: Vec::new(),
-            in_sync_replicas: Vec::new(),
-        }
-    }
-}
-
-impl TopicPartition {
-    pub fn new(partition: PartitionId, leader: BrokerRef) -> Self {
-        TopicPartition {
-            partition: partition,
-            leader: Some(leader),
-            replicas: vec![],
-            in_sync_replicas: vec![],
-        }
-    }
-
-    pub fn partition(&self) -> PartitionId {
-        self.partition
-    }
-
-    pub fn leader(&self) -> Option<&BrokerRef> {
-        self.leader.as_ref()
-    }
-
-    pub fn replicas(&self) -> &[BrokerRef] {
-        self.replicas.as_slice()
-    }
-
-    pub fn in_sync_replicas(&self) -> &[BrokerRef] {
-        self.in_sync_replicas.as_slice()
-    }
-}
-
 /// An iterator over a topic's partitions.
-pub struct TopicPartitionIter<'a> {
-    iter: slice::Iter<'a, TopicPartition>,
+pub struct PartitionInfoIter<'a> {
+    iter: slice::Iter<'a, PartitionInfo>,
     partition_id: PartitionId,
 }
 
-impl<'a> Iterator for TopicPartitionIter<'a> {
-    type Item = (PartitionId, &'a TopicPartition);
+impl<'a> Iterator for PartitionInfoIter<'a> {
+    type Item = (PartitionId, &'a PartitionInfo);
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()

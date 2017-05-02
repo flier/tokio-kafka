@@ -53,14 +53,14 @@ pub mod mock {
     use producer::{FlushProducer, Producer, ProducerRecord, RecordMetadata, SendRecord};
 
     #[derive(Debug, Default)]
-    pub struct MockProducer<K, V>
+    pub struct MockProducer<'a, K, V>
         where K: Hash
     {
-        pub topics: HashMap<String, Vec<TopicPartition>>,
+        pub topics: HashMap<String, Vec<TopicPartition<'a>>>,
         pub records: Vec<(Option<K>, V)>,
     }
 
-    impl<K, V> Producer for MockProducer<K, V>
+    impl<'a, K, V> Producer for MockProducer<'a, K, V>
         where K: Hash + Clone,
               V: Clone
     {

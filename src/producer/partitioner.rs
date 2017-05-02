@@ -72,7 +72,7 @@ impl<H> Partitioner for DefaultPartitioner<H>
                 self.records - 1
             } % partitions.len();
 
-            let partition = partitions[index].partition();
+            let partition = partitions[index].partition;
 
             record.partition = Some(partition);
 
@@ -107,7 +107,12 @@ mod tests {
             .topics
             .entry("topic".to_owned())
             .or_insert(vec![])
-            .extend((0..3).map(|id| TopicPartition::new(id, 0.into())));
+            .extend((0..3).map(|id| {
+                                   TopicPartition {
+                                       topic_name: "topic",
+                                       partition: id,
+                                   }
+                               }));
 
         // partition with key
         partitioner.partition(&producer, &mut record);

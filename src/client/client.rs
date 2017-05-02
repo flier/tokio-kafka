@@ -23,7 +23,7 @@ use errors::{Error, ErrorKind};
 use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
 use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
-use client::{DEFAULT_MAX_CONNECTION_TIMEOUT, KafkaConfig, KafkaState, Metadata};
+use client::{Cluster, DEFAULT_MAX_CONNECTION_TIMEOUT, KafkaConfig, KafkaState, Metadata};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
@@ -178,30 +178,32 @@ impl Client for KafkaClient {
             let mut topics = HashMap::new();
 
             for topic_name in topic_names {
-                if let Some(partitions) = metadata.partitions_for(topic_name.as_ref()) {
-                    for (id, partition) in partitions {
-                        if let Some(ref leader) = partition.leader() {
-                            if let Some(broker) = metadata.find_broker(leader) {
-                                let addr = broker
-                                    .addr()
-                                    .to_socket_addrs()
-                                    .unwrap()
-                                    .next()
-                                    .unwrap(); // TODO
-                                let api_version = broker
-                                    .api_versions()
-                                    .map_or(0, |api_versions| {
-                                        api_versions
-                                            .find(ApiKeys::ListOffsets)
-                                            .map(|api_version| api_version.max_version)
-                                            .unwrap_or(0)
-                                    });
-                                topics
-                                    .entry((addr, api_version))
-                                    .or_insert_with(|| HashMap::new())
-                                    .entry(topic_name.as_ref().to_owned())
-                                    .or_insert_with(|| Vec::new())
-                                    .push(id);
+                if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
+                    for topic_partition in partitions {
+                        if let Some(partition_info) = metadata.find_partition(&topic_partition) {
+                            if let Some(leader) = partition_info.leader() {
+                                if let Some(broker) = metadata.find_broker(leader) {
+                                    let addr = broker
+                                        .addr()
+                                        .to_socket_addrs()
+                                        .unwrap()
+                                        .next()
+                                        .unwrap(); // TODO
+                                    let api_version = broker
+                                        .api_versions()
+                                        .map_or(0, |api_versions| {
+                                            api_versions
+                                                .find(ApiKeys::ListOffsets)
+                                                .map(|api_version| api_version.max_version)
+                                                .unwrap_or(0)
+                                        });
+                                    topics
+                                        .entry((addr, api_version))
+                                        .or_insert_with(|| HashMap::new())
+                                        .entry(topic_name.as_ref().to_owned())
+                                        .or_insert_with(|| Vec::new())
+                                        .push(topic_partition.partition);
+                                }
                             }
                         }
                     }
