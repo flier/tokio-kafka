@@ -270,7 +270,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
 
             let mut responses = Vec::new();
 
-            for ((addr, api_version), ref topics) in topics {
+            for ((addr, api_version), topics) in topics {
                 let request = KafkaRequest::list_offsets(api_version,
                                                          correlation_ids.pop().unwrap(),
                                                          client_id.clone(),

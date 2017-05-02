@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bytes::{ByteOrder, BytesMut};
 
 use time::Duration;
@@ -11,7 +13,7 @@ use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, E
 #[derive(Debug)]
 pub enum KafkaRequest<'a> {
     Produce(ProduceRequest<'a>),
-    Fetch(FetchRequest),
+    Fetch(FetchRequest<'a>),
     ListOffsets(ListOffsetRequest),
     Metadata(MetadataRequest),
     ApiVersions(ApiVersionsRequest),
@@ -66,23 +68,18 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::Produce(request)
     }
 
-    pub fn list_offsets<I, S, P>(api_version: ApiVersion,
-                                 correlation_id: CorrelationId,
-                                 client_id: Option<String>,
-                                 topics: I,
-                                 offset: FetchOffset)
-                                 -> Self
-        where I: IntoIterator<Item = (S, P)>,
-              S: AsRef<str>,
-              P: AsRef<[PartitionId]>
-    {
+    pub fn list_offsets(api_version: ApiVersion,
+                        correlation_id: CorrelationId,
+                        client_id: Option<String>,
+                        topics: HashMap<String, Vec<PartitionId>>,
+                        offset: FetchOffset)
+                        -> KafkaRequest<'a> {
         let topics = topics
-            .into_iter()
+            .iter()
             .map(|(topic_name, partitions)| {
                 ListTopicOffset {
-                    topic_name: topic_name.as_ref().to_owned(),
+                    topic_name: topic_name.to_owned(),
                     partitions: partitions
-                        .as_ref()
                         .iter()
                         .map(|&id| {
                                  ListPartitionOffset {

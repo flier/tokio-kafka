@@ -9,7 +9,7 @@ use protocol::{ApiVersion, Encodable, ErrorCode, MessageSet, Offset, ParseTag, P
 
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct FetchRequest {
+pub struct FetchRequest<'a> {
     pub header: RequestHeader,
     /// The replica id indicates the node id of the replica initiating this request.
     pub replica_id: ReplicaId,
@@ -17,13 +17,13 @@ pub struct FetchRequest {
     pub max_wait_time: i32,
     /// This is the minimum number of bytes of messages that must be available to give a response.
     pub min_bytes: i32,
-    pub topics: Vec<FetchTopic>,
+    pub topics: Vec<FetchTopic<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct FetchTopic {
+pub struct FetchTopic<'a> {
     /// The name of the topic.
-    pub topic_name: String,
+    pub topic_name: &'a str,
     pub partitions: Vec<FetchPartition>,
 }
 
@@ -37,7 +37,7 @@ pub struct FetchPartition {
     pub max_bytes: i32,
 }
 
-impl Encodable for FetchRequest {
+impl<'a> Encodable for FetchRequest<'a> {
     fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
         self.header.encode::<T>(dst)?;
 
@@ -149,7 +149,7 @@ mod tests {
             max_wait_time: 3,
             min_bytes: 4,
             topics: vec![FetchTopic {
-                topic_name: "topic".to_owned(),
+                topic_name: "topic",
                 partitions: vec![FetchPartition {
                     partition: 5,
                     fetch_offset: 6,

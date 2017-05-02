@@ -113,8 +113,8 @@ fn main() {
                                                        .collect()
                                                });
 
-            let requests = vec![client.fetch_offsets(topics.as_slice(), FetchOffset::Earliest),
-                                client.fetch_offsets(topics.as_slice(), FetchOffset::Latest)];
+            let requests = vec![client.fetch_offsets(&topics, FetchOffset::Earliest),
+                                client.fetch_offsets(&topics, FetchOffset::Latest)];
 
             future::join_all(requests).map(|responses| {
                                                dump_metadata(config,
