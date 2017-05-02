@@ -8,7 +8,7 @@ error_chain!{
     }
 
     errors {
-        ConfigError(reason: String)
+        ConfigError(reason: &'static str)
         NoHostError
         LockError
         ParseError(reason: String)

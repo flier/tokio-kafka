@@ -19,9 +19,9 @@ pub struct KafkaConnector {
 }
 
 impl KafkaConnector {
-    pub fn new(handle: &Handle) -> Self {
+    pub fn new(handle: Handle) -> Self {
         KafkaConnector {
-            handle: handle.clone(),
+            handle: handle,
             resolver: DnsResolver::default(),
         }
     }

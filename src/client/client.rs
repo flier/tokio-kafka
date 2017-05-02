@@ -64,7 +64,7 @@ impl DerefMut for KafkaClient {
 }
 
 impl KafkaClient {
-    pub fn from_config(config: KafkaConfig, handle: &Handle) -> Self {
+    pub fn from_config(config: KafkaConfig, handle: Handle) -> Self {
         debug!("client with config: {:?}", config);
 
         let max_connection_idle = config
@@ -80,7 +80,7 @@ impl KafkaClient {
         }
     }
 
-    pub fn from_hosts<A: ToSocketAddrs + Clone>(hosts: &[A], handle: &Handle) -> Self {
+    pub fn from_hosts<A: ToSocketAddrs + Clone>(hosts: &[A], handle: Handle) -> Self {
         KafkaClient::from_config(KafkaConfig::from_hosts(hosts), handle)
     }
 

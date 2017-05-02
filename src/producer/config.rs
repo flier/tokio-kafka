@@ -9,7 +9,7 @@ pub struct ProducerConfig<A>
 {
     /// A list of host/port pairs to use for establishing the initial connection to the Kafka cluster.
     #[serde(rename = "bootstrap.servers")]
-    pub servers: Vec<A>,
+    pub hosts: Vec<A>,
 
     /// An id string to pass to the server when making requests.
     #[serde(rename = "client.id")]
@@ -42,13 +42,24 @@ impl<A> Default for ProducerConfig<A>
 {
     fn default() -> Self {
         ProducerConfig {
-            servers: vec![],
+            hosts: vec![],
             client_id: None,
             retries: 0,
             acks: RequiredAcks::One,
             compression: Compression::None,
             batch_size: 16 * 1024,
             max_request_size: 1024 * 1024,
+        }
+    }
+}
+
+impl<A> ProducerConfig<A>
+    where A: ToSocketAddrs + Clone
+{
+    pub fn from_hosts(hosts: &[A]) -> Self {
+        ProducerConfig {
+            hosts: hosts.to_vec(),
+            ..Default::default()
         }
     }
 }

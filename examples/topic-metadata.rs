@@ -94,7 +94,7 @@ fn main() {
 
     let mut core = Core::new().unwrap();
 
-    let mut client = KafkaClient::from_hosts(&config.brokers, &core.handle());
+    let mut client = KafkaClient::from_hosts(&config.brokers, core.handle());
 
     let topics = config.topics.clone();
 

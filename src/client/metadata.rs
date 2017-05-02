@@ -172,6 +172,12 @@ impl BrokerRef {
     }
 }
 
+impl From<BrokerIndex> for BrokerRef {
+    fn from(index: BrokerIndex) -> Self {
+        BrokerRef::new(index)
+    }
+}
+
 /// A representation of partitions for a single topic.
 #[derive(Debug)]
 pub struct TopicPartitions {
@@ -241,6 +247,15 @@ impl Default for TopicPartition {
 }
 
 impl TopicPartition {
+    pub fn new(partition: PartitionId, leader: BrokerRef) -> Self {
+        TopicPartition {
+            partition: partition,
+            leader: Some(leader),
+            replicas: vec![],
+            in_sync_replicas: vec![],
+        }
+    }
+
     pub fn partition(&self) -> PartitionId {
         self.partition
     }

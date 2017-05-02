@@ -7,6 +7,7 @@ use client::{StaticBoxFuture, TopicPartition};
 ///
 /// This consists of a topic name to which the record is being sent,
 /// an optional partition number, and an optional key and value.
+#[derive(Clone, Debug)]
 pub struct ProducerRecord<'a, K, V>
     where K: Hash
 {
@@ -22,10 +23,8 @@ pub struct ProducerRecord<'a, K, V>
     pub timestamp: Option<Timestamp>,
 }
 
-impl<'a, K, V> ProducerRecord<'a, K, V>
-    where K: Hash
-{
-    pub fn new(topic: &'a str, value: V) -> Self {
+impl<'a, V> ProducerRecord<'a, (), V> {
+    pub fn from_value(topic: &'a str, value: V) -> Self {
         ProducerRecord {
             topic: topic,
             partition: None,
@@ -34,7 +33,11 @@ impl<'a, K, V> ProducerRecord<'a, K, V>
             timestamp: None,
         }
     }
+}
 
+impl<'a, K, V> ProducerRecord<'a, K, V>
+    where K: Hash
+{
     pub fn from_key_value(topic: &'a str, key: K, value: V) -> Self {
         ProducerRecord {
             topic: topic,
@@ -57,9 +60,10 @@ impl<'a, K, V> ProducerRecord<'a, K, V>
 }
 
 /// The metadata for a record that has been acknowledged by the server
-pub struct RecordMetadata<'a> {
+#[derive(Clone, Debug)]
+pub struct RecordMetadata {
     /// The topic the record was appended to
-    pub topic: &'a str,
+    pub topic: String,
     /// The partition the record was sent to
     pub partition: PartitionId,
     /// The offset of the record in the topic/partition.
@@ -77,7 +81,7 @@ pub trait Producer {
     type Value;
 
     /// Get a list of partitions for the given topic for custom partition assignment.
-    fn partitions_for(&self, topic: &str) -> &[TopicPartition];
+    fn partitions_for(&self, topic: &str) -> Option<&[TopicPartition]>;
 
     /// Send the given record asynchronously and
     /// return a future which will eventually contain the response information.
@@ -87,5 +91,5 @@ pub trait Producer {
     fn flush(&mut self) -> FlushProducer;
 }
 
-pub type SendRecord<'a> = StaticBoxFuture<RecordMetadata<'a>>;
+pub type SendRecord = StaticBoxFuture<RecordMetadata>;
 pub type FlushProducer = StaticBoxFuture;
