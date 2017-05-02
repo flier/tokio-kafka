@@ -2,12 +2,12 @@ use std::io;
 use std::fmt::Debug;
 use std::net::{SocketAddr, ToSocketAddrs};
 
-use futures_cpupool::{CpuPool, CpuFuture};
+use futures_cpupool::{CpuFuture, CpuPool};
 
 pub trait Resolver<S> {
     type Future;
 
-    fn resolve(&mut self, addr: S) -> Self::Future;
+    fn resolve(&self, addr: S) -> Self::Future;
 }
 
 pub struct DnsResolver {
@@ -27,7 +27,7 @@ impl<S> Resolver<S> for DnsResolver
 {
     type Future = DnsQuery;
 
-    fn resolve(&mut self, addr: S) -> Self::Future {
+    fn resolve(&self, addr: S) -> Self::Future {
         self.pool
             .spawn_fn(move || {
                           let addrs = addr.to_socket_addrs().map(|it| it.collect());

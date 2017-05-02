@@ -41,10 +41,11 @@ mod client;
 mod producer;
 mod consumer;
 
+pub use errors::{Error, ErrorKind};
 pub use compression::Compression;
 pub use protocol::{FetchOffset, PartitionId, RequiredAcks};
 pub use client::{Broker, BrokerRef, Client, Cluster, KafkaClient, KafkaConfig, KafkaOption,
-                 Metadata, PartitionOffset, TopicPartition};
+                 Metadata, PartitionOffset, StaticBoxFuture, TopicPartition};
 pub use producer::{KafkaProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                    ProducerRecord};
 pub use consumer::KafkaConsumer;

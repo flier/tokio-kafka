@@ -36,18 +36,15 @@ pub struct PartitionOffset {
 }
 
 pub trait Client<'a>: 'static {
-    fn produce_records(&mut self,
+    fn produce_records(&self,
                        acks: RequiredAcks,
                        timeout: Duration,
                        records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
                        -> ProduceRecords;
 
-    fn fetch_offsets<S: AsRef<str>>(&mut self,
-                                    topic_names: &[S],
-                                    offset: FetchOffset)
-                                    -> FetchOffsets;
+    fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
 
-    fn load_metadata(&'a mut self) -> LoadMetadata<'a>;
+    fn load_metadata(&mut self) -> LoadMetadata<'a>;
 }
 
 pub struct KafkaClient<'a> {
@@ -75,7 +72,7 @@ impl<'a> DerefMut for KafkaClient<'a> {
 impl<'a> KafkaClient<'a>
     where Self: 'static
 {
-    pub fn from_config(config: KafkaConfig, handle: Handle) -> Self {
+    pub fn from_config(config: KafkaConfig, handle: Handle) -> KafkaClient<'a> {
         debug!("client with config: {:?}", config);
 
         let max_connection_idle = config
@@ -91,7 +88,7 @@ impl<'a> KafkaClient<'a>
         }
     }
 
-    pub fn from_hosts<A: ToSocketAddrs + Clone>(hosts: &[A], handle: Handle) -> Self {
+    pub fn from_hosts<A: ToSocketAddrs + Clone>(hosts: &[A], handle: Handle) -> KafkaClient<'a> {
         KafkaClient::from_config(KafkaConfig::from_hosts(hosts), handle)
     }
 
@@ -103,7 +100,7 @@ impl<'a> KafkaClient<'a>
         self.state.borrow().metadata()
     }
 
-    fn fetch_metadata<S>(&'a mut self, topic_names: &[S]) -> FetchMetadata<'a>
+    fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata<'a>
         where S: AsRef<str> + Debug
     {
         debug!("fetch metadata for toipcs: {:?}", topic_names);
@@ -119,7 +116,7 @@ impl<'a> KafkaClient<'a>
 
         let response = self.send_request(addr, request)
             .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                          future::ok(Metadata::from(res))
+                          future::ok(Rc::new(Metadata::from(res)))
                       } else {
                           future::err(ErrorKind::InvalidResponse.into())
                       });
@@ -127,7 +124,7 @@ impl<'a> KafkaClient<'a>
         FetchMetadata::new(response)
     }
 
-    fn send_request(&mut self, addr: &SocketAddr, request: KafkaRequest<'a>) -> FutureResponse {
+    fn send_request(&self, addr: &SocketAddr, request: KafkaRequest<'a>) -> FutureResponse {
         let checkout = self.pool.checkout(addr);
         let connect = {
             let handle = self.handle.clone();
@@ -181,7 +178,7 @@ impl<'a> KafkaClient<'a>
 impl<'a> Client<'a> for KafkaClient<'a>
     where Self: 'static
 {
-    fn produce_records(&mut self,
+    fn produce_records(&self,
                        required_acks: RequiredAcks,
                        timeout: Duration,
                        records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
@@ -222,10 +219,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
         ProduceRecords::new(response)
     }
 
-    fn fetch_offsets<S: AsRef<str>>(&mut self,
-                                    topic_names: &[S],
-                                    offset: FetchOffset)
-                                    -> FetchOffsets {
+    fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets {
         let topics = {
             let metadata = self.state.borrow().metadata();
 
@@ -337,18 +331,42 @@ impl<'a> Client<'a> for KafkaClient<'a>
         FetchOffsets::new(offsets)
     }
 
-    fn load_metadata(&'a mut self) -> LoadMetadata<'a> {
+    fn load_metadata(&mut self) -> LoadMetadata<'a> {
         debug!("loading metadata...");
 
         let state = self.state.clone();
+        let fetch_metadata = self.fetch_metadata::<&str>(&[]);
 
-        LoadMetadata::new(self.fetch_metadata::<&str>(&[])
-                              .and_then(move |metadata| {
-                                            let metadata =
-                                                state.borrow_mut().update_metadata(metadata);
+        LoadMetadata {
+            fetch_metadata: fetch_metadata,
+            state: state,
+        }
+    }
+}
 
-                                            future::ok(metadata)
-                                        }))
+pub struct LoadMetadata<'a> {
+    fetch_metadata: FetchMetadata<'a>,
+    state: Rc<RefCell<KafkaState<'a>>>,
+}
+
+impl<'a> Future for LoadMetadata<'a>
+    where Self: 'static
+{
+    type Item = Rc<Metadata<'a>>;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        match self.fetch_metadata.poll() {
+            Ok(Async::Ready(metadata)) => {
+                self.state
+                    .borrow_mut()
+                    .update_metadata(metadata.clone());
+
+                Ok(Async::Ready(metadata))
+            }
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -374,8 +392,7 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
 pub type SendRequest = StaticBoxFuture;
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<Result<(PartitionId, Offset)>>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
-pub type LoadMetadata<'a> = StaticBoxFuture<Rc<Metadata<'a>>>;
-pub type FetchMetadata<'a> = StaticBoxFuture<Metadata<'a>>;
+pub type FetchMetadata<'a> = StaticBoxFuture<Rc<Metadata<'a>>>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 
 type TokioBody = Body<BytesMut, io::Error>;

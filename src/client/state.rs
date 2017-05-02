@@ -36,10 +36,10 @@ impl<'a> KafkaState<'a> {
         self.metadata.clone()
     }
 
-    pub fn update_metadata(&mut self, metadata: Metadata<'a>) -> Rc<Metadata<'a>> {
+    pub fn update_metadata(&mut self, metadata: Rc<Metadata<'a>>) -> Rc<Metadata<'a>> {
         debug!("updating metadata, {:?}", metadata);
 
-        self.metadata = Rc::new(metadata);
+        self.metadata = metadata;
         self.metadata.clone()
     }
 }

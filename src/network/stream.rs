@@ -26,7 +26,7 @@ impl KafkaConnector {
         }
     }
 
-    pub fn tcp<S>(&mut self, addr: S) -> Connect
+    pub fn tcp<S>(&self, addr: S) -> Connect
         where S: ToSocketAddrs + fmt::Debug + Send + 'static
     {
         trace!("TCP connect to {:?}", addr);
@@ -39,7 +39,7 @@ impl KafkaConnector {
         }
     }
 
-    pub fn tls<S>(&mut self, addr: S, connector: TlsConnector, domain: &str) -> Connect
+    pub fn tls<S>(&self, addr: S, connector: TlsConnector, domain: &str) -> Connect
         where S: ToSocketAddrs + fmt::Debug + Send + 'static
     {
         trace!("TLS connect to {:?}", addr);

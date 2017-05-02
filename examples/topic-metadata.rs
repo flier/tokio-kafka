@@ -15,13 +15,17 @@ use std::collections::HashMap;
 
 use getopts::Options;
 
-use futures::future::{self, Future};
+use futures::Future;
+use futures::future;
 use tokio_core::reactor::Core;
 use tokio_kafka::{Client, Cluster, FetchOffset, KafkaClient, Metadata, PartitionOffset};
 
 const DEFAULT_BROKER: &'static str = "127.0.0.1:9092";
 
 error_chain!{
+    links {
+        KafkaError(tokio_kafka::Error, tokio_kafka::ErrorKind);
+    }
     foreign_links {
         ArgError(::getopts::Fail);
     }
@@ -116,14 +120,14 @@ fn main() {
                                                dump_metadata(config,
                                                              metadata,
                                                              &responses[0],
-                                                             &responses[1]);
+                                                             &responses[1])
                                            })
         });
 
     core.run(work).unwrap();
 }
 
-fn dump_metadata<'a>(cfg: Config,
+fn dump_metadata<'a>(config: Config,
                      metadata: Rc<Metadata<'a>>,
                      earliest_offsets: &HashMap<String, Vec<PartitionOffset>>,
                      latest_offsets: &HashMap<String, Vec<PartitionOffset>>) {
@@ -141,16 +145,16 @@ fn dump_metadata<'a>(cfg: Config,
                           .iter()
                           .fold(0, |width, topic_name| cmp::max(width, topic_name.len()));
 
-    if cfg.show_header {
+    if config.show_header {
         print!("{1:0$} {2:4} {3:4}", topic_width, "topic", "p-id", "l-id");
 
-        if cfg.show_host {
+        if config.show_host {
             print!(" {1:>0$}", host_width, "(l-host)");
         }
 
         print!(" {:>12} {:>12}", "earliest", "latest");
 
-        if cfg.show_size {
+        if config.show_size {
             print!(" {:>12}", "(size)");
         }
 
@@ -158,7 +162,7 @@ fn dump_metadata<'a>(cfg: Config,
     }
 
     for (idx, (topic_name, partitions)) in metadata.topics().iter().enumerate() {
-        if cfg.topic_separators && idx > 0 {
+        if config.topic_separators && idx > 0 {
             println!("")
         }
 
@@ -182,7 +186,7 @@ fn dump_metadata<'a>(cfg: Config,
                                partition_info.partition,
                                broker.id());
 
-                        if cfg.show_host {
+                        if config.show_host {
                             let (host, port) = broker.addr();
                             print!(" {1:0$}", host_width, format!("({}:{})", host, port));
                         }
@@ -191,7 +195,7 @@ fn dump_metadata<'a>(cfg: Config,
                                earliest_offset.offset,
                                latest_offset.offset);
 
-                        if cfg.show_size {
+                        if config.show_size {
                             print!(" {:>12}",
                                    format!("({})", latest_offset.offset - earliest_offset.offset));
                         }
