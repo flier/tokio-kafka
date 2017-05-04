@@ -1,6 +1,9 @@
 #![allow(non_camel_case_types)]
 
 use std::mem;
+use std::str::FromStr;
+
+use errors::{Error, ErrorKind, Result};
 
 #[macro_use]
 mod parser;
@@ -93,9 +96,28 @@ pub enum RequiredAcks {
     All = -1,
 }
 
+impl Default for RequiredAcks {
+    fn default() -> Self {
+        RequiredAcks::One
+    }
+}
+
 impl From<RequiredAck> for RequiredAcks {
     fn from(v: RequiredAck) -> Self {
         unsafe { mem::transmute(v) }
+    }
+}
+
+impl FromStr for RequiredAcks {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "none" => Ok(RequiredAcks::None),
+            "one" => Ok(RequiredAcks::One),
+            "all" => Ok(RequiredAcks::All),
+            _ => bail!(ErrorKind::ParseError(format!("unknown required acks: {}", s))),
+        }
     }
 }
 

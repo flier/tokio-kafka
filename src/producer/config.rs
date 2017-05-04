@@ -3,6 +3,10 @@ use std::net::ToSocketAddrs;
 use compression::Compression;
 use protocol::RequiredAcks;
 
+pub const DEFAULT_ACK_TIMEOUT_MILLIS: u64 = 30_000;
+pub const DEFAULT_BATCH_SIZE: usize = 16 * 1024;
+pub const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProducerConfig<A>
     where A: ToSocketAddrs
@@ -45,10 +49,10 @@ impl<A> Default for ProducerConfig<A>
             hosts: vec![],
             client_id: None,
             retries: 0,
-            acks: RequiredAcks::One,
-            compression: Compression::None,
-            batch_size: 16 * 1024,
-            max_request_size: 1024 * 1024,
+            acks: RequiredAcks::default(),
+            compression: Compression::default(),
+            batch_size: DEFAULT_BATCH_SIZE,
+            max_request_size: DEFAULT_MAX_REQUEST_SIZE,
         }
     }
 }

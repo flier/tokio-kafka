@@ -3,6 +3,9 @@ use std::net::{SocketAddr, ToSocketAddrs};
 
 use compression::Compression;
 
+pub const DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS: u64 = 5000;
+pub const DEFAULT_MAX_POOLED_CONNECTION: usize = 4;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct KafkaConfig {
     /// A list of host/port pairs to use for establishing the initial connection to the Kafka cluster.
@@ -31,9 +34,9 @@ impl Default for KafkaConfig {
         KafkaConfig {
             hosts: vec![],
             client_id: None,
-            compression: Compression::None,
-            max_connection_idle_ms: 5000,
-            max_pooled_connections: 4,
+            compression: Compression::default(),
+            max_connection_idle_ms: DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
+            max_pooled_connections: DEFAULT_MAX_POOLED_CONNECTION,
         }
     }
 }
