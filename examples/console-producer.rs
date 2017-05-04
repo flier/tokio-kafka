@@ -1,11 +1,18 @@
 #[macro_use]
 extern crate error_chain;
+#[macro_use]
+extern crate log;
 extern crate pretty_env_logger;
 extern crate getopts;
 
+extern crate futures;
 extern crate tokio_core;
 extern crate tokio_kafka;
 
+use std::io;
+use std::io::{BufRead, BufReader};
+use std::fs;
+use std::str;
 use std::env;
 use std::process;
 use std::time::Duration;
@@ -14,10 +21,11 @@ use std::net::ToSocketAddrs;
 
 use getopts::Options;
 
+use futures::future::{self, Future};
 use tokio_core::reactor::Core;
 
-use tokio_kafka::{Compression, Producer, ProducerBuilder, ProducerRecord, RequiredAcks,
-                  StrSerializer};
+use tokio_kafka::{Compression, NoopSerializer, Producer, ProducerBuilder, ProducerRecord,
+                  RequiredAcks, StringSerializer};
 use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
@@ -32,6 +40,7 @@ error_chain!{
     }
 }
 
+#[derive(Clone, Debug)]
 struct Config {
     brokers: Vec<String>,
     topic_name: String,
@@ -116,27 +125,65 @@ fn main() {
 
     let config = Config::parse_cmdline().unwrap();
 
+    debug!("parsed config: {:?}", config);
+
+    match config.input_file {
+        Some(ref filename) => {
+            debug!("reading lines from file: {}", filename);
+
+            let reader = BufReader::new(fs::File::open(filename).unwrap());
+
+            produce(&config, reader.lines());
+        }
+        _ => {
+            debug!("reading lines from STDIN");
+
+            let stdin = io::stdin();
+            let reader = stdin.lock();
+
+            produce(&config, reader.lines());
+        }
+    }
+}
+
+fn produce<I: Iterator<Item = io::Result<String>>>(config: &Config, lines: I) {
+    debug!("produce messages to {:?}", config.brokers);
+
+    let hosts = config
+        .brokers
+        .iter()
+        .flat_map(|s| s.to_socket_addrs().unwrap());
     let mut core = Core::new().unwrap();
 
-    let mut producer =
-        ProducerBuilder::from_hosts(config
-                                        .brokers
-                                        .iter()
-                                        .flat_map(|s| s.to_socket_addrs().unwrap()),
-                                    core.handle())
-                .with_max_connection_idle(config.idle_timeout)
-                .with_required_acks(config.required_acks)
-                .with_compression(config.compression)
-                .with_batch_size(config.batch_size)
-                .with_ack_timeout(config.ack_timeout)
-                .with_key_serializer(StrSerializer::default())
-                .with_value_serializer(StrSerializer::default())
-                .build()
-                .unwrap();
+    let mut producer = ProducerBuilder::from_hosts(hosts, core.handle())
+        .with_max_connection_idle(config.idle_timeout)
+        .with_required_acks(config.required_acks)
+        .with_compression(config.compression)
+        .with_batch_size(config.batch_size)
+        .with_ack_timeout(config.ack_timeout)
+        .with_key_serializer(NoopSerializer::default())
+        .with_value_serializer(StringSerializer::default())
+        .build()
+        .unwrap();
 
-    let record = ProducerRecord::from_key_value(&config.topic_name, "key", "value");
+    let work = future::join_all(lines
+                                    .map(|line| line.unwrap().trim().to_owned())
+                                    .filter(|line| !line.is_empty())
+                                    .map(|line| {
+        trace!("sending line: {}", line);
 
-    let work = producer.send(record);
+        producer
+            .send(ProducerRecord::from_value(&config.topic_name, line))
+            .map(|md| {
+                trace!("{} # {} @ {}, ts={}, key={}, value={}",
+                       md.topic_name,
+                       md.partition,
+                       md.offset,
+                       md.timestamp,
+                       md.serialized_key_size,
+                       md.serialized_value_size)
+            })
+    }));
 
     core.run(work).unwrap();
 }

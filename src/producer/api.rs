@@ -63,7 +63,7 @@ impl<'a, K, V> ProducerRecord<'a, K, V>
 #[derive(Clone, Debug)]
 pub struct RecordMetadata {
     /// The topic the record was appended to
-    pub topic: String,
+    pub topic_name: String,
     /// The partition the record was sent to
     pub partition: PartitionId,
     /// The offset of the record in the topic/partition.

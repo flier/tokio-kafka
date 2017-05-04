@@ -1,15 +1,21 @@
 use bytes::BufMut;
 use std::marker::PhantomData;
 
-pub trait Serialize {}
-
-impl<'a> Serialize for &'a str {}
-impl Serialize for String {}
-
 pub trait Serializer {
-    type Item: Serialize;
+    type Item;
 
     fn serialize<B: BufMut>(topic: &str, data: Self::Item, buf: &mut B);
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NoopSerializer<T> {
+    phantom: PhantomData<T>,
+}
+
+impl<T> Serializer for NoopSerializer<T> {
+    type Item = T;
+
+    fn serialize<B: BufMut>(_topic: &str, _data: T, _buf: &mut B) {}
 }
 
 #[derive(Clone, Debug, Default)]

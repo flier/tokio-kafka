@@ -51,6 +51,6 @@ pub use compression::Compression;
 pub use protocol::{FetchOffset, PartitionId, RequiredAcks};
 pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, Metadata,
                  PartitionOffset, StaticBoxFuture, TopicPartition};
-pub use producer::{KafkaProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
-                   ProducerRecord, Serializer, StrSerializer, StringSerializer};
+pub use producer::{KafkaProducer, NoopSerializer, Partitioner, Producer, ProducerBuilder,
+                   ProducerConfig, ProducerRecord, Serializer, StrSerializer, StringSerializer};
 pub use consumer::KafkaConsumer;
