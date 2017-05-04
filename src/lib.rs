@@ -42,15 +42,15 @@ mod producer;
 mod consumer;
 
 pub mod consts {
-    pub use client::{DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_MAX_POOLED_CONNECTION};
+    pub use client::DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS;
     pub use producer::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_MAX_REQUEST_SIZE};
 }
 
 pub use errors::{Error, ErrorKind};
 pub use compression::Compression;
 pub use protocol::{FetchOffset, PartitionId, RequiredAcks};
-pub use client::{Broker, BrokerRef, Client, Cluster, KafkaClient, KafkaConfig, Metadata,
+pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, Metadata,
                  PartitionOffset, StaticBoxFuture, TopicPartition};
 pub use producer::{KafkaProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
-                   ProducerRecord};
+                   ProducerRecord, Serializer, StrSerializer, StringSerializer};
 pub use consumer::KafkaConsumer;

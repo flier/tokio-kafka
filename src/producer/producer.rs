@@ -1,6 +1,6 @@
 use std::mem;
 use std::hash::Hash;
-use std::net::ToSocketAddrs;
+use std::net::SocketAddr;
 
 use futures::future;
 use tokio_core::reactor::Handle;
@@ -9,21 +9,15 @@ use client::{Cluster, KafkaClient, TopicPartition};
 use producer::{DefaultPartitioner, FlushProducer, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordMetadata, SendRecord, Serializer};
 
-pub struct KafkaProducer<'a, A, K, V>
-    where A: ToSocketAddrs
-{
+pub struct KafkaProducer<'a, K, V> {
     client: KafkaClient<'a>,
-    config: ProducerConfig<A>,
+    config: ProducerConfig,
     key_serializer: Option<K>,
     value_serializer: Option<V>,
 }
 
-impl<'a, A, K, V> KafkaProducer<'a, A, K, V>
-    where A: ToSocketAddrs
-{
-    pub fn from_client(client: KafkaClient<'a>,
-                       config: ProducerConfig<A>)
-                       -> KafkaProducer<'a, A, K, V> {
+impl<'a, K, V> KafkaProducer<'a, K, V> {
+    pub fn from_client(client: KafkaClient<'a>, config: ProducerConfig) -> KafkaProducer<'a, K, V> {
         KafkaProducer {
             client: client,
             config: config,
@@ -41,19 +35,16 @@ impl<'a, A, K, V> KafkaProducer<'a, A, K, V>
     }
 }
 
-impl<'a, A, K, V> KafkaProducer<'a, A, K, V>
-    where A: ToSocketAddrs
-{
-    pub fn from_hosts(hosts: &[A], handle: Handle) -> ProducerBuilder<A, K, V, DefaultPartitioner>
-        where A: ToSocketAddrs + Clone
+impl<'a, K, V> KafkaProducer<'a, K, V> {
+    pub fn from_hosts<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, DefaultPartitioner>
+        where I: Iterator<Item = SocketAddr>
     {
         ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
     }
 }
 
-impl<'a, A, K, V> Producer<'a> for KafkaProducer<'a, A, K, V>
-    where A: ToSocketAddrs,
-          K: Serializer,
+impl<'a, K, V> Producer<'a> for KafkaProducer<'a, K, V>
+    where K: Serializer,
           K::Item: Hash,
           V: Serializer,
           Self: 'static

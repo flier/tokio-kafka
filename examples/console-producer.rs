@@ -8,14 +8,16 @@ extern crate tokio_kafka;
 
 use std::env;
 use std::process;
-use std::path::Path;
 use std::time::Duration;
+use std::path::Path;
+use std::net::ToSocketAddrs;
 
 use getopts::Options;
 
 use tokio_core::reactor::Core;
 
-use tokio_kafka::{Compression, RequiredAcks};
+use tokio_kafka::{Compression, Producer, ProducerBuilder, ProducerRecord, RequiredAcks,
+                  StrSerializer};
 use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
@@ -100,12 +102,11 @@ impl Config {
                required_acks: m.opt_str("required-acks")
                    .map(|s| s.parse().unwrap())
                    .unwrap_or_default(),
-               idle_timeout: m.opt_str("idle-timeout")
-                   .map_or(Duration::from_millis(DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS),
-                           |s| Duration::from_millis(s.parse().unwrap())),
-               ack_timeout: m.opt_str("ack-timeout")
-                   .map_or(Duration::from_millis(DEFAULT_ACK_TIMEOUT_MILLIS),
-                           |s| Duration::from_millis(s.parse().unwrap())),
+               idle_timeout: Duration::from_millis(m.opt_str("idle-timeout")
+                   .map_or(DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
+                           |s| s.parse().unwrap())),
+               ack_timeout: Duration::from_millis(m.opt_str("ack-timeout")
+                   .map_or(DEFAULT_ACK_TIMEOUT_MILLIS, |s| s.parse().unwrap())),
            })
     }
 }
@@ -116,4 +117,26 @@ fn main() {
     let config = Config::parse_cmdline().unwrap();
 
     let mut core = Core::new().unwrap();
+
+    let mut producer =
+        ProducerBuilder::from_hosts(config
+                                        .brokers
+                                        .iter()
+                                        .flat_map(|s| s.to_socket_addrs().unwrap()),
+                                    core.handle())
+                .with_max_connection_idle(config.idle_timeout)
+                .with_required_acks(config.required_acks)
+                .with_compression(config.compression)
+                .with_batch_size(config.batch_size)
+                .with_ack_timeout(config.ack_timeout)
+                .with_key_serializer(StrSerializer::default())
+                .with_value_serializer(StrSerializer::default())
+                .build()
+                .unwrap();
+
+    let record = ProducerRecord::from_key_value(&config.topic_name, "key", "value");
+
+    let work = producer.send(record);
+
+    core.run(work).unwrap();
 }

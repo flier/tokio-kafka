@@ -93,9 +93,3 @@ pub trait Producer<'a> {
 
 pub type SendRecord = StaticBoxFuture<RecordMetadata>;
 pub type FlushProducer = StaticBoxFuture;
-
-pub trait Serialize {}
-
-pub trait Serializer {
-    type Item: Serialize;
-}

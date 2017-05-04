@@ -11,6 +11,7 @@ use std::env;
 use std::cmp;
 use std::process;
 use std::path::Path;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::collections::HashMap;
 
 use getopts::Options;
@@ -32,7 +33,7 @@ error_chain!{
 }
 
 struct Config {
-    brokers: Vec<String>,
+    brokers: Vec<SocketAddr>,
     topics: Option<Vec<String>>,
     show_header: bool,
     show_host: bool,
@@ -81,7 +82,10 @@ impl Config {
             .map(|s| s.split(',').map(|s| s.trim().to_owned()).collect());
 
         Ok(Config {
-               brokers: brokers,
+               brokers: brokers
+                   .iter()
+                   .flat_map(|s| s.to_socket_addrs().unwrap())
+                   .collect(),
                topics: topics,
                show_header: !matches.opt_present("no-header"),
                show_host: !matches.opt_present("no-host"),
@@ -98,7 +102,7 @@ fn main() {
 
     let mut core = Core::new().unwrap();
 
-    let mut client = KafkaClient::from_hosts(&config.brokers, core.handle());
+    let mut client = KafkaClient::from_hosts(config.brokers.clone().into_iter(), core.handle());
 
     let topics = config.topics.clone();
 

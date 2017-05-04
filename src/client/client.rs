@@ -26,7 +26,7 @@ use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
 use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet, Offset,
                PartitionId, RequiredAcks};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
-use client::{Cluster, KafkaConfig, KafkaState, Metadata};
+use client::{ClientConfig, Cluster, KafkaState, Metadata};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
@@ -48,7 +48,7 @@ pub trait Client<'a>: 'static {
 }
 
 pub struct KafkaClient<'a> {
-    config: KafkaConfig,
+    config: ClientConfig,
     handle: Handle,
     connector: KafkaConnector,
     pool: Pool<SocketAddr, TokioClient<'a>>,
@@ -56,7 +56,7 @@ pub struct KafkaClient<'a> {
 }
 
 impl<'a> Deref for KafkaClient<'a> {
-    type Target = KafkaConfig;
+    type Target = ClientConfig;
 
     fn deref(&self) -> &Self::Target {
         &self.config
@@ -72,9 +72,13 @@ impl<'a> DerefMut for KafkaClient<'a> {
 impl<'a> KafkaClient<'a>
     where Self: 'static
 {
-    pub fn from_config(config: KafkaConfig, handle: Handle) -> KafkaClient<'a> {
-        debug!("client with config: {:?}", config);
+    pub fn from_hosts<I>(hosts: I, handle: Handle) -> KafkaClient<'a>
+        where I: Iterator<Item = SocketAddr>
+    {
+        KafkaClient::from_config(ClientConfig::from_hosts(hosts), handle)
+    }
 
+    pub fn from_config(config: ClientConfig, handle: Handle) -> KafkaClient<'a> {
         let pool = Pool::new(config.max_connection_idle());
 
         KafkaClient {
@@ -86,39 +90,12 @@ impl<'a> KafkaClient<'a>
         }
     }
 
-    pub fn from_hosts<A: ToSocketAddrs + Clone>(hosts: &[A], handle: Handle) -> KafkaClient<'a> {
-        KafkaClient::from_config(KafkaConfig::from_hosts(hosts), handle)
-    }
-
     fn handle(&self) -> &Handle {
         &self.handle
     }
 
     pub fn metadata(&'a self) -> Rc<Metadata<'a>> {
         self.state.borrow().metadata()
-    }
-
-    fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata<'a>
-        where S: AsRef<str> + Debug
-    {
-        debug!("fetch metadata for toipcs: {:?}", topic_names);
-
-        let addr = self.config.hosts.iter().next().unwrap(); // TODO
-
-        let api_version = 0;
-        let correlation_id = self.state.borrow_mut().next_correlation_id();
-        let client_id = self.config.client_id.clone().map(Cow::from);
-        let request =
-            KafkaRequest::fetch_metadata(api_version, correlation_id, client_id, topic_names);
-
-        let response = self.send_request(addr, request)
-            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                          future::ok(Rc::new(Metadata::from(res)))
-                      } else {
-                          future::err(ErrorKind::InvalidResponse.into())
-                      });
-
-        FetchMetadata::new(response)
     }
 
     fn send_request(&self, addr: &SocketAddr, request: KafkaRequest<'a>) -> FutureResponse {
@@ -169,6 +146,29 @@ impl<'a> KafkaClient<'a>
             .map_err(Error::from);
 
         FutureResponse::new(response)
+    }
+
+    fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata<'a>
+        where S: AsRef<str> + Debug
+    {
+        debug!("fetch metadata for toipcs: {:?}", topic_names);
+
+        let addr = self.config.hosts.iter().next().unwrap(); // TODO
+
+        let api_version = 0;
+        let correlation_id = self.state.borrow_mut().next_correlation_id();
+        let client_id = self.config.client_id.clone().map(Cow::from);
+        let request =
+            KafkaRequest::fetch_metadata(api_version, correlation_id, client_id, topic_names);
+
+        let response = self.send_request(addr, request)
+            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
+                          future::ok(Rc::new(Metadata::from(res)))
+                      } else {
+                          future::err(ErrorKind::InvalidResponse.into())
+                      });
+
+        FetchMetadata::new(response)
     }
 }
 

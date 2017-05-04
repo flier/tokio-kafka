@@ -1,23 +1,17 @@
-use std::net::ToSocketAddrs;
+use std::ops::{Deref, DerefMut};
+use std::net::SocketAddr;
 
 use compression::Compression;
 use protocol::RequiredAcks;
+use client::ClientConfig;
 
 pub const DEFAULT_ACK_TIMEOUT_MILLIS: u64 = 30_000;
 pub const DEFAULT_BATCH_SIZE: usize = 16 * 1024;
 pub const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ProducerConfig<A>
-    where A: ToSocketAddrs
-{
-    /// A list of host/port pairs to use for establishing the initial connection to the Kafka cluster.
-    #[serde(rename = "bootstrap.servers")]
-    pub hosts: Vec<A>,
-
-    /// An id string to pass to the server when making requests.
-    #[serde(rename = "client.id")]
-    pub client_id: Option<String>,
+pub struct ProducerConfig {
+    pub client: ClientConfig,
 
     /// Setting a value greater than zero will cause the client to resend any record
     /// whose send fails with a potentially transient error.
@@ -39,30 +33,47 @@ pub struct ProducerConfig<A>
     /// The maximum size of a request in bytes.
     #[serde(rename ="max.request.size")]
     pub max_request_size: usize,
+
+    /// The maximum amount of time the server will wait for acknowledgments
+    /// from followers to meet the acknowledgment requirements
+    #[serde(rename ="timeout.ms")]
+    pub ack_timeout: u64,
 }
 
-impl<A> Default for ProducerConfig<A>
-    where A: ToSocketAddrs
-{
+impl Deref for ProducerConfig {
+    type Target = ClientConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
+
+impl DerefMut for ProducerConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.client
+    }
+}
+
+impl Default for ProducerConfig {
     fn default() -> Self {
         ProducerConfig {
-            hosts: vec![],
-            client_id: None,
+            client: ClientConfig::default(),
             retries: 0,
             acks: RequiredAcks::default(),
             compression: Compression::default(),
             batch_size: DEFAULT_BATCH_SIZE,
             max_request_size: DEFAULT_MAX_REQUEST_SIZE,
+            ack_timeout: DEFAULT_ACK_TIMEOUT_MILLIS,
         }
     }
 }
 
-impl<A> ProducerConfig<A>
-    where A: ToSocketAddrs + Clone
-{
-    pub fn from_hosts(hosts: &[A]) -> Self {
+impl ProducerConfig {
+    pub fn from_hosts<I>(hosts: I) -> Self
+        where I: Iterator<Item = SocketAddr>
+    {
         ProducerConfig {
-            hosts: hosts.to_vec(),
+            client: ClientConfig::from_hosts(hosts),
             ..Default::default()
         }
     }
@@ -78,17 +89,21 @@ mod tests {
     fn test_serialize() {
         let config = ProducerConfig::default();
         let json = r#"{
-  "bootstrap.servers": [],
-  "client.id": null,
+  "client": {
+    "bootstrap.servers": [],
+    "client.id": null,
+    "connection.max.idle.ms": 5000
+  },
   "retries": 0,
   "acks": "one",
   "compression.type": "none",
   "batch.size": 16384,
-  "max.request.size": 1048576
+  "max.request.size": 1048576,
+  "timeout.ms": 30000
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);
-        assert_eq!(serde_json::from_str::<ProducerConfig<String>>(json).unwrap(),
+        assert_eq!(serde_json::from_str::<ProducerConfig>(json).unwrap(),
                    config);
     }
 }
