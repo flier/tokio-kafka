@@ -66,7 +66,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     type Key = K::Item;
     type Value = V::Item;
 
-    fn partitions_for(&'a self, toipc_name: &'a str) -> Option<Vec<TopicPartition<'a>>> {
+    fn partitions_for(&self, toipc_name: String) -> Option<Vec<TopicPartition>> {
         self.client.metadata().partitions_for_topic(toipc_name)
     }
 
@@ -130,15 +130,15 @@ pub mod mock {
         type Key = K;
         type Value = V;
 
-        fn partitions_for(&self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>> {
+        fn partitions_for(&self, topic_name: String) -> Option<Vec<TopicPartition>> {
             self.topics
-                .get(topic_name)
-                .map(|partitions| {
+                .get(&topic_name)
+                .map(move |partitions| {
                     partitions
                         .iter()
                         .map(|&(_, partition)| {
                                  TopicPartition {
-                                     topic_name: topic_name,
+                                     topic_name: topic_name.clone(),
                                      partition: partition,
                                  }
                              })

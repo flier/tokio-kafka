@@ -8,11 +8,11 @@ use client::{StaticBoxFuture, TopicPartition};
 /// This consists of a topic name to which the record is being sent,
 /// an optional partition number, and an optional key and value.
 #[derive(Clone, Debug)]
-pub struct ProducerRecord<'a, K, V>
+pub struct ProducerRecord<K, V>
     where K: Hash
 {
     /// The topic this record is being sent to
-    pub topic_name: &'a str,
+    pub topic_name: String,
     /// The partition to which the record will be sent (or `None` if no partition was specified)
     pub partition: Option<PartitionId>,
     /// The key (or `None` if no key is specified)
@@ -23,10 +23,10 @@ pub struct ProducerRecord<'a, K, V>
     pub timestamp: Option<Timestamp>,
 }
 
-impl<'a, V> ProducerRecord<'a, (), V> {
-    pub fn from_value(topic_name: &'a str, value: V) -> Self {
+impl<V> ProducerRecord<(), V> {
+    pub fn from_value<S: AsRef<str>>(topic_name: S, value: V) -> Self {
         ProducerRecord {
-            topic_name: topic_name,
+            topic_name: topic_name.as_ref().to_owned(),
             partition: None,
             key: None,
             value: value,
@@ -35,12 +35,12 @@ impl<'a, V> ProducerRecord<'a, (), V> {
     }
 }
 
-impl<'a, K, V> ProducerRecord<'a, K, V>
+impl<K, V> ProducerRecord<K, V>
     where K: Hash
 {
-    pub fn from_key_value(topic_name: &'a str, key: K, value: V) -> Self {
+    pub fn from_key_value<S: AsRef<str>>(topic_name: S, key: K, value: V) -> Self {
         ProducerRecord {
-            topic_name: topic_name,
+            topic_name: topic_name.as_ref().to_owned(),
             partition: None,
             key: Some(key),
             value: value,
@@ -81,7 +81,7 @@ pub trait Producer<'a> {
     type Value;
 
     /// Get a list of partitions for the given topic for custom partition assignment.
-    fn partitions_for(&'a self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>>;
+    fn partitions_for(&self, topic_name: String) -> Option<Vec<TopicPartition>>;
 
     /// Send the given record asynchronously and
     /// return a future which will eventually contain the response information.

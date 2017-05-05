@@ -25,10 +25,10 @@ pub trait Cluster<'a> {
     fn find_partition(&'a self, tp: &TopicPartition) -> Option<&PartitionInfo<'a>>;
 
     /// Get the list of partitions for this topic
-    fn partitions_for_topic(&self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>>;
+    fn partitions_for_topic(&self, topic_name: String) -> Option<Vec<TopicPartition>>;
 
     /// Get the list of partitions whose leader is this node
-    fn partitions_for_broker(&'a self, broker: BrokerRef) -> Vec<TopicPartition<'a>>;
+    fn partitions_for_broker(&self, broker: BrokerRef) -> Vec<TopicPartition>;
 }
 
 /// Describes a Kafka broker node is communicating with.
@@ -129,8 +129,8 @@ impl From<BrokerIndex> for BrokerRef {
 
 /// A topic name and partition number
 #[derive(Debug, Clone)]
-pub struct TopicPartition<'a> {
-    pub topic_name: &'a str,
+pub struct TopicPartition {
+    pub topic_name: String,
     pub partition: PartitionId,
 }
 

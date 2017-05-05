@@ -61,8 +61,9 @@ impl<'a> Cluster<'a> for Metadata<'a> {
 
     fn find_partition(&'a self, tp: &TopicPartition) -> Option<&PartitionInfo<'a>> {
         self.topic_partitions
-            .get(tp.topic_name)
-            .and_then(|partitions| {
+            .iter()
+            .find(|&(topic_name, _)| topic_name.as_str() == tp.topic_name.to_owned())
+            .and_then(|(_, partitions)| {
                           partitions
                               .iter()
                               .find(|&(id, _)| id == tp.partition)
@@ -70,15 +71,16 @@ impl<'a> Cluster<'a> for Metadata<'a> {
                       })
     }
 
-    fn partitions_for_topic(&self, topic_name: &'a str) -> Option<Vec<TopicPartition<'a>>> {
+    fn partitions_for_topic(&self, topic_name: String) -> Option<Vec<TopicPartition>> {
         self.topic_partitions
-            .get(topic_name)
-            .map(|partitions| {
+            .iter()
+            .find(|&(topic, _)| topic.as_str() == topic_name)
+            .map(|(topic_name, partitions)| {
                 partitions
                     .iter()
                     .map(|(id, _)| {
                              TopicPartition {
-                                 topic_name: topic_name,
+                                 topic_name: topic_name.clone(),
                                  partition: id,
                              }
                          })
@@ -86,7 +88,7 @@ impl<'a> Cluster<'a> for Metadata<'a> {
             })
     }
 
-    fn partitions_for_broker(&'a self, leader: BrokerRef) -> Vec<TopicPartition<'a>> {
+    fn partitions_for_broker(&self, leader: BrokerRef) -> Vec<TopicPartition> {
         self.topic_partitions
             .iter()
             .flat_map(|(topic_name, partitions)| {
@@ -95,7 +97,7 @@ impl<'a> Cluster<'a> for Metadata<'a> {
                     .find(|&(_, partition)| partition.leader() == Some(leader))
                     .map(|(id, _)| {
                              TopicPartition {
-                                 topic_name: topic_name,
+                                 topic_name: topic_name.clone(),
                                  partition: id,
                              }
                          })

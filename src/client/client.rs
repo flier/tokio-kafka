@@ -94,7 +94,7 @@ impl<'a> KafkaClient<'a>
         &self.handle
     }
 
-    pub fn metadata(&'a self) -> Rc<Metadata<'a>> {
+    pub fn metadata(&self) -> Rc<Metadata<'a>> {
         self.state.borrow().metadata()
     }
 
@@ -222,7 +222,8 @@ impl<'a> Client<'a> for KafkaClient<'a>
             let mut topics = HashMap::new();
 
             for topic_name in topic_names {
-                if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
+                if let Some(partitions) =
+                    metadata.partitions_for_topic(topic_name.as_ref().to_owned()) {
                     for topic_partition in partitions {
                         if let Some(partition_info) = metadata.find_partition(&topic_partition) {
                             if let Some(leader) = partition_info.leader() {

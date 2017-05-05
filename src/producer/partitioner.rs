@@ -12,7 +12,7 @@ pub trait Partitioner {
     /// Compute the partition for the given record.
     fn partition<'a, P: Producer<'a>>(&self,
                                       producer: &'a P,
-                                      record: &mut ProducerRecord<'a, P::Key, P::Value>)
+                                      record: &mut ProducerRecord<P::Key, P::Value>)
                                       -> Option<PartitionId>;
 }
 
@@ -51,7 +51,7 @@ impl<H> Partitioner for DefaultPartitioner<H>
 {
     fn partition<'a, P: Producer<'a>>(&self,
                                       producer: &'a P,
-                                      record: &mut ProducerRecord<'a, P::Key, P::Value>)
+                                      record: &mut ProducerRecord<P::Key, P::Value>)
                                       -> Option<PartitionId> {
         if let Some(partition) = record.partition {
             if partition >= 0 {
@@ -61,7 +61,7 @@ impl<H> Partitioner for DefaultPartitioner<H>
         }
 
         // TODO: use available partitions for topic in cluster
-        if let Some(partitions) = producer.partitions_for(&record.topic_name) {
+        if let Some(partitions) = producer.partitions_for(record.topic_name.clone()) {
             let index = if let Some(ref key) = record.key {
                 // If no partition is specified but a key is present choose a partition based on a hash of the key
                 let mut hasher = self.hash_builder.build_hasher();
