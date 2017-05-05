@@ -94,7 +94,7 @@ impl<'a> KafkaClient<'a>
         &self.handle
     }
 
-    pub fn metadata(&self) -> Rc<Metadata<'a>> {
+    pub fn metadata(&self) -> Rc<Metadata> {
         self.state.borrow().metadata()
     }
 
@@ -349,7 +349,7 @@ pub struct LoadMetadata<'a> {
 impl<'a> Future for LoadMetadata<'a>
     where Self: 'static
 {
-    type Item = Rc<Metadata<'a>>;
+    type Item = Rc<Metadata>;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -389,7 +389,7 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
 pub type SendRequest = StaticBoxFuture;
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<Result<(PartitionId, Offset)>>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
-pub type FetchMetadata<'a> = StaticBoxFuture<Rc<Metadata<'a>>>;
+pub type FetchMetadata<'a> = StaticBoxFuture<Rc<Metadata>>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 
 type TokioBody = Body<BytesMut, io::Error>;

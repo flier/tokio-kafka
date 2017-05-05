@@ -1,14 +1,13 @@
+use std::slice;
 use std::borrow::Cow;
 use std::collections::hash_map::HashMap;
 use std::iter::FromIterator;
-use std::slice;
-use std::marker::PhantomData;
 
 use protocol::{MetadataResponse, PartitionId};
 use client::{Broker, BrokerRef, Cluster, PartitionInfo, TopicPartition};
 
 #[derive(Debug)]
-pub struct Metadata<'a> {
+pub struct Metadata {
     // ~ a list of known brokers referred to by the index in this
     // vector.  This index is also referred to as `BrokerRef` and is
     // enforced by this module.
@@ -19,20 +18,18 @@ pub struct Metadata<'a> {
     brokers: Vec<Broker>,
 
     // ~ a mapping of topic to information about its partitions
-    topic_partitions: HashMap<String, TopicPartitions<'a>>,
+    topic_partitions: HashMap<String, TopicPartitions>,
 
     // ~ a mapping of groups to their coordinators
     group_coordinators: HashMap<String, BrokerRef>,
-
-    phantom: PhantomData<&'a u8>,
 }
 
-impl<'a> Cluster<'a> for Metadata<'a> {
+impl Cluster for Metadata {
     fn brokers(&self) -> &[Broker] {
         self.brokers.as_slice()
     }
 
-    fn topics(&'a self) -> HashMap<Cow<'a, str>, &[PartitionInfo<'a>]> {
+    fn topics<'a>(&'a self) -> HashMap<Cow<'a, str>, &[PartitionInfo]> {
         HashMap::from_iter(self.topic_partitions
                                .iter()
                                .map(|(topic_name, topic_partitions)| {
@@ -59,7 +56,7 @@ impl<'a> Cluster<'a> for Metadata<'a> {
             .and_then(|leader| self.find_broker(leader))
     }
 
-    fn find_partition(&'a self, tp: &TopicPartition) -> Option<&PartitionInfo<'a>> {
+    fn find_partition(&self, tp: &TopicPartition) -> Option<&PartitionInfo> {
         self.topic_partitions
             .iter()
             .find(|&(topic_name, _)| topic_name.as_str() == tp.topic_name.to_owned())
@@ -106,18 +103,17 @@ impl<'a> Cluster<'a> for Metadata<'a> {
     }
 }
 
-impl<'a> Default for Metadata<'a> {
+impl Default for Metadata {
     fn default() -> Self {
         Metadata {
             brokers: Vec::new(),
             topic_partitions: HashMap::new(),
             group_coordinators: HashMap::new(),
-            phantom: PhantomData,
         }
     }
 }
 
-impl<'a> From<MetadataResponse> for Metadata<'a> {
+impl From<MetadataResponse> for Metadata {
     fn from(md: MetadataResponse) -> Self {
         Metadata {
             brokers: md.brokers
@@ -146,36 +142,34 @@ impl<'a> From<MetadataResponse> for Metadata<'a> {
                             .iter()
                             .map(|node| BrokerRef::new(*node))
                             .collect(),
-                        phantom: PhantomData,
                     }
                 })
                          .collect(),
                  })
             })),
             group_coordinators: HashMap::new(),
-            phantom: PhantomData,
         }
     }
 }
 
 /// A representation of partitions for a single topic.
 #[derive(Debug)]
-pub struct TopicPartitions<'a> {
+pub struct TopicPartitions {
     // ~ This list keeps information about each partition of the
     // corresponding topic - even about partitions currently without a
     // leader.  The index into this list specifies the partition
     // identifier.  (This works due to Kafka numbering partitions 0..N
     // where N is the number of partitions of the topic.)
-    partitions: Vec<PartitionInfo<'a>>,
+    partitions: Vec<PartitionInfo>,
 }
 
-impl<'a> TopicPartitions<'a> {
+impl TopicPartitions {
     /// Creates a new partitions vector with all partitions leaderless
-    fn new_with_partitions(n: usize) -> TopicPartitions<'a> {
+    fn new_with_partitions(n: usize) -> Self {
         TopicPartitions { partitions: (0..n).map(|_| PartitionInfo::default()).collect() }
     }
 
-    pub fn partitions(&self) -> &'a [PartitionInfo] {
+    pub fn partitions(&self) -> &[PartitionInfo] {
         &self.partitions
     }
 
@@ -196,8 +190,8 @@ impl<'a> TopicPartitions<'a> {
     }
 }
 
-impl<'a> IntoIterator for &'a TopicPartitions<'a> {
-    type Item = (PartitionId, &'a PartitionInfo<'a>);
+impl<'a> IntoIterator for &'a TopicPartitions {
+    type Item = (PartitionId, &'a PartitionInfo);
     type IntoIter = PartitionInfoIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -210,12 +204,12 @@ impl<'a> IntoIterator for &'a TopicPartitions<'a> {
 
 /// An iterator over a topic's partitions.
 pub struct PartitionInfoIter<'a> {
-    iter: slice::Iter<'a, PartitionInfo<'a>>,
+    iter: slice::Iter<'a, PartitionInfo>,
     partition_id: PartitionId,
 }
 
 impl<'a> Iterator for PartitionInfoIter<'a> {
-    type Item = (PartitionId, &'a PartitionInfo<'a>);
+    type Item = (PartitionId, &'a PartitionInfo);
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()

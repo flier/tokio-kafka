@@ -8,7 +8,7 @@ use client::Metadata;
 pub struct KafkaState<'a> {
     connection_id: ConnectionId,
     correlation_id: CorrelationId,
-    metadata: Rc<Metadata<'a>>,
+    metadata: Rc<Metadata>,
     phantom: PhantomData<&'a u8>,
 }
 
@@ -32,11 +32,11 @@ impl<'a> KafkaState<'a> {
         self.correlation_id - 1
     }
 
-    pub fn metadata(&self) -> Rc<Metadata<'a>> {
+    pub fn metadata(&self) -> Rc<Metadata> {
         self.metadata.clone()
     }
 
-    pub fn update_metadata(&mut self, metadata: Rc<Metadata<'a>>) -> Rc<Metadata<'a>> {
+    pub fn update_metadata(&mut self, metadata: Rc<Metadata>) -> Rc<Metadata> {
         debug!("updating metadata, {:?}", metadata);
 
         self.metadata = metadata;

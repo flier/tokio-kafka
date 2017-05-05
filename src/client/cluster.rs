@@ -1,16 +1,15 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 
 use protocol::{NodeId, PartitionId, SupportedApiVersions};
 
 /// A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
-pub trait Cluster<'a> {
+pub trait Cluster {
     /// The known set of brokers.
     fn brokers(&self) -> &[Broker];
 
     /// Get all topics.
-    fn topics(&'a self) -> HashMap<Cow<'a, str>, &[PartitionInfo<'a>]>;
+    fn topics<'a>(&'a self) -> HashMap<Cow<'a, str>, &[PartitionInfo]>;
 
     /// Get all topic names.
     fn topic_names(&self) -> Vec<&str>;
@@ -22,7 +21,7 @@ pub trait Cluster<'a> {
     fn leader_for(&self, tp: &TopicPartition) -> Option<&Broker>;
 
     /// Get the metadata for the specified partition
-    fn find_partition(&'a self, tp: &TopicPartition) -> Option<&PartitionInfo<'a>>;
+    fn find_partition(&self, tp: &TopicPartition) -> Option<&PartitionInfo>;
 
     /// Get the list of partitions for this topic
     fn partitions_for_topic(&self, topic_name: String) -> Option<Vec<TopicPartition>>;
@@ -136,34 +135,31 @@ pub struct TopicPartition {
 
 /// Information about a topic-partition.
 #[derive(Debug, Clone)]
-pub struct PartitionInfo<'a> {
+pub struct PartitionInfo {
     pub partition: PartitionId,
     pub leader: Option<BrokerRef>,
     pub replicas: Vec<BrokerRef>,
     pub in_sync_replicas: Vec<BrokerRef>,
-    pub phantom: PhantomData<&'a u8>,
 }
 
-impl<'a> Default for PartitionInfo<'a> {
+impl<'a> Default for PartitionInfo {
     fn default() -> Self {
         PartitionInfo {
             partition: -1,
             leader: None,
             replicas: Vec::new(),
             in_sync_replicas: Vec::new(),
-            phantom: PhantomData,
         }
     }
 }
 
-impl<'a> PartitionInfo<'a> {
+impl PartitionInfo {
     pub fn new(partition: PartitionId, leader: BrokerRef) -> Self {
         PartitionInfo {
             partition: partition,
             leader: Some(leader),
             replicas: vec![],
             in_sync_replicas: vec![],
-            phantom: PhantomData,
         }
     }
 

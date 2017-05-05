@@ -133,7 +133,7 @@ fn main() {
 }
 
 fn dump_metadata<'a>(config: Config,
-                     metadata: Rc<Metadata<'a>>,
+                     metadata: Rc<Metadata>,
                      topics: Vec<String>,
                      earliest_offsets: &HashMap<String, Vec<PartitionOffset>>,
                      latest_offsets: &HashMap<String, Vec<PartitionOffset>>) {
