@@ -123,6 +123,7 @@ fn main() {
             future::join_all(requests).map(|responses| {
                                                dump_metadata(config,
                                                              metadata,
+                                                             topics,
                                                              &responses[0],
                                                              &responses[1])
                                            })
@@ -133,6 +134,7 @@ fn main() {
 
 fn dump_metadata<'a>(config: Config,
                      metadata: Rc<Metadata<'a>>,
+                     topics: Vec<String>,
                      earliest_offsets: &HashMap<String, Vec<PartitionOffset>>,
                      latest_offsets: &HashMap<String, Vec<PartitionOffset>>) {
     let host_width = 2 +
@@ -166,6 +168,10 @@ fn dump_metadata<'a>(config: Config,
     }
 
     for (idx, (topic_name, partitions)) in metadata.topics().iter().enumerate() {
+        if !topics.contains(&topic_name.to_owned().to_owned()) {
+            continue;
+        }
+
         if config.topic_separators && idx > 0 {
             println!("")
         }
