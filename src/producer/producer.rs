@@ -70,7 +70,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         self.client.metadata().partitions_for_topic(toipc_name)
     }
 
-    fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
+    fn send(&mut self, mut record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
         let compression = self.config.compression;
         let timestamp = record
             .timestamp
@@ -86,7 +86,8 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                            }],
         };
 
-        //self.partitioner.partition(self, &mut record);
+        self.partitioner
+            .partition(&mut record, self.client.metadata());
 
         let produce =
             self.client

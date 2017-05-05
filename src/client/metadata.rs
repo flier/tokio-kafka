@@ -24,6 +24,33 @@ pub struct Metadata {
     group_coordinators: HashMap<String, BrokerRef>,
 }
 
+impl Metadata {
+    pub fn with_topics(topics: Vec<(String, Vec<PartitionInfo>)>) -> Self {
+        Metadata {
+            brokers: Vec::new(),
+            topic_partitions: HashMap::from_iter(topics
+                                                     .into_iter()
+                                                     .map(|(topic_name, partitions)| {
+                                                              (topic_name,
+                                                               TopicPartitions {
+                                                                   partitions: partitions,
+                                                               })
+                                                          })),
+            group_coordinators: HashMap::new(),
+        }
+    }
+}
+
+impl Default for Metadata {
+    fn default() -> Self {
+        Metadata {
+            brokers: Vec::new(),
+            topic_partitions: HashMap::new(),
+            group_coordinators: HashMap::new(),
+        }
+    }
+}
+
 impl Cluster for Metadata {
     fn brokers(&self) -> &[Broker] {
         self.brokers.as_slice()
@@ -100,16 +127,6 @@ impl Cluster for Metadata {
                          })
             })
             .collect()
-    }
-}
-
-impl Default for Metadata {
-    fn default() -> Self {
-        Metadata {
-            brokers: Vec::new(),
-            topic_partitions: HashMap::new(),
-            group_coordinators: HashMap::new(),
-        }
     }
 }
 
