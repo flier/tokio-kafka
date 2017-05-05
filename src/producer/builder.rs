@@ -8,7 +8,7 @@ use errors::{ErrorKind, Result};
 use compression::Compression;
 use protocol::RequiredAcks;
 use client::{KafkaClient, ToMilliseconds};
-use producer::{DefaultPartitioner, KafkaProducer, ProducerConfig};
+use producer::{DefaultPartitioner, KafkaProducer, NoopSerializer, ProducerConfig};
 
 pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner> {
     config: ProducerConfig,
@@ -133,6 +133,20 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
 
     pub fn with_partitioner(mut self, partitioner: P) -> Self {
         self.partitioner = Some(partitioner);
+        self
+    }
+}
+
+impl<'a, V, P> ProducerBuilder<'a, NoopSerializer<()>, V, P> {
+    pub fn without_key_serializer(mut self) -> Self {
+        self.key_serializer = Some(NoopSerializer::default());
+        self
+    }
+}
+
+impl<'a, K, P> ProducerBuilder<'a, K, NoopSerializer<()>, P> {
+    pub fn without_value_serializer(mut self) -> Self {
+        self.value_serializer = Some(NoopSerializer::default());
         self
     }
 }
