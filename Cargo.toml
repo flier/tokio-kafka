@@ -13,6 +13,7 @@ crc = "1.4"
 twox-hash = "1.1"
 time = "0.1"
 hexplay = "0.1"
+encoding = "0.2"
 
 serde = "1.0"
 serde_derive = "1.0"

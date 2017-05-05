@@ -1,3 +1,5 @@
+use std::borrow::{Borrow, Cow};
+
 use protocol::{ApiKeys, KafkaCode};
 
 error_chain!{
@@ -31,6 +33,12 @@ impl<P> From<::nom::verbose_errors::Err<P>> for Error
 {
     fn from(err: ::nom::verbose_errors::Err<P>) -> Self {
         ErrorKind::ParseError(err.to_string()).into()
+    }
+}
+
+impl<'a> From<Cow<'a, str>> for Error {
+    fn from(s: Cow<'a, str>) -> Self {
+        ErrorKind::Msg(String::from(s.borrow())).into()
     }
 }
 

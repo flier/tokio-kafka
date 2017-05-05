@@ -13,6 +13,7 @@ extern crate crc;
 extern crate twox_hash;
 extern crate time;
 extern crate hexplay;
+extern crate encoding;
 
 extern crate serde;
 #[macro_use]
@@ -52,6 +53,7 @@ pub use protocol::{FetchOffset, PartitionId, RequiredAcks};
 pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, Metadata,
                  PartitionOffset, StaticBoxFuture, ToMilliseconds, TopicPartition};
 pub use producer::{DefaultPartitioner, KafkaProducer, NoopSerializer, Partitioner, Producer,
-                   ProducerBuilder, ProducerConfig, ProducerRecord, Serializer, StrSerializer,
+                   ProducerBuilder, ProducerConfig, ProducerRecord, Serializer,
+                   StrEncodingSerializer, StrSerializer, StringEncodingSerializer,
                    StringSerializer};
 pub use consumer::KafkaConsumer;
