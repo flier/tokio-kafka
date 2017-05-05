@@ -22,11 +22,11 @@ use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
 
 use errors::{Error, ErrorKind, Result};
-use network::{KafkaConnection, KafkaConnector, Pool, Pooled};
+use network::{ConnectionId, KafkaConnection, KafkaConnector, Pool, Pooled};
 use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet, Offset,
                PartitionId, RequiredAcks};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
-use client::{ClientConfig, Cluster, KafkaState, Metadata};
+use client::{ClientConfig, Cluster, Metadata};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
@@ -35,7 +35,7 @@ pub struct PartitionOffset {
     pub offset: Offset,
 }
 
-pub trait Client<'a>: 'static {
+pub trait Client: 'static {
     fn produce_records(&self,
                        acks: RequiredAcks,
                        timeout: Duration,
@@ -44,7 +44,44 @@ pub trait Client<'a>: 'static {
 
     fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
 
-    fn load_metadata(&mut self) -> LoadMetadata<'a>;
+    fn load_metadata(&mut self) -> LoadMetadata;
+}
+
+pub struct State {
+    connection_id: ConnectionId,
+    correlation_id: CorrelationId,
+    metadata: Rc<Metadata>,
+}
+
+impl State {
+    pub fn new() -> Self {
+        State {
+            connection_id: 0,
+            correlation_id: 0,
+            metadata: Rc::new(Metadata::default()),
+        }
+    }
+
+    pub fn next_connection_id(&mut self) -> ConnectionId {
+        self.connection_id = self.connection_id.wrapping_add(1);
+        self.connection_id - 1
+    }
+
+    pub fn next_correlation_id(&mut self) -> CorrelationId {
+        self.correlation_id = self.correlation_id.wrapping_add(1);
+        self.correlation_id - 1
+    }
+
+    pub fn metadata(&self) -> Rc<Metadata> {
+        self.metadata.clone()
+    }
+
+    pub fn update_metadata(&mut self, metadata: Rc<Metadata>) -> Rc<Metadata> {
+        debug!("updating metadata, {:?}", metadata);
+
+        self.metadata = metadata;
+        self.metadata.clone()
+    }
 }
 
 pub struct KafkaClient<'a> {
@@ -52,7 +89,7 @@ pub struct KafkaClient<'a> {
     handle: Handle,
     connector: KafkaConnector,
     pool: Pool<SocketAddr, TokioClient<'a>>,
-    state: Rc<RefCell<KafkaState<'a>>>,
+    state: Rc<RefCell<State>>,
 }
 
 impl<'a> Deref for KafkaClient<'a> {
@@ -86,7 +123,7 @@ impl<'a> KafkaClient<'a>
             handle: handle.clone(),
             connector: KafkaConnector::new(handle),
             pool: pool,
-            state: Rc::new(RefCell::new(KafkaState::new())),
+            state: Rc::new(RefCell::new(State::new())),
         }
     }
 
@@ -148,7 +185,7 @@ impl<'a> KafkaClient<'a>
         FutureResponse::new(response)
     }
 
-    fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata<'a>
+    fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
         where S: AsRef<str> + Debug
     {
         debug!("fetch metadata for toipcs: {:?}", topic_names);
@@ -172,7 +209,7 @@ impl<'a> KafkaClient<'a>
     }
 }
 
-impl<'a> Client<'a> for KafkaClient<'a>
+impl<'a> Client for KafkaClient<'a>
     where Self: 'static
 {
     fn produce_records(&self,
@@ -328,7 +365,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
         FetchOffsets::new(offsets)
     }
 
-    fn load_metadata(&mut self) -> LoadMetadata<'a> {
+    fn load_metadata(&mut self) -> LoadMetadata {
         debug!("loading metadata...");
 
         let state = self.state.clone();
@@ -341,12 +378,12 @@ impl<'a> Client<'a> for KafkaClient<'a>
     }
 }
 
-pub struct LoadMetadata<'a> {
-    fetch_metadata: FetchMetadata<'a>,
-    state: Rc<RefCell<KafkaState<'a>>>,
+pub struct LoadMetadata {
+    fetch_metadata: FetchMetadata,
+    state: Rc<RefCell<State>>,
 }
 
-impl<'a> Future for LoadMetadata<'a>
+impl Future for LoadMetadata
     where Self: 'static
 {
     type Item = Rc<Metadata>;
@@ -389,7 +426,7 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
 pub type SendRequest = StaticBoxFuture;
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<Result<(PartitionId, Offset)>>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
-pub type FetchMetadata<'a> = StaticBoxFuture<Rc<Metadata>>;
+pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 
 type TokioBody = Body<BytesMut, io::Error>;
