@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::hash::{BuildHasher, BuildHasherDefault, Hash, Hasher};
 
 use twox_hash::XxHash;
@@ -9,7 +10,7 @@ use producer::{Producer, ProducerRecord};
 /// for a message to be sent to Kafka.
 pub trait Partitioner {
     /// Compute the partition for the given record.
-    fn partition<'a, P: Producer<'a>>(&mut self,
+    fn partition<'a, P: Producer<'a>>(&self,
                                       producer: &'a P,
                                       record: &mut ProducerRecord<'a, P::Key, P::Value>)
                                       -> Option<PartitionId>;
@@ -25,7 +26,7 @@ pub type DefaultHasher = XxHash;
 #[derive(Default)]
 pub struct DefaultPartitioner<H: BuildHasher = BuildHasherDefault<DefaultHasher>> {
     hash_builder: H,
-    records: usize,
+    records: AtomicUsize,
 }
 
 impl DefaultPartitioner {
@@ -36,19 +37,19 @@ impl DefaultPartitioner {
     pub fn with_hasher<B: BuildHasher>(hash_builder: B) -> DefaultPartitioner<B> {
         DefaultPartitioner {
             hash_builder: hash_builder.into(),
-            records: 0,
+            records: AtomicUsize::new(0),
         }
     }
 
     pub fn records(&self) -> usize {
-        self.records
+        self.records.load(Ordering::Relaxed)
     }
 }
 
 impl<H> Partitioner for DefaultPartitioner<H>
     where H: BuildHasher
 {
-    fn partition<'a, P: Producer<'a>>(&mut self,
+    fn partition<'a, P: Producer<'a>>(&self,
                                       producer: &'a P,
                                       record: &mut ProducerRecord<'a, P::Key, P::Value>)
                                       -> Option<PartitionId> {
@@ -68,8 +69,7 @@ impl<H> Partitioner for DefaultPartitioner<H>
                 hasher.finish() as usize
             } else {
                 // If no partition or key is present choose a partition in a round-robin fashion
-                self.records = self.records.wrapping_add(1);
-                self.records - 1
+                self.records.fetch_add(1, Ordering::Relaxed)
             } % partitions.len();
 
             let partition = partitions[index].partition;
@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn test_skip_partitioning() {
         let producer = MockProducer::default();
-        let mut partitioner = DefaultPartitioner::new();
+        let partitioner = DefaultPartitioner::new();
         let mut record = ProducerRecord::from_key_value("topic", "key", "value");
 
         assert_eq!(record.partition, None);
@@ -112,7 +112,7 @@ mod tests {
             .or_insert(vec![])
             .extend((0..3).map(|id| ("topic".to_owned(), id)));
 
-        let mut partitioner = DefaultPartitioner::new();
+        let partitioner = DefaultPartitioner::new();
         let mut record = ProducerRecord::from_key_value("topic", "key", "value");
 
         // partition with key
