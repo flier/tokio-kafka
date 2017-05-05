@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -9,7 +10,7 @@ pub trait Cluster<'a> {
     fn brokers(&self) -> &[Broker];
 
     /// Get all topics.
-    fn topics(&'a self) -> HashMap<&'a str, &[PartitionInfo<'a>]>;
+    fn topics(&'a self) -> HashMap<Cow<'a, str>, &[PartitionInfo<'a>]>;
 
     /// Get all topic names.
     fn topic_names(&self) -> Vec<&str>;

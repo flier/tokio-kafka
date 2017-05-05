@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::hash_map::HashMap;
 use std::iter::FromIterator;
 use std::slice;
@@ -31,11 +32,11 @@ impl<'a> Cluster<'a> for Metadata<'a> {
         self.brokers.as_slice()
     }
 
-    fn topics(&'a self) -> HashMap<&'a str, &[PartitionInfo<'a>]> {
+    fn topics(&'a self) -> HashMap<Cow<'a, str>, &[PartitionInfo<'a>]> {
         HashMap::from_iter(self.topic_partitions
                                .iter()
                                .map(|(topic_name, topic_partitions)| {
-                                        (topic_name.as_str(), topic_partitions.partitions())
+                                        (topic_name.as_str().into(), topic_partitions.partitions())
                                     }))
     }
 

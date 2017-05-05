@@ -168,7 +168,9 @@ fn dump_metadata<'a>(config: Config,
     }
 
     for (idx, (topic_name, partitions)) in metadata.topics().iter().enumerate() {
-        if !topics.contains(&topic_name.to_owned().to_owned()) {
+        let topic_name = topic_name.to_owned().into_owned();
+
+        if !topics.contains(&topic_name) {
             continue;
         }
 
@@ -177,7 +179,7 @@ fn dump_metadata<'a>(config: Config,
         }
 
         if let (Some(earliest), Some(latest)) =
-            (earliest_offsets.get(topic_name.to_owned()), latest_offsets.get(topic_name.to_owned())) {
+            (earliest_offsets.get(&topic_name), latest_offsets.get(&topic_name)) {
 
             for partition_info in partitions.iter() {
                 if let Some(leader) = partition_info.leader() {
