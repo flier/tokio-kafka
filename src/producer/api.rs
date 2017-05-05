@@ -12,7 +12,7 @@ pub struct ProducerRecord<'a, K, V>
     where K: Hash
 {
     /// The topic this record is being sent to
-    pub topic: &'a str,
+    pub topic_name: &'a str,
     /// The partition to which the record will be sent (or `None` if no partition was specified)
     pub partition: Option<PartitionId>,
     /// The key (or `None` if no key is specified)
@@ -24,9 +24,9 @@ pub struct ProducerRecord<'a, K, V>
 }
 
 impl<'a, V> ProducerRecord<'a, (), V> {
-    pub fn from_value(topic: &'a str, value: V) -> Self {
+    pub fn from_value(topic_name: &'a str, value: V) -> Self {
         ProducerRecord {
-            topic: topic,
+            topic_name: topic_name,
             partition: None,
             key: None,
             value: value,
@@ -38,9 +38,9 @@ impl<'a, V> ProducerRecord<'a, (), V> {
 impl<'a, K, V> ProducerRecord<'a, K, V>
     where K: Hash
 {
-    pub fn from_key_value(topic: &'a str, key: K, value: V) -> Self {
+    pub fn from_key_value(topic_name: &'a str, key: K, value: V) -> Self {
         ProducerRecord {
-            topic: topic,
+            topic_name: topic_name,
             partition: None,
             key: Some(key),
             value: value,

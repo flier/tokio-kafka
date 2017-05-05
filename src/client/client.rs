@@ -39,7 +39,7 @@ pub trait Client<'a>: 'static {
     fn produce_records(&self,
                        acks: RequiredAcks,
                        timeout: Duration,
-                       records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
+                       records: Vec<(String, Vec<(PartitionId, MessageSet)>)>)
                        -> ProduceRecords;
 
     fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
@@ -178,7 +178,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
     fn produce_records(&self,
                        required_acks: RequiredAcks,
                        timeout: Duration,
-                       records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
+                       records: Vec<(String, Vec<(PartitionId, MessageSet)>)>)
                        -> ProduceRecords {
         let api_version = 0;
         let correlation_id = self.state.borrow_mut().next_correlation_id();

@@ -35,7 +35,7 @@ impl<'a> KafkaRequest<'a> {
                            client_id: Option<Cow<'a, str>>,
                            required_acks: RequiredAcks,
                            timeout: Duration,
-                           records: Vec<(&'a str, Vec<(PartitionId, MessageSet)>)>)
+                           records: Vec<(String, Vec<(PartitionId, MessageSet)>)>)
                            -> KafkaRequest<'a> {
         let request = ProduceRequest {
             header: RequestHeader {

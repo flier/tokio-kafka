@@ -163,6 +163,7 @@ fn produce<I: Iterator<Item = io::Result<String>>>(config: &Config, lines: I) {
         .with_ack_timeout(config.ack_timeout)
         .with_key_serializer(NoopSerializer::default())
         .with_value_serializer(StringSerializer::default())
+        .with_default_partitioner()
         .build()
         .unwrap();
 

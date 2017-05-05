@@ -50,7 +50,8 @@ pub use errors::{Error, ErrorKind};
 pub use compression::Compression;
 pub use protocol::{FetchOffset, PartitionId, RequiredAcks};
 pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, Metadata,
-                 PartitionOffset, StaticBoxFuture, TopicPartition};
-pub use producer::{KafkaProducer, NoopSerializer, Partitioner, Producer, ProducerBuilder,
-                   ProducerConfig, ProducerRecord, Serializer, StrSerializer, StringSerializer};
+                 PartitionOffset, StaticBoxFuture, ToMilliseconds, TopicPartition};
+pub use producer::{DefaultPartitioner, KafkaProducer, NoopSerializer, Partitioner, Producer,
+                   ProducerBuilder, ProducerConfig, ProducerRecord, Serializer, StrSerializer,
+                   StringSerializer};
 pub use consumer::KafkaConsumer;

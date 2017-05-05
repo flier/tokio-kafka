@@ -7,16 +7,16 @@ use tokio_core::reactor::Handle;
 use errors::{ErrorKind, Result};
 use compression::Compression;
 use protocol::RequiredAcks;
-use client::KafkaClient;
+use client::{KafkaClient, ToMilliseconds};
 use producer::{DefaultPartitioner, KafkaProducer, ProducerConfig};
 
 pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner> {
     config: ProducerConfig,
     client: Option<KafkaClient<'a>>,
     handle: Option<Handle>,
-    partitioner: P,
     key_serializer: Option<K>,
     value_serializer: Option<V>,
+    partitioner: Option<P>,
 }
 
 impl<'a, K, V, P> Deref for ProducerBuilder<'a, K, V, P> {
@@ -33,47 +33,43 @@ impl<'a, K, V, P> DerefMut for ProducerBuilder<'a, K, V, P> {
     }
 }
 
-impl<'a, K, V> Default for ProducerBuilder<'a, K, V> {
+impl<'a, K, V, P> Default for ProducerBuilder<'a, K, V, P> {
     fn default() -> Self {
         ProducerBuilder {
             config: ProducerConfig::default(),
             client: None,
             handle: None,
-            partitioner: DefaultPartitioner::default(),
             key_serializer: None,
             value_serializer: None,
+            partitioner: None,
         }
     }
 }
 
-impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner> {
+impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
     pub fn new() -> Self {
         ProducerBuilder::default()
     }
 
-    pub fn from_client(client: KafkaClient<'a>,
-                       config: ProducerConfig)
-                       -> ProducerBuilder<'a, K, V, DefaultPartitioner> {
+    pub fn from_client(client: KafkaClient<'a>) -> Self {
         ProducerBuilder {
             client: Some(client),
             handle: None,
-            config: config,
-            partitioner: DefaultPartitioner::default(),
+            config: ProducerConfig::default(),
             key_serializer: None,
             value_serializer: None,
+            partitioner: None,
         }
     }
 
-    pub fn from_config(config: ProducerConfig,
-                       handle: Handle)
-                       -> ProducerBuilder<'a, K, V, DefaultPartitioner> {
+    pub fn from_config(config: ProducerConfig, handle: Handle) -> Self {
         ProducerBuilder {
             client: None,
             handle: Some(handle),
             config: config,
-            partitioner: DefaultPartitioner::default(),
             key_serializer: None,
             value_serializer: None,
+            partitioner: None,
         }
     }
 
@@ -81,16 +77,6 @@ impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner> {
         where I: Iterator<Item = SocketAddr>
     {
         Self::from_config(ProducerConfig::from_hosts(hosts), handle)
-    }
-}
-
-trait ToMilliseconds {
-    fn as_millis(&self) -> u64;
-}
-
-impl ToMilliseconds for Duration {
-    fn as_millis(&self) -> u64 {
-        self.as_secs() * 1000 + self.subsec_nanos() as u64 / 1000_000
     }
 }
 
@@ -135,11 +121,6 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
         self
     }
 
-    pub fn with_partitioner(mut self, partitioner: P) -> Self {
-        self.partitioner = partitioner;
-        self
-    }
-
     pub fn with_key_serializer(mut self, key_serializer: K) -> Self {
         self.key_serializer = Some(key_serializer);
         self
@@ -149,12 +130,24 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
         self.value_serializer = Some(value_serializer);
         self
     }
+
+    pub fn with_partitioner(mut self, partitioner: P) -> Self {
+        self.partitioner = Some(partitioner);
+        self
+    }
+}
+
+impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner> {
+    pub fn with_default_partitioner(mut self) -> Self {
+        self.partitioner = Some(DefaultPartitioner::default());
+        self
+    }
 }
 
 impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
     where Self: 'static
 {
-    pub fn build(self) -> Result<KafkaProducer<'a, K, V>> {
+    pub fn build(self) -> Result<KafkaProducer<'a, K, V, P>> {
         let client = if let Some(client) = self.client {
             client
         } else if let Some(handle) = self.handle {
@@ -163,6 +156,13 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
             bail!(ErrorKind::ConfigError("missed client or handle"))
         };
 
-        Ok(KafkaProducer::from_client(client, self.config))
+        Ok(KafkaProducer::new(client,
+                              self.config,
+                              self.key_serializer
+                                  .ok_or(ErrorKind::ConfigError("missed key serializer"))?,
+                              self.value_serializer
+                                  .ok_or(ErrorKind::ConfigError("missed value serializer"))?,
+                              self.partitioner
+                                  .ok_or(ErrorKind::ConfigError("missed partitioner"))?))
     }
 }

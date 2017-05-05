@@ -1,29 +1,50 @@
 use std::mem;
 use std::hash::Hash;
+use std::time::Duration;
 use std::net::SocketAddr;
+
+use time;
 
 use futures::future;
 use tokio_core::reactor::Handle;
 
-use client::{Cluster, KafkaClient, TopicPartition};
-use producer::{DefaultPartitioner, FlushProducer, Producer, ProducerBuilder, ProducerConfig,
+use protocol::{Message, MessageSet, MessageTimestamp};
+use client::{Client, Cluster, KafkaClient, ToMilliseconds, TopicPartition};
+use producer::{FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordMetadata, SendRecord, Serializer};
 
-pub struct KafkaProducer<'a, K, V> {
+pub struct KafkaProducer<'a, K, V, P> {
     client: KafkaClient<'a>,
     config: ProducerConfig,
-    key_serializer: Option<K>,
-    value_serializer: Option<V>,
+    key_serializer: K,
+    value_serializer: V,
+    partitioner: P,
 }
 
-impl<'a, K, V> KafkaProducer<'a, K, V> {
-    pub fn from_client(client: KafkaClient<'a>, config: ProducerConfig) -> KafkaProducer<'a, K, V> {
+impl<'a, K, V, P> KafkaProducer<'a, K, V, P> {
+    pub fn new(client: KafkaClient<'a>,
+               config: ProducerConfig,
+               key_serializer: K,
+               value_serializer: V,
+               partitioner: P)
+               -> Self {
         KafkaProducer {
             client: client,
             config: config,
-            key_serializer: None,
-            value_serializer: None,
+            key_serializer: key_serializer,
+            value_serializer: value_serializer,
+            partitioner: partitioner,
         }
+    }
+
+    pub fn from_client(client: KafkaClient<'a>) -> ProducerBuilder<'a, K, V, P> {
+        ProducerBuilder::from_client(client)
+    }
+
+    pub fn from_hosts<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, P>
+        where I: Iterator<Item = SocketAddr>
+    {
+        ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
     }
 
     pub fn client(&self) -> &KafkaClient<'a> {
@@ -35,18 +56,11 @@ impl<'a, K, V> KafkaProducer<'a, K, V> {
     }
 }
 
-impl<'a, K, V> KafkaProducer<'a, K, V> {
-    pub fn from_hosts<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, DefaultPartitioner>
-        where I: Iterator<Item = SocketAddr>
-    {
-        ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
-    }
-}
-
-impl<'a, K, V> Producer<'a> for KafkaProducer<'a, K, V>
+impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     where K: Serializer,
           K::Item: Hash,
           V: Serializer,
+          P: Partitioner,
           Self: 'static
 {
     type Key = K::Item;
@@ -57,6 +71,30 @@ impl<'a, K, V> Producer<'a> for KafkaProducer<'a, K, V>
     }
 
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
+        let compression = self.config.compression;
+        let timestamp = record
+            .timestamp
+            .unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
+
+        let message_set = MessageSet {
+            messages: vec![Message {
+                               offset: 0,
+                               timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
+                               compression: compression,
+                               key: None,
+                               value: None,
+                           }],
+        };
+
+        //self.partitioner.partition(self, &mut record);
+
+        let produce =
+            self.client
+                .produce_records(self.config.acks,
+                                 Duration::from_millis(self.config.ack_timeout),
+                                 vec![(record.topic_name.to_owned(),
+                                       vec![(record.partition.unwrap_or_default(), message_set)])]);
+
         SendRecord::new(future::ok(RecordMetadata { ..unsafe { mem::zeroed() } }))
     }
 

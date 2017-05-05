@@ -1,6 +1,8 @@
 use std::time::Duration;
 use std::net::SocketAddr;
 
+use time::Timespec;
+
 pub const DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS: u64 = 5000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -46,6 +48,22 @@ impl ClientConfig {
     pub fn max_connection_idle(&self) -> Duration {
         Duration::new((self.max_connection_idle / 1000) as u64,
                       (self.max_connection_idle % 1000) as u32 * 1000_000)
+    }
+}
+
+pub trait ToMilliseconds {
+    fn as_millis(&self) -> u64;
+}
+
+impl ToMilliseconds for Duration {
+    fn as_millis(&self) -> u64 {
+        self.as_secs() * 1000 + self.subsec_nanos() as u64 / 1000_000
+    }
+}
+
+impl ToMilliseconds for Timespec {
+    fn as_millis(&self) -> u64 {
+        self.sec as u64 * 1000 + self.nsec as u64 / 1000_000
     }
 }
 
