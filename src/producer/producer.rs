@@ -50,8 +50,8 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P> {
         ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
     }
 
-    pub fn client(&self) -> &KafkaClient<'a> {
-        &self.client
+    pub fn client(&mut self) -> &mut KafkaClient<'a> {
+        &mut self.client
     }
 
     pub fn into_client(self) -> KafkaClient<'a> {

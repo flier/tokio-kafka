@@ -29,7 +29,7 @@ use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
 use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
-use tokio_kafka::{Compression, Producer, ProducerBuilder, ProducerRecord, RequiredAcks,
+use tokio_kafka::{Client, Compression, Producer, ProducerBuilder, ProducerRecord, RequiredAcks,
                   StrSerializer};
 use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
@@ -187,30 +187,38 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .with_default_partitioner()
         .build()?;
 
-    let work = FramedRead::new(io, DelimCodec(Newline))
-        .and_then(|line| {
-                      String::from_utf8(line)
-                          .map(|line| line.trim().to_owned())
-                          .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
-                  })
-        .filter(|line| !line.is_empty())
-        .for_each(|line| {
-            trace!("sending line: {}", line);
+    let work = producer
+        .client()
+        .load_metadata()
+        .map_err(Error::from)
+        .and_then(|_| {
+            FramedRead::new(io, DelimCodec(Newline))
+                .and_then(|line| {
+                              String::from_utf8(line)
+                                  .map(|line| line.trim().to_owned())
+                                  .map_err(|err| {
+                                               io::Error::new(io::ErrorKind::InvalidData, err)
+                                           })
+                          })
+                .filter(|line| !line.is_empty())
+                .for_each(|line| {
+                    trace!("sending line: {}", line);
 
-            producer
-                .send(ProducerRecord::from_value(&config.topic_name, line))
-                .map(|md| {
-                    trace!("{} # {} @ {}, ts={}, key={}, value={}",
-                           md.topic_name,
-                           md.partition,
-                           md.offset,
-                           md.timestamp,
-                           md.serialized_key_size,
-                           md.serialized_value_size)
+                    producer
+                        .send(ProducerRecord::from_value(&config.topic_name, line))
+                        .map(|md| {
+                            trace!("sent to {} #{} @{}, ts={}, key_size={}, value_size={}",
+                                   md.topic_name,
+                                   md.partition,
+                                   md.offset,
+                                   md.timestamp,
+                                   md.serialized_key_size,
+                                   md.serialized_value_size)
+                        })
+                        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
                 })
-                .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
-        })
-        .map_err(Error::from);
+                .map_err(Error::from)
+        });
 
     core.run(work)
 }
