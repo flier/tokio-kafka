@@ -6,14 +6,16 @@ use twox_hash::XxHash;
 
 use protocol::PartitionId;
 use client::{Cluster, Metadata};
-use producer::ProducerRecord;
 
 /// A partitioner is given a chance to choose/redefine a partition
 /// for a message to be sent to Kafka.
 pub trait Partitioner {
     /// Compute the partition for the given record.
     fn partition<K: Hash, V>(&self,
-                             record: &mut ProducerRecord<K, V>,
+                             topic_name: &str,
+                             partition: Option<PartitionId>,
+                             key: Option<&K>,
+                             value: Option<&V>,
                              metadata: Rc<Metadata>)
                              -> Option<PartitionId>;
 }
@@ -52,10 +54,13 @@ impl<H> Partitioner for DefaultPartitioner<H>
     where H: BuildHasher
 {
     fn partition<K: Hash, V>(&self,
-                             record: &mut ProducerRecord<K, V>,
+                             topic_name: &str,
+                             partition: Option<PartitionId>,
+                             key: Option<&K>,
+                             _value: Option<&V>,
                              metadata: Rc<Metadata>)
                              -> Option<PartitionId> {
-        if let Some(partition) = record.partition {
+        if let Some(partition) = partition {
             if partition >= 0 {
                 // If a partition is specified in the record, use it
                 return Some(partition);
@@ -63,8 +68,8 @@ impl<H> Partitioner for DefaultPartitioner<H>
         }
 
         // TODO: use available partitions for topic in cluster
-        if let Some(partitions) = metadata.partitions_for_topic(record.topic_name.clone()) {
-            let index = if let Some(ref key) = record.key {
+        if let Some(partitions) = metadata.partitions_for_topic(topic_name.to_owned()) {
+            let index = if let Some(ref key) = key {
                 // If no partition is specified but a key is present choose a partition based on a hash of the key
                 let mut hasher = self.hash_builder.build_hasher();
                 key.hash(&mut hasher);
@@ -74,11 +79,7 @@ impl<H> Partitioner for DefaultPartitioner<H>
                 self.records.fetch_add(1, Ordering::Relaxed)
             } % partitions.len();
 
-            let partition = partitions[index].partition;
-
-            record.partition = Some(partition);
-
-            Some(partition)
+            Some(partitions[index].partition)
         } else {
             None
         }
@@ -94,14 +95,14 @@ mod tests {
     fn test_skip_partitioning() {
         let metadata = Rc::new(Metadata::default());
         let partitioner = DefaultPartitioner::new();
-        let mut record = ProducerRecord::from_key_value("topic", "key", "value");
-
-        assert_eq!(record.partition, None);
 
         // partition without topics
-        partitioner.partition(&mut record, metadata);
-
-        assert_eq!(record.partition, None);
+        assert_eq!(partitioner.partition("topic",
+                                         None,
+                                         Some("key").as_ref(),
+                                         Some("value").as_ref(),
+                                         metadata),
+                   None);
     }
 
     #[test]
@@ -117,19 +118,22 @@ mod tests {
         let metadata = Rc::new(Metadata::with_topics(vec![("topic".to_owned(), partitions)]));
 
         let partitioner = DefaultPartitioner::new();
-        let mut record = ProducerRecord::from_key_value("topic", "key", "value");
 
         // partition with key
-        partitioner.partition(&mut record, metadata.clone());
-
-        assert_eq!(record.partition, Some(2));
+        assert_eq!(partitioner.partition("topic",
+                                         None,
+                                         Some("key").as_ref(),
+                                         Some("value").as_ref(),
+                                         metadata.clone()),
+                   Some(2));
 
         // partition without key
-        record.key = None;
-
         for id in 0..100 {
-            record.partition = None;
-            assert_eq!(partitioner.partition(&mut record, metadata.clone()),
+            assert_eq!(partitioner.partition::<(), &str>("topic",
+                                                         None,
+                                                         None,
+                                                         Some("value").as_ref(),
+                                                         metadata.clone()),
                        Some(id % 3));
         }
 

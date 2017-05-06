@@ -25,7 +25,7 @@ use futures::future::{self, Future};
 use tokio_core::reactor::Core;
 
 use tokio_kafka::{Compression, Producer, ProducerBuilder, ProducerRecord, RequiredAcks,
-                  StringSerializer};
+                  StrSerializer};
 use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
@@ -162,7 +162,7 @@ fn produce<I: Iterator<Item = io::Result<String>>>(config: &Config, lines: I) {
         .with_batch_size(config.batch_size)
         .with_ack_timeout(config.ack_timeout)
         .without_key_serializer()
-        .with_value_serializer(StringSerializer::default())
+        .with_value_serializer(StrSerializer::default())
         .with_default_partitioner()
         .build()
         .unwrap();

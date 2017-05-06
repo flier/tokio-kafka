@@ -13,7 +13,7 @@ pub trait Serializer {
 
     fn serialize<B: BufMut>(&self,
                             topic: &str,
-                            data: Self::Item,
+                            data: &Self::Item,
                             buf: &mut B)
                             -> result::Result<(), Error>;
 }
@@ -27,36 +27,24 @@ impl<T> Serializer for NoopSerializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn serialize<B: BufMut>(&self, _topic: &str, _data: T, _buf: &mut B) -> Result<()> {
+    fn serialize<B: BufMut>(&self, _topic: &str, _data: &Self::Item, _buf: &mut B) -> Result<()> {
         Ok(())
     }
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct StrSerializer<'a> {
-    phantom: PhantomData<&'a u8>,
+pub struct StrSerializer<T> {
+    phantom: PhantomData<T>,
 }
 
-impl<'a> Serializer for StrSerializer<'a> {
-    type Item = &'a str;
+impl<T> Serializer for StrSerializer<T>
+    where T: AsRef<str>
+{
+    type Item = T;
     type Error = Error;
 
-    fn serialize<B: BufMut>(&self, _topic: &str, data: Self::Item, buf: &mut B) -> Result<()> {
-        buf.put_slice(data.as_bytes());
-
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct StringSerializer {}
-
-impl Serializer for StringSerializer {
-    type Item = String;
-    type Error = Error;
-
-    fn serialize<B: BufMut>(&self, _topic: &str, data: Self::Item, buf: &mut B) -> Result<()> {
-        buf.put_slice(data.as_bytes());
+    fn serialize<B: BufMut>(&self, _topic: &str, data: &Self::Item, buf: &mut B) -> Result<()> {
+        buf.put_slice(data.as_ref().as_bytes());
 
         Ok(())
     }
@@ -77,12 +65,12 @@ impl<B> ByteWriter for BufWriter<B>
 }
 
 #[derive(Clone, Debug)]
-pub struct StrEncodingSerializer<'a, E> {
+pub struct StrEncodingSerializer<E, T> {
     encoding: E,
-    phantom: PhantomData<&'a u8>,
+    phantom: PhantomData<T>,
 }
 
-impl<'a, E> StrEncodingSerializer<'a, E>
+impl<E, T> StrEncodingSerializer<E, T>
     where E: Encoding
 {
     pub fn new(encoding: E) -> Self {
@@ -93,46 +81,18 @@ impl<'a, E> StrEncodingSerializer<'a, E>
     }
 }
 
-impl<'a, E> Serializer for StrEncodingSerializer<'a, E>
-    where E: Encoding
+impl<E, T> Serializer for StrEncodingSerializer<E, T>
+    where E: Encoding,
+          T: AsRef<str>
 {
-    type Item = &'a str;
+    type Item = T;
     type Error = Error;
 
-    fn serialize<B: BufMut>(&self, _topic: &str, data: Self::Item, buf: &mut B) -> Result<()> {
+    fn serialize<B: BufMut>(&self, _topic: &str, data: &Self::Item, buf: &mut B) -> Result<()> {
         let mut w = BufWriter(buf);
 
         self.encoding
-            .encode_to(data, EncoderTrap::Strict, &mut w)?;
-
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct StringEncodingSerializer<E> {
-    encoding: E,
-}
-
-impl<E> StringEncodingSerializer<E>
-    where E: Encoding
-{
-    pub fn new(encoding: E) -> Self {
-        StringEncodingSerializer { encoding: encoding }
-    }
-}
-
-impl<E> Serializer for StringEncodingSerializer<E>
-    where E: Encoding
-{
-    type Item = String;
-    type Error = Error;
-
-    fn serialize<B: BufMut>(&self, _topic: &str, data: Self::Item, buf: &mut B) -> Result<()> {
-        let mut w = BufWriter(buf);
-
-        self.encoding
-            .encode_to(&data, EncoderTrap::Strict, &mut w)?;
+            .encode_to(data.as_ref(), EncoderTrap::Strict, &mut w)?;
 
         Ok(())
     }

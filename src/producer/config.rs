@@ -1,3 +1,4 @@
+use std::time::Duration;
 use std::ops::{Deref, DerefMut};
 use std::net::SocketAddr;
 
@@ -76,6 +77,10 @@ impl ProducerConfig {
             client: ClientConfig::from_hosts(hosts),
             ..Default::default()
         }
+    }
+
+    pub fn ack_timeout(&self) -> Duration {
+        Duration::from_millis(self.ack_timeout)
     }
 }
 

@@ -18,9 +18,23 @@ pub struct ProducerRecord<K, V>
     /// The key (or `None` if no key is specified)
     pub key: Option<K>,
     /// The value
-    pub value: V,
+    pub value: Option<V>,
     /// The timestamp
     pub timestamp: Option<Timestamp>,
+}
+
+impl<K> ProducerRecord<K, ()>
+    where K: Hash
+{
+    pub fn from_key<S: AsRef<str>>(topic_name: S, key: K) -> Self {
+        ProducerRecord {
+            topic_name: topic_name.as_ref().to_owned(),
+            partition: None,
+            key: Some(key),
+            value: None,
+            timestamp: None,
+        }
+    }
 }
 
 impl<V> ProducerRecord<(), V> {
@@ -29,7 +43,7 @@ impl<V> ProducerRecord<(), V> {
             topic_name: topic_name.as_ref().to_owned(),
             partition: None,
             key: None,
-            value: value,
+            value: Some(value),
             timestamp: None,
         }
     }
@@ -43,7 +57,7 @@ impl<K, V> ProducerRecord<K, V>
             topic_name: topic_name.as_ref().to_owned(),
             partition: None,
             key: Some(key),
-            value: value,
+            value: Some(value),
             timestamp: None,
         }
     }

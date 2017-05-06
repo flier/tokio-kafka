@@ -1,14 +1,16 @@
-use std::mem;
 use std::hash::Hash;
-use std::time::Duration;
 use std::net::SocketAddr;
 
 use time;
 
-use futures::future;
+use bytes::Bytes;
+use bytes::buf::FromBuf;
+
+use futures::{Future, future};
 use tokio_core::reactor::Handle;
 
-use protocol::{Message, MessageSet, MessageTimestamp};
+use errors::ErrorKind;
+use protocol::{KafkaCode, Message, MessageSet, MessageTimestamp};
 use client::{Client, Cluster, KafkaClient, ToMilliseconds, TopicPartition};
 use producer::{FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordMetadata, SendRecord, Serializer};
@@ -70,33 +72,87 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         self.client.metadata().partitions_for_topic(toipc_name)
     }
 
-    fn send(&mut self, mut record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
-        let compression = self.config.compression;
-        let timestamp = record
-            .timestamp
-            .unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
+    fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
+        let ProducerRecord {
+            topic_name,
+            partition,
+            key,
+            value,
+            timestamp,
+        } = record;
+
+        let partition = self.partitioner
+            .partition(&topic_name,
+                       partition,
+                       key.as_ref(),
+                       value.as_ref(),
+                       self.client.metadata())
+            .unwrap_or_default();
+
+        let key = key.map(|ref key| {
+                              let mut buf = Vec::with_capacity(16);
+                              let _ = self.key_serializer
+                                  .serialize(&topic_name, key, &mut buf)
+                                  .map_err(|err| warn!("fail to serialize key, {}", err));
+                              Bytes::from_buf(buf)
+                          });
+        let serialized_key_size = key.as_ref().map_or(0, |bytes| bytes.len());
+
+        let value = value.map(|ref value| {
+            let mut buf = Vec::with_capacity(16);
+            let _ = self.value_serializer
+                .serialize(&topic_name, value, &mut buf)
+                .map_err(|err| warn!("fail to serialize value, {}", err));
+            Bytes::from_buf(buf)
+        });
+
+        let serialized_value_size = value.as_ref().map_or(0, |bytes| bytes.len());
+
+        let timestamp =
+            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
         let message_set = MessageSet {
             messages: vec![Message {
                                offset: 0,
                                timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
-                               compression: compression,
-                               key: None,
-                               value: None,
+                               compression: self.config.compression,
+                               key: key,
+                               value: value,
                            }],
         };
 
-        self.partitioner
-            .partition(&mut record, self.client.metadata());
+        let produce = self.client
+            .produce_records(self.config.acks,
+                             self.config.ack_timeout(),
+                             vec![(topic_name.clone(), vec![(partition, message_set)])])
+            .and_then(move |responses| if let Some(partitions) = responses.get(&topic_name) {
+                          let result =
+                              partitions
+                                  .iter()
+                                  .find(|&&(partition_id, _, _)| partition_id == partition);
 
-        let produce =
-            self.client
-                .produce_records(self.config.acks,
-                                 Duration::from_millis(self.config.ack_timeout),
-                                 vec![(record.topic_name.to_owned(),
-                                       vec![(record.partition.unwrap_or_default(), message_set)])]);
+                          if let Some(&(partition_id, error_code, offset)) = result {
+                              if error_code == KafkaCode::None as i16 {
+                                  future::ok(RecordMetadata {
+                                                 topic_name: topic_name,
+                                                 partition: partition_id,
+                                                 offset: offset,
+                                                 timestamp: timestamp,
+                                                 serialized_key_size: serialized_key_size,
+                                                 serialized_value_size: serialized_value_size,
+                                             })
+                              } else {
+                                  future::err(ErrorKind::KafkaError(KafkaCode::from(error_code))
+                                                  .into())
+                              }
+                          } else {
+                              future::err("no response for partition".into())
+                          }
+                      } else {
+                          future::err("no response for topic".into())
+                      });
 
-        SendRecord::new(future::ok(RecordMetadata { ..unsafe { mem::zeroed() } }))
+        SendRecord::new(produce)
     }
 
     fn flush(&mut self) -> FlushProducer {
@@ -121,7 +177,7 @@ pub mod mock {
         where K: Hash
     {
         pub topics: HashMap<String, Vec<(String, PartitionId)>>,
-        pub records: Vec<(Option<K>, V)>,
+        pub records: Vec<(Option<K>, Option<V>)>,
     }
 
     impl<'a, K, V> Producer<'a> for MockProducer<K, V>

@@ -21,7 +21,7 @@ use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
 
-use errors::{Error, ErrorKind, Result};
+use errors::{Error, ErrorKind};
 use network::{ConnectionId, KafkaConnection, KafkaConnector, Pool, Pooled};
 use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet, Offset,
                PartitionId, RequiredAcks};
@@ -236,11 +236,8 @@ impl<'a> Client for KafkaClient<'a>
                      topic
                          .partitions
                          .iter()
-                         .map(|partition| if partition.error_code ==
-                                             KafkaCode::None as ErrorCode {
-                                  Ok((partition.partition, partition.offset))
-                              } else {
-                                  Err(ErrorKind::KafkaError(partition.error_code.into()).into())
+                         .map(|partition| {
+                                  (partition.partition, partition.error_code, partition.offset)
                               })
                          .collect())
                 })
@@ -424,7 +421,7 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
 }
 
 pub type SendRequest = StaticBoxFuture;
-pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<Result<(PartitionId, Offset)>>>>;
+pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
