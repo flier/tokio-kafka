@@ -79,8 +79,15 @@ impl<H> Partitioner for DefaultPartitioner<H>
                 self.records.fetch_add(1, Ordering::Relaxed)
             } % partitions.len();
 
+            trace!("send record to partition #{} base on {}",
+                   index,
+                   key.map_or("round-robin", |_| "hash-key"));
+
             Some(partitions[index].partition)
         } else {
+            warn!("missed partitions info for topic `{}`, fallback to partition #0",
+                  topic_name);
+
             None
         }
     }
