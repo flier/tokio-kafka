@@ -19,6 +19,11 @@ pub enum KafkaRequest<'a> {
     ApiVersions(ApiVersionsRequest<'a>),
 }
 
+pub struct BatchRecord {
+    pub topic_name: String,
+    pub message_sets: Vec<(PartitionId, MessageSet)>,
+}
+
 impl<'a> KafkaRequest<'a> {
     pub fn header(&self) -> &RequestHeader {
         match self {
@@ -35,7 +40,7 @@ impl<'a> KafkaRequest<'a> {
                            client_id: Option<Cow<'a, str>>,
                            required_acks: RequiredAcks,
                            timeout: Duration,
-                           records: Vec<(String, Vec<(PartitionId, MessageSet)>)>)
+                           batches: Vec<BatchRecord>)
                            -> KafkaRequest<'a> {
         let request = ProduceRequest {
             header: RequestHeader {
@@ -46,12 +51,13 @@ impl<'a> KafkaRequest<'a> {
             },
             required_acks: required_acks as RequiredAck,
             timeout: timeout.as_secs() as i32 * 1000 + timeout.subsec_nanos() as i32 / 1000_000,
-            topics: records
+            topics: batches
                 .into_iter()
-                .map(|(topic_name, partitions)| {
+                .map(|batch| {
                     ProduceTopic {
-                        topic_name: topic_name.into(),
-                        partitions: partitions
+                        topic_name: batch.topic_name.into(),
+                        partitions: batch
+                            .message_sets
                             .into_iter()
                             .map(|(partition, message_set)| {
                                      ProducePartition {

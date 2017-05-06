@@ -12,6 +12,7 @@ use tokio_core::reactor::Handle;
 
 use errors::ErrorKind;
 use protocol::{KafkaCode, Message, MessageSet, MessageTimestamp};
+use network::BatchRecord;
 use client::{Client, Cluster, KafkaClient, ToMilliseconds, TopicPartition};
 use producer::{FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordMetadata, SendRecord, Serializer};
@@ -125,10 +126,13 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                            }],
         };
 
+        let batch = BatchRecord {
+            topic_name: topic_name.clone(),
+            message_sets: vec![(partition, message_set)],
+        };
+
         let produce = self.client
-            .produce_records(self.config.acks,
-                             self.config.ack_timeout(),
-                             vec![(topic_name.clone(), vec![(partition, message_set)])])
+            .produce_records(self.config.acks, self.config.ack_timeout(), vec![batch])
             .and_then(move |responses| if let Some(partitions) = responses.get(&topic_name) {
                           let result =
                               partitions

@@ -23,9 +23,9 @@ use tokio_service::Service;
 
 use errors::{Error, ErrorKind};
 use network::{ConnectionId, KafkaConnection, KafkaConnector, Pool, Pooled};
-use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet, Offset,
-               PartitionId, RequiredAcks};
-use network::{KafkaCodec, KafkaRequest, KafkaResponse};
+use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId,
+               RequiredAcks};
+use network::{BatchRecord, KafkaCodec, KafkaRequest, KafkaResponse};
 use client::{ClientConfig, Cluster, Metadata};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
@@ -39,7 +39,7 @@ pub trait Client: 'static {
     fn produce_records(&self,
                        acks: RequiredAcks,
                        timeout: Duration,
-                       records: Vec<(String, Vec<(PartitionId, MessageSet)>)>)
+                       records: Vec<BatchRecord>)
                        -> ProduceRecords;
 
     fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
@@ -217,7 +217,7 @@ impl<'a> Client for KafkaClient<'a>
     fn produce_records(&self,
                        required_acks: RequiredAcks,
                        timeout: Duration,
-                       records: Vec<(String, Vec<(PartitionId, MessageSet)>)>)
+                       records: Vec<BatchRecord>)
                        -> ProduceRecords {
         let api_version = 0;
         let correlation_id = self.state.borrow_mut().next_correlation_id();
