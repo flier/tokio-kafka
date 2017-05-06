@@ -29,6 +29,8 @@ extern crate tokio_timer;
 extern crate tokio_tls;
 extern crate native_tls;
 
+extern crate tokio_file_unix;
+
 #[cfg(test)]
 extern crate pretty_env_logger;
 

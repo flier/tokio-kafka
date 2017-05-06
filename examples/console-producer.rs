@@ -7,10 +7,12 @@ extern crate getopts;
 
 extern crate futures;
 extern crate tokio_core;
+extern crate tokio_io;
+extern crate tokio_file_unix;
+
 extern crate tokio_kafka;
 
 use std::io;
-use std::io::{BufRead, BufReader};
 use std::fs;
 use std::str;
 use std::env;
@@ -21,8 +23,11 @@ use std::net::ToSocketAddrs;
 
 use getopts::Options;
 
-use futures::future::{self, Future};
+use futures::{Future, Stream};
 use tokio_core::reactor::Core;
+use tokio_io::AsyncRead;
+use tokio_io::codec::FramedRead;
+use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
 use tokio_kafka::{Compression, Producer, ProducerBuilder, ProducerRecord, RequiredAcks,
                   StrSerializer};
@@ -36,9 +41,13 @@ error_chain!{
         KafkaError(tokio_kafka::Error, tokio_kafka::ErrorKind);
     }
     foreign_links {
+        IoError(::std::io::Error);
+        Utf8Error(::std::string::FromUtf8Error);
         ArgError(::getopts::Fail);
     }
 }
+
+unsafe impl Sync for Error {}
 
 #[derive(Clone, Debug)]
 struct Config {
@@ -127,33 +136,45 @@ fn main() {
 
     debug!("parsed config: {:?}", config);
 
-    match config.input_file {
+    run(config).unwrap();
+}
+
+fn run(config: Config) -> Result<()> {
+    let core = Core::new()?;
+
+    debug!("produce messages to {:?}", config.brokers);
+
+    let handle = core.handle();
+
+    let input_file = config.input_file.clone();
+
+    match input_file {
         Some(ref filename) => {
             debug!("reading lines from file: {}", filename);
 
-            let reader = BufReader::new(fs::File::open(filename).unwrap());
+            let file = fs::File::open(filename)?;
+            let io = File::new_nb(file)?.into_io(&handle)?;
 
-            produce(&config, reader.lines());
+            produce(config, core, io)
         }
         _ => {
             debug!("reading lines from STDIN");
 
             let stdin = io::stdin();
-            let reader = stdin.lock();
+            let io = File::new_nb(StdFile(stdin.lock()))?.into_io(&handle)?;
 
-            produce(&config, reader.lines());
+            produce(config, core, io)
         }
     }
 }
 
-fn produce<I: Iterator<Item = io::Result<String>>>(config: &Config, lines: I) {
-    debug!("produce messages to {:?}", config.brokers);
-
+fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
+    where I: AsyncRead
+{
     let hosts = config
         .brokers
         .iter()
         .flat_map(|s| s.to_socket_addrs().unwrap());
-    let mut core = Core::new().unwrap();
 
     let mut producer = ProducerBuilder::from_hosts(hosts, core.handle())
         .with_max_connection_idle(config.idle_timeout)
@@ -162,29 +183,34 @@ fn produce<I: Iterator<Item = io::Result<String>>>(config: &Config, lines: I) {
         .with_batch_size(config.batch_size)
         .with_ack_timeout(config.ack_timeout)
         .without_key_serializer()
-        .with_value_serializer(StrSerializer::default())
+        .with_value_serializer(StrSerializer::<String>::default())
         .with_default_partitioner()
-        .build()
-        .unwrap();
+        .build()?;
 
-    let work = future::join_all(lines
-                                    .map(|line| line.unwrap().trim().to_owned())
-                                    .filter(|line| !line.is_empty())
-                                    .map(|line| {
-        trace!("sending line: {}", line);
+    let work = FramedRead::new(io, DelimCodec(Newline))
+        .and_then(|line| {
+                      String::from_utf8(line)
+                          .map(|line| line.trim().to_owned())
+                          .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+                  })
+        .filter(|line| !line.is_empty())
+        .for_each(|line| {
+            trace!("sending line: {}", line);
 
-        producer
-            .send(ProducerRecord::from_value(&config.topic_name, line))
-            .map(|md| {
-                trace!("{} # {} @ {}, ts={}, key={}, value={}",
-                       md.topic_name,
-                       md.partition,
-                       md.offset,
-                       md.timestamp,
-                       md.serialized_key_size,
-                       md.serialized_value_size)
-            })
-    }));
+            producer
+                .send(ProducerRecord::from_value(&config.topic_name, line))
+                .map(|md| {
+                    trace!("{} # {} @ {}, ts={}, key={}, value={}",
+                           md.topic_name,
+                           md.partition,
+                           md.offset,
+                           md.timestamp,
+                           md.serialized_key_size,
+                           md.serialized_value_size)
+                })
+                .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+        })
+        .map_err(Error::from);
 
-    core.run(work).unwrap();
+    core.run(work)
 }

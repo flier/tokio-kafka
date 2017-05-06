@@ -27,6 +27,7 @@ tokio-service = "0.1"
 tokio-timer = "0.1"
 tokio-tls = { version = "0.1", features = ["tokio-proto"] }
 native-tls = "0.1"
+tokio-file-unix = "0.4"
 
 [dev-dependencies]
 pretty_env_logger = "0.1"

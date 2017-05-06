@@ -22,6 +22,8 @@ error_chain!{
     }
 }
 
+unsafe impl Sync for Error {}
+
 impl<T> From<::std::sync::PoisonError<T>> for Error {
     fn from(_: ::std::sync::PoisonError<T>) -> Self {
         ErrorKind::LockError.into()
