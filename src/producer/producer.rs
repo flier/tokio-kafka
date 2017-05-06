@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
 
@@ -60,8 +61,9 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P> {
 
 impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     where K: Serializer,
-          K::Item: Hash,
+          K::Item: Debug + Hash,
           V: Serializer,
+          V::Item: Debug,
           P: Partitioner,
           Self: 'static
 {
@@ -73,6 +75,8 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     }
 
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
+        trace!("sending {:?}", record);
+
         let ProducerRecord {
             topic_name,
             partition,

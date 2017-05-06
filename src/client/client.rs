@@ -136,6 +136,8 @@ impl<'a> KafkaClient<'a>
     }
 
     fn send_request(&self, addr: &SocketAddr, request: KafkaRequest<'a>) -> FutureResponse {
+        trace!("sending request to {}, {:?}", addr, request);
+
         let checkout = self.pool.checkout(addr);
         let connect = {
             let handle = self.handle.clone();
