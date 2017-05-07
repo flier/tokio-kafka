@@ -92,7 +92,10 @@ impl MessageSetEncoder {
     pub fn encode<T: ByteOrder>(&self, message_set: MessageSet, buf: &mut BytesMut) -> Result<()> {
         let mut offset: Offset = 0;
 
-        buf.put_array::<T, _, _>(message_set.messages, move |buf, message| {
+        let size_off = buf.len();
+        buf.put_i32::<T>(0);
+
+        for message in message_set.messages {
             let offset = if message.compression == Compression::None {
                 message.offset
             } else {
@@ -100,8 +103,14 @@ impl MessageSetEncoder {
                 offset - 1
             };
 
-            self.encode_message::<T>(message, offset, buf)
-        })
+            self.encode_message::<T>(message, offset, buf)?;
+        }
+
+        let message_set_size = buf.len() - size_off - mem::size_of::<i32>();
+
+        T::write_i32(&mut buf[size_off..], message_set_size as i32);
+
+        Ok(())
     }
 
     fn encode_message<T: ByteOrder>(&self,
