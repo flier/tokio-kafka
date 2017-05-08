@@ -16,6 +16,7 @@ error_chain!{
         ParseError(reason: String)
         CodecError(reason: &'static str)
         UnsupportedApiKey(key: ApiKeys)
+        IllegalArgument(reason: String)
         InvalidResponse
         KafkaError(code: KafkaCode)
         OtherError

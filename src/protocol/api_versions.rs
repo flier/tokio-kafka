@@ -23,12 +23,12 @@ pub struct ApiVersionsResponse {
     /// Error code.
     pub error_code: ErrorCode,
     /// API versions supported by the broker.
-    pub api_versions: Vec<SupportedApiVersion>,
+    pub api_versions: Vec<UsableApiVersion>,
 }
 
 /// API versions supported by the broker.
 #[derive(Clone, Debug, PartialEq)]
-pub struct SupportedApiVersion {
+pub struct UsableApiVersion {
     /// API key.
     pub api_key: ApiKey,
     /// Minimum supported version.
@@ -38,10 +38,10 @@ pub struct SupportedApiVersion {
 }
 
 #[derive(Clone, Debug)]
-pub struct SupportedApiVersions(Vec<SupportedApiVersion>);
+pub struct UsableApiVersions(Vec<UsableApiVersion>);
 
-impl SupportedApiVersions {
-    pub fn find(&self, api_key: ApiKeys) -> Option<&SupportedApiVersion> {
+impl UsableApiVersions {
+    pub fn find(&self, api_key: ApiKeys) -> Option<&UsableApiVersion> {
         self.0.iter().find(|v| v.api_key == api_key as ApiKey)
     }
 }
@@ -61,13 +61,13 @@ named!(pub parse_api_versions_response<ApiVersionsResponse>,
     )
 );
 
-named!(parse_api_version<SupportedApiVersion>,
+named!(parse_api_version<UsableApiVersion>,
     parse_tag!(ParseTag::ApiVersion,
         do_parse!(
             api_key: be_i16
          >> min_version: be_i16
          >> max_version: be_i16
-         >> (SupportedApiVersion {
+         >> (UsableApiVersion {
                 api_key: api_key,
                 min_version: min_version,
                 max_version: max_version,
@@ -110,7 +110,7 @@ mod tests {
         static ref TEST_RESPONSE: ApiVersionsResponse = ApiVersionsResponse {
             header: ResponseHeader { correlation_id: 123 },
             error_code: 0,
-            api_versions: vec![SupportedApiVersion {
+            api_versions: vec![UsableApiVersion {
                 api_key: 1,
                 min_version: 2,
                 max_version: 3,

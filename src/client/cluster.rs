@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use protocol::{NodeId, PartitionId, SupportedApiVersions};
+use protocol::{NodeId, PartitionId, UsableApiVersions};
 
 /// A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
 pub trait Cluster {
@@ -45,7 +45,7 @@ pub struct Broker {
     port: u16,
 
     /// The version ranges of requests supported by the broker.
-    api_versions: Option<SupportedApiVersions>,
+    api_versions: Option<UsableApiVersions>,
 }
 
 impl Broker {
@@ -77,7 +77,7 @@ impl Broker {
         (&self.host, self.port)
     }
 
-    pub fn api_versions(&self) -> Option<&SupportedApiVersions> {
+    pub fn api_versions(&self) -> Option<&UsableApiVersions> {
         self.api_versions.as_ref()
     }
 }

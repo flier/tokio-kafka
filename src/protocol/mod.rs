@@ -15,8 +15,8 @@ mod fetch;
 mod list_offset;
 mod api_versions;
 
-pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, SupportedApiVersion,
-                             SupportedApiVersions, parse_api_versions_response};
+pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
+                             UsableApiVersions, parse_api_versions_response};
 pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic,
                       parse_fetch_response};
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};

@@ -7,7 +7,7 @@ use futures::future;
 
 use errors::Result;
 use compression::Compression;
-use protocol::{MessageSetBuilder, Timestamp};
+use protocol::{ApiVersion, MessageSetBuilder, Timestamp, UsableApiVersion};
 use client::{StaticBoxFuture, TopicPartition};
 use producer::RecordMetadata;
 
@@ -23,6 +23,8 @@ pub trait Accumulator<'a> {
 
 /// RecordAccumulator acts as a queue that accumulates records into ProducerRecord instances to be sent to the server.
 pub struct RecordAccumulator<'a> {
+    /// Request API versions for current connected brokers
+    api_version: UsableApiVersion,
     /// The size to use when allocating ProducerRecord instances
     batch_size: usize,
     /// The maximum memory the record accumulator can use.
@@ -62,7 +64,9 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
             }
         }
 
-        let mut batch = ProducerBatch::new();
+        let mut batch = ProducerBatch::new(self.api_version.max_version,
+                                           self.compression,
+                                           self.batch_size);
 
         let result = batch.try_push_record(timestamp, key, value);
 
@@ -85,9 +89,9 @@ pub struct ProducerBatch {
 }
 
 impl ProducerBatch {
-    pub fn new() -> Self {
+    pub fn new(api_version: ApiVersion, compression: Compression, write_limit: usize) -> Self {
         ProducerBatch {
-            builder: MessageSetBuilder::new(),
+            builder: MessageSetBuilder::new(api_version, compression, write_limit, 0),
             thunks: vec![],
         }
     }
@@ -97,6 +101,8 @@ impl ProducerBatch {
                            key: Option<Bytes>,
                            value: Option<Bytes>)
                            -> Result<PushRecord> {
+        self.builder.push(timestamp, key, value)?;
+
         Ok(PushRecord::new(future::ok(RecordMetadata::default())))
     }
 }

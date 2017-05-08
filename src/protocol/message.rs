@@ -8,7 +8,7 @@ use time;
 
 use crc::crc32;
 
-use errors::Result;
+use errors::{ErrorKind, Result};
 use compression::Compression;
 use protocol::{ApiVersion, Offset, ParseTag, Timestamp, WriteExt, parse_opt_bytes};
 
@@ -196,10 +196,84 @@ named_args!(parse_message(api_version: ApiVersion)<Message>,
     )
 );
 
-pub struct MessageSetBuilder {}
+/// This class is used to write new log data in memory, i.e.
+pub struct MessageSetBuilder {
+    api_version: ApiVersion,
+    compression: Compression,
+    write_limit: usize,
+    base_offset: Offset,
+    last_offset: Option<Offset>,
+    base_timestamp: Option<Timestamp>,
+    message_set: MessageSet,
+}
 
 impl MessageSetBuilder {
-    pub fn new() -> Self {
-        MessageSetBuilder {}
+    pub fn new(api_version: ApiVersion,
+               compression: Compression,
+               write_limit: usize,
+               base_offset: Offset)
+               -> Self {
+        MessageSetBuilder {
+            api_version: api_version,
+            compression: compression,
+            write_limit: write_limit,
+            base_offset: base_offset,
+            last_offset: None,
+            base_timestamp: None,
+            message_set: MessageSet { messages: vec![] },
+        }
+    }
+
+    pub fn build(self) -> MessageSet {
+        self.message_set
+    }
+
+    pub fn next_offset(&self) -> Offset {
+        self.last_offset.map_or(self.base_offset, |off| off + 1)
+    }
+
+    pub fn push(&mut self,
+                timestamp: Timestamp,
+                key: Option<Bytes>,
+                value: Option<Bytes>)
+                -> Result<()> {
+        let offset = self.next_offset();
+
+        self.push_with_offset(offset, timestamp, key, value)
+    }
+
+    pub fn push_with_offset(&mut self,
+                            offset: Offset,
+                            timestamp: Timestamp,
+                            key: Option<Bytes>,
+                            value: Option<Bytes>)
+                            -> Result<()> {
+        if let Some(last_offset) = self.last_offset {
+            if offset <= last_offset {
+                bail!(ErrorKind::IllegalArgument(format!("Illegal offset {} following previous offset {}.", offset, last_offset)))
+            }
+        }
+
+        if timestamp < 0 {
+            bail!(ErrorKind::IllegalArgument(format!("Invalid negative timestamp: {}", timestamp)))
+        }
+
+        self.message_set
+            .messages
+            .push(Message {
+                      offset: offset - self.base_offset,
+                      timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
+                      compression: self.compression,
+                      key: key,
+                      value: value,
+                  });
+
+        self.last_offset = Some(offset);
+
+        if self.base_timestamp.is_none() {
+            self.base_timestamp = Some(timestamp);
+        }
+
+        Ok(())
     }
 }
