@@ -1,1 +1,4 @@
 reorder_imported_names = true
+normalize_comments = true
+wrap_comments = true
+comment_width = 120
