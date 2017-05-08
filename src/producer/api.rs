@@ -1,7 +1,7 @@
 use std::hash::Hash;
 
 use protocol::{Offset, PartitionId, Timestamp};
-use client::{StaticBoxFuture, TopicPartition};
+use client::StaticBoxFuture;
 
 /// A key/value pair to be sent to Kafka.
 ///
@@ -93,9 +93,6 @@ pub struct RecordMetadata {
 pub trait Producer<'a> {
     type Key: Hash;
     type Value;
-
-    /// Get a list of partitions for the given topic for custom partition assignment.
-    fn partitions_for(&self, topic_name: String) -> Option<Vec<TopicPartition>>;
 
     /// Send the given record asynchronously and
     /// return a future which will eventually contain the response information.

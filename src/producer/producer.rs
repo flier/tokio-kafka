@@ -13,7 +13,7 @@ use tokio_core::reactor::Handle;
 use errors::ErrorKind;
 use protocol::{KafkaCode, Message, MessageSet, MessageTimestamp};
 use network::BatchRecord;
-use client::{Client, Cluster, KafkaClient, ToMilliseconds, TopicPartition};
+use client::{Client, KafkaClient, ToMilliseconds};
 use producer::{FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordMetadata, SendRecord, Serializer};
 
@@ -70,10 +70,6 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
 {
     type Key = K::Item;
     type Value = V::Item;
-
-    fn partitions_for(&self, toipc_name: String) -> Option<Vec<TopicPartition>> {
-        self.client.metadata().partitions_for_topic(toipc_name)
-    }
 
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
         trace!("sending {:?}", record);
@@ -172,19 +168,15 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
 pub mod mock {
     use std::mem;
     use std::hash::Hash;
-    use std::collections::HashMap;
 
     use futures::future;
 
-    use client::TopicPartition;
-    use protocol::PartitionId;
     use producer::{FlushProducer, Producer, ProducerRecord, RecordMetadata, SendRecord};
 
     #[derive(Debug, Default)]
     pub struct MockProducer<K, V>
         where K: Hash
     {
-        pub topics: HashMap<String, Vec<(String, PartitionId)>>,
         pub records: Vec<(Option<K>, Option<V>)>,
     }
 
@@ -194,22 +186,6 @@ pub mod mock {
     {
         type Key = K;
         type Value = V;
-
-        fn partitions_for(&self, topic_name: String) -> Option<Vec<TopicPartition>> {
-            self.topics
-                .get(&topic_name)
-                .map(move |partitions| {
-                    partitions
-                        .iter()
-                        .map(|&(_, partition)| {
-                                 TopicPartition {
-                                     topic_name: topic_name.clone(),
-                                     partition: partition,
-                                 }
-                             })
-                        .collect()
-                })
-        }
 
         fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
             self.records.push((record.key, record.value));

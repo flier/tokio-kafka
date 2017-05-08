@@ -1,5 +1,5 @@
 use std::slice;
-use std::borrow::Cow;
+use std::borrow::{Borrow, Cow};
 use std::collections::hash_map::HashMap;
 use std::iter::FromIterator;
 
@@ -86,7 +86,7 @@ impl Cluster for Metadata {
     fn find_partition(&self, tp: &TopicPartition) -> Option<&PartitionInfo> {
         self.topic_partitions
             .iter()
-            .find(|&(topic_name, _)| topic_name.as_str() == tp.topic_name.to_owned())
+            .find(|&(topic_name, _)| topic_name.as_str() == tp.topic_name)
             .and_then(|(_, partitions)| {
                           partitions
                               .iter()
@@ -95,7 +95,7 @@ impl Cluster for Metadata {
                       })
     }
 
-    fn partitions_for_topic(&self, topic_name: String) -> Option<Vec<TopicPartition>> {
+    fn partitions_for_topic<'a>(&'a self, topic_name: String) -> Option<Vec<TopicPartition<'a>>> {
         self.topic_partitions
             .iter()
             .find(|&(topic, _)| topic.as_str() == topic_name)
@@ -104,7 +104,7 @@ impl Cluster for Metadata {
                     .iter()
                     .map(|(id, _)| {
                              TopicPartition {
-                                 topic_name: topic_name.clone(),
+                                 topic_name: topic_name.as_str().into(),
                                  partition: id,
                              }
                          })
@@ -112,7 +112,7 @@ impl Cluster for Metadata {
             })
     }
 
-    fn partitions_for_broker(&self, leader: BrokerRef) -> Vec<TopicPartition> {
+    fn partitions_for_broker<'a>(&'a self, leader: BrokerRef) -> Vec<TopicPartition<'a>> {
         self.topic_partitions
             .iter()
             .flat_map(|(topic_name, partitions)| {
@@ -121,7 +121,7 @@ impl Cluster for Metadata {
                     .find(|&(_, partition)| partition.leader() == Some(leader))
                     .map(|(id, _)| {
                              TopicPartition {
-                                 topic_name: topic_name.clone(),
+                                 topic_name: topic_name.as_str().into(),
                                  partition: id,
                              }
                          })
