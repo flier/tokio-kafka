@@ -3,10 +3,13 @@ use std::collections::{HashMap, VecDeque};
 
 use bytes::Bytes;
 
+use futures::future;
+
 use errors::Result;
 use compression::Compression;
 use protocol::{MessageSetBuilder, Timestamp};
-use client::TopicPartition;
+use client::{StaticBoxFuture, TopicPartition};
+use producer::RecordMetadata;
 
 /// Accumulator acts as a queue that accumulates records
 pub trait Accumulator<'a> {
@@ -15,7 +18,7 @@ pub trait Accumulator<'a> {
                    timestamp: Timestamp,
                    key: Option<Bytes>,
                    value: Option<Bytes>)
-                   -> Result<PushRecord>;
+                   -> PushRecord;
 }
 
 /// RecordAccumulator acts as a queue that accumulates records into ProducerRecord instances to be sent to the server.
@@ -46,28 +49,33 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                    timestamp: Timestamp,
                    key: Option<Bytes>,
                    value: Option<Bytes>)
-                   -> Result<PushRecord> {
+                   -> PushRecord {
         let batches = self.batches
             .entry(tp)
             .or_insert_with(|| VecDeque::new());
 
         if let Some(batch) = batches.back_mut() {
-            if let Ok(push_record) = batch.try_push_record(timestamp, key.clone(), value.clone()) {
-                return Ok(push_record);
+            let result = batch.try_push_record(timestamp, key.clone(), value.clone());
+
+            if let Ok(push_recrod) = result {
+                return push_recrod;
             }
         }
 
         let mut batch = ProducerBatch::new();
 
-        let push_recrod = batch.try_push_record(timestamp, key, value);
+        let result = batch.try_push_record(timestamp, key, value);
 
         batches.push_back(batch);
 
-        push_recrod
+        match result {
+            Ok(push_recrod) => push_recrod,
+            Err(err) => PushRecord::new(future::err(err)),
+        }
     }
 }
 
-pub struct PushRecord {}
+pub type PushRecord = StaticBoxFuture<RecordMetadata>;
 
 pub struct Thunk {}
 
@@ -89,6 +97,6 @@ impl ProducerBatch {
                            key: Option<Bytes>,
                            value: Option<Bytes>)
                            -> Result<PushRecord> {
-        Ok(PushRecord {})
+        Ok(PushRecord::new(future::ok(RecordMetadata::default())))
     }
 }

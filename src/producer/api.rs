@@ -74,7 +74,7 @@ impl<K, V> ProducerRecord<K, V>
 }
 
 /// The metadata for a record that has been acknowledged by the server
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct RecordMetadata {
     /// The topic the record was appended to
     pub topic_name: String,
