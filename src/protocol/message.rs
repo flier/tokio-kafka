@@ -10,7 +10,7 @@ use crc::crc32;
 
 use errors::Result;
 use compression::Compression;
-use protocol::{ApiVersion, Offset, ParseTag, Timestamp, WriteExt, parse_bytes};
+use protocol::{ApiVersion, Offset, ParseTag, Timestamp, WriteExt, parse_opt_bytes};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
@@ -179,8 +179,8 @@ named_args!(parse_message(api_version: ApiVersion)<Message>,
          >> _magic: verify!(be_i8, |v: i8| v as ApiVersion == api_version)
          >> attrs: be_i8
          >> timestamp: cond!(api_version > 0, be_i64)
-         >> key: parse_bytes
-         >> value: parse_bytes
+         >> key: parse_opt_bytes
+         >> value: parse_opt_bytes
          >> (Message {
                 offset: offset,
                 timestamp: timestamp.map(|ts| if (attrs & TIMESTAMP_TYPE_MASK) == 0 {

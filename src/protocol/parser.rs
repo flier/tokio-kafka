@@ -2,9 +2,9 @@ use std::str;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use bytes::{Bytes, BytesMut, BufMut, ByteOrder};
+use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 
-use nom::{self, IResult, be_i16, be_i32, prepare_errors, error_to_u32, print_offsets};
+use nom::{self, IResult, be_i16, be_i32, error_to_u32, prepare_errors, print_offsets};
 
 use errors::{ErrorKind, Result};
 
@@ -221,11 +221,31 @@ pub fn display_parse_error<O>(input: &[u8], res: IResult<&[u8], O>) {
     }
 }
 
-named!(pub parse_str<Option<Cow<str>>>,
+named!(pub parse_str<Cow<str>>,
     parse_tag!(ParseTag::String,
         do_parse!(
             len: be_i16
-         >> s: cond!(len > 0, map!(map_res!(take!(len), str::from_utf8), Cow::from))
+         >> s: cond_reduce!(len >= 0, map!(map_res!(take!(len), str::from_utf8), Cow::from))
+         >> (s)
+        )
+    )
+);
+
+named!(pub parse_opt_str<Option<Cow<str>>>,
+    parse_tag!(ParseTag::String,
+        do_parse!(
+            len: be_i16
+         >> s: cond!(len >= 0, map!(map_res!(take!(len), str::from_utf8), Cow::from))
+         >> (s)
+        )
+    )
+);
+
+named!(pub parse_opt_string<Option<String>>,
+    parse_tag!(ParseTag::String,
+        do_parse!(
+            len: be_i16
+         >> s: cond!(len >= 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
          >> (s)
         )
     )
@@ -235,17 +255,27 @@ named!(pub parse_string<String>,
     parse_tag!(ParseTag::String,
         do_parse!(
             len: be_i16
-         >> s: cond_reduce!(len > 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
+         >> s: cond_reduce!(len >= 0, map!(map_res!(take!(len), str::from_utf8), ToOwned::to_owned))
          >> (s)
         )
     )
 );
 
-named!(pub parse_bytes<Option<Bytes>>,
+named!(pub parse_bytes<Bytes>,
     parse_tag!(ParseTag::Bytes,
         do_parse!(
             len: be_i32
-         >> s: cond!(len > 0, map!(take!(len), Bytes::from))
+         >> s: cond_reduce!(len >= 0, map!(take!(len), Bytes::from))
+         >> (s)
+        )
+    )
+);
+
+named!(pub parse_opt_bytes<Option<Bytes>>,
+    parse_tag!(ParseTag::Bytes,
+        do_parse!(
+            len: be_i32
+         >> s: cond!(len >= 0, map!(take!(len), Bytes::from))
          >> (s)
         )
     )
@@ -257,9 +287,9 @@ mod tests {
     use std::slice;
     use std::iter::repeat;
 
-    use bytes::{Bytes, BigEndian};
+    use bytes::{BigEndian, Bytes};
 
-    use nom::{IResult, Needed, ErrorKind};
+    use nom::{ErrorKind, IResult, Needed};
     use nom::verbose_errors::Err;
 
     use super::*;
@@ -341,9 +371,22 @@ mod tests {
     #[test]
     fn test_parse_str() {
         assert_eq!(parse_str(b"\0"), IResult::Incomplete(Needed::Size(2)));
-        assert_eq!(parse_str(b"\xff\xff"), IResult::Done(&b""[..], None));
-        assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_str(b"\xff\xff"),
+                   IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::String as u32),
+                                                    &[255, 255][..],
+                                                    Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
+        assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], Cow::from("")));
         assert_eq!(parse_str(b"\0\x04test"),
+                   IResult::Done(&b""[..], Cow::from("test")));
+    }
+
+    #[test]
+    fn test_parse_opt_str() {
+        assert_eq!(parse_opt_str(b"\0"), IResult::Incomplete(Needed::Size(2)));
+        assert_eq!(parse_opt_str(b"\xff\xff"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_opt_str(b"\0\0"),
+                   IResult::Done(&b""[..], Some(Cow::from(""))));
+        assert_eq!(parse_opt_str(b"\0\x04test"),
                    IResult::Done(&b""[..], Some(Cow::from("test"))));
     }
 
@@ -355,20 +398,43 @@ mod tests {
                                                     &[255, 255][..],
                                                     Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
         assert_eq!(parse_string(b"\0\0"),
-                   IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::String as u32),
-                                                    &[0, 0][..],
-                                                    Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
+                   IResult::Done(&b""[..], "".to_owned()));
         assert_eq!(parse_string(b"\0\x04test"),
                    IResult::Done(&b""[..], "test".to_owned()));
+    }
+
+    #[test]
+    fn test_parse_opt_string() {
+        assert_eq!(parse_opt_string(b"\0"),
+                   IResult::Incomplete(Needed::Size(2)));
+        assert_eq!(parse_opt_string(b"\xff\xff"), IResult::Done(&b""[..], None));
+        assert_eq!(parse_opt_string(b"\0\0"),
+                   IResult::Done(&b""[..], Some("".to_owned())));
+        assert_eq!(parse_opt_string(b"\0\x04test"),
+                   IResult::Done(&b""[..], Some("test".to_owned())));
     }
 
     #[test]
     fn test_parse_bytes() {
         assert_eq!(parse_bytes(b"\0"), IResult::Incomplete(Needed::Size(4)));
         assert_eq!(parse_bytes(b"\xff\xff\xff\xff"),
-                   IResult::Done(&b""[..], None));
-        assert_eq!(parse_bytes(b"\0\0\0\0"), IResult::Done(&b""[..], None));
+                   IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::Bytes as u32),
+                                                    &[255, 255, 255, 255][..],
+                                                    Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
+        assert_eq!(parse_bytes(b"\0\0\0\0"),
+                   IResult::Done(&b""[..], Bytes::new()));
         assert_eq!(parse_bytes(b"\0\0\0\x04test"),
+                   IResult::Done(&b""[..], Bytes::from(&b"test"[..])));
+    }
+
+    #[test]
+    fn test_parse_opt_bytes() {
+        assert_eq!(parse_opt_bytes(b"\0"), IResult::Incomplete(Needed::Size(4)));
+        assert_eq!(parse_opt_bytes(b"\xff\xff\xff\xff"),
+                   IResult::Done(&b""[..], None));
+        assert_eq!(parse_opt_bytes(b"\0\0\0\0"),
+                   IResult::Done(&b""[..], Some(Bytes::new())));
+        assert_eq!(parse_opt_bytes(b"\0\0\0\x04test"),
                    IResult::Done(&b""[..], Some(Bytes::from(&b"test"[..]))));
     }
 }

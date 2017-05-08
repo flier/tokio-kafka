@@ -27,7 +27,8 @@ pub use self::message::{Message, MessageSet, MessageSetEncoder, MessageTimestamp
 pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
                          TopicMetadata, parse_metadata_response};
 pub use self::parser::{Encodable, PARSE_TAGS, ParseTag, WriteExt, display_parse_error,
-                       parse_bytes, parse_str, parse_string};
+                       parse_bytes, parse_opt_bytes, parse_opt_str, parse_opt_string, parse_str,
+                       parse_string};
 pub use self::produce::{ProducePartition, ProduceRequest, ProduceResponse, ProduceTopic,
                         parse_produce_response};
 
