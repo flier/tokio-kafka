@@ -22,8 +22,8 @@ pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic,
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
 pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListOffsetResponse,
                             ListPartitionOffset, ListTopicOffset, parse_list_offset_response};
-pub use self::message::{Message, MessageSet, MessageSetEncoder, MessageTimestamp,
-                        parse_message_set};
+pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
+                        MessageTimestamp, parse_message_set};
 pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
                          TopicMetadata, parse_metadata_response};
 pub use self::parser::{Encodable, PARSE_TAGS, ParseTag, WriteExt, display_parse_error,

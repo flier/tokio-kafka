@@ -78,14 +78,14 @@ pub struct PartitionData {
     /// The id of the partition the fetch is for.
     pub partition: PartitionId,
     pub error_code: ErrorCode,
-    ///The offset at the end of the log for this partition.
+    /// The offset at the end of the log for this partition.
     pub highwater_mark_offset: Offset,
     pub message_set: MessageSet,
 }
 
 named_args!(pub parse_fetch_response(api_version: ApiVersion)<FetchResponse>,
     parse_tag!(ParseTag::FetchResponse,
-        dbg_dmp!( do_parse!(
+        do_parse!(
             header: parse_response_header
          >> throttle_time: cond!(api_version > 0, be_i32)
          >> topics: length_count!(be_i32, apply!(parse_fetch_topic_data, api_version))
@@ -94,7 +94,7 @@ named_args!(pub parse_fetch_response(api_version: ApiVersion)<FetchResponse>,
                 throttle_time: throttle_time,
                 topics: topics,
             })
-        ))
+        )
     )
 );
 

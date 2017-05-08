@@ -195,3 +195,11 @@ named_args!(parse_message(api_version: ApiVersion)<Message>,
         )
     )
 );
+
+pub struct MessageSetBuilder {}
+
+impl MessageSetBuilder {
+    pub fn new() -> Self {
+        MessageSetBuilder {}
+    }
+}

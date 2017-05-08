@@ -127,7 +127,7 @@ impl From<BrokerIndex> for BrokerRef {
 }
 
 /// A topic name and partition number
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TopicPartition<'a> {
     pub topic_name: Cow<'a, str>,
     pub partition: PartitionId,
