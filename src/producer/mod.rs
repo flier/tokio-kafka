@@ -1,6 +1,7 @@
 mod api;
 mod partitioner;
 mod config;
+mod accumulator;
 mod producer;
 mod serialization;
 mod builder;
