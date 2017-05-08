@@ -258,8 +258,7 @@ impl<'a> Client for KafkaClient<'a>
             let mut topics = HashMap::new();
 
             for topic_name in topic_names {
-                if let Some(partitions) =
-                    metadata.partitions_for_topic(topic_name.as_ref().to_owned()) {
+                if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
                     for topic_partition in partitions {
                         if let Some(partition_info) = metadata.find_partition(&topic_partition) {
                             if let Some(leader) = partition_info.leader() {

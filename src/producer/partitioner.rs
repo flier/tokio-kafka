@@ -68,9 +68,10 @@ impl<H> Partitioner for DefaultPartitioner<H>
         }
 
         // TODO: use available partitions for topic in cluster
-        if let Some(partitions) = metadata.partitions_for_topic(topic_name.to_owned()) {
+        if let Some(partitions) = metadata.partitions_for_topic(topic_name) {
             let index = if let Some(ref key) = key {
-                // If no partition is specified but a key is present choose a partition based on a hash of the key
+                // If no partition is specified but a key is present choose a partition based on a
+                // hash of the key
                 let mut hasher = self.hash_builder.build_hasher();
                 key.hash(&mut hasher);
                 hasher.finish() as usize

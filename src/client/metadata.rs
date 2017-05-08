@@ -1,5 +1,5 @@
 use std::slice;
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::collections::hash_map::HashMap;
 use std::iter::FromIterator;
 
@@ -95,7 +95,7 @@ impl Cluster for Metadata {
                       })
     }
 
-    fn partitions_for_topic<'a>(&'a self, topic_name: String) -> Option<Vec<TopicPartition<'a>>> {
+    fn partitions_for_topic<'a>(&'a self, topic_name: &str) -> Option<Vec<TopicPartition<'a>>> {
         self.topic_partitions
             .iter()
             .find(|&(topic, _)| topic.as_str() == topic_name)
