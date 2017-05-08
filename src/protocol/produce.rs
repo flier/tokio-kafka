@@ -142,7 +142,7 @@ mod tests {
                         // ProducePartitionData
                         0, 0, 0, 1,                 // partition
                         // MessageSet
-                        0, 0, 0, 1,
+                        0, 0, 0, 42,
                         // messages: [Message]
                             0, 0, 0, 0, 0, 0, 0, 0,             // offset
                             0, 0, 0, 30,                        // size
