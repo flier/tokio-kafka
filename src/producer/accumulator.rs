@@ -1,11 +1,12 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::collections::{HashMap, VecDeque};
 
 use bytes::Bytes;
 
-use futures::future;
+use futures::{Future, Poll};
+use futures::unsync::oneshot::{Canceled, Receiver, Sender, channel};
 
-use errors::Result;
+use errors::{Error, ErrorKind, Result};
 use compression::Compression;
 use protocol::{ApiVersion, MessageSetBuilder, Timestamp, UsableApiVersion};
 use client::{StaticBoxFuture, TopicPartition};
@@ -19,31 +20,39 @@ pub trait Accumulator<'a> {
                    timestamp: Timestamp,
                    key: Option<Bytes>,
                    value: Option<Bytes>)
-                   -> PushRecord;
+                   -> Result<RecordAppendResult>;
 }
 
 /// RecordAccumulator acts as a queue that accumulates records into ProducerRecord instances to be sent to the server.
 pub struct RecordAccumulator<'a> {
     /// Request API versions for current connected brokers
-    api_version: UsableApiVersion,
+    pub api_version: UsableApiVersion,
     /// The size to use when allocating ProducerRecord instances
-    batch_size: usize,
+    pub batch_size: usize,
     /// The maximum memory the record accumulator can use.
-    total_size: usize,
+    pub total_size: usize,
     /// The compression codec for the records
-    compression: Compression,
+    pub compression: Compression,
     /// An artificial delay time to add before declaring a records instance that isn't full ready for sending.
     ///
     /// This allows time for more records to arrive.
     /// Setting a non-zero lingerMs will trade off some latency for potentially better throughput
     /// due to more batching (and hence fewer, larger requests).
-    linger: Duration,
+    pub linger: Duration,
     /// An artificial delay time to retry the produce request upon receiving an error.
     ///
     /// This avoids exhausting all retries in a short period of time.
-    retry_backoff: Duration,
+    pub retry_backoff: Duration,
 
-    batches: HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>,
+    pub batches: HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>,
+}
+
+impl<'a> RecordAccumulator<'a> {}
+
+pub struct RecordAppendResult {
+    pub produce_record: PushRecord,
+    pub batch_is_full: bool,
+    pub new_batch_created: bool,
 }
 
 impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
@@ -52,16 +61,22 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                    timestamp: Timestamp,
                    key: Option<Bytes>,
                    value: Option<Bytes>)
-                   -> PushRecord {
+                   -> Result<RecordAppendResult> {
         let batches = self.batches
             .entry(tp)
             .or_insert_with(|| VecDeque::new());
+
+        let batches_len = batches.len();
 
         if let Some(batch) = batches.back_mut() {
             let result = batch.push_record(timestamp, key.clone(), value.clone());
 
             if let Ok(push_recrod) = result {
-                return push_recrod;
+                return Ok(RecordAppendResult {
+                              produce_record: PushRecord::new(push_recrod),
+                              batch_is_full: batches_len > 1 || batch.is_full(),
+                              new_batch_created: false,
+                          });
             }
         }
 
@@ -71,39 +86,77 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
 
         let result = batch.push_record(timestamp, key, value);
 
+        let batch_is_full = batch.is_full();
+
         batches.push_back(batch);
 
-        match result {
-            Ok(push_recrod) => push_recrod,
-            Err(err) => PushRecord::new(future::err(err)),
-        }
+        result.map(move |push_recrod| {
+                       RecordAppendResult {
+                           produce_record: PushRecord::new(push_recrod),
+                           batch_is_full: batches_len > 0 || batch_is_full,
+                           new_batch_created: true,
+                       }
+                   })
     }
 }
 
 pub type PushRecord = StaticBoxFuture<RecordMetadata>;
 
-pub struct Thunk {}
+pub struct Thunk {
+    sender: Sender<RecordMetadata>,
+}
 
 pub struct ProducerBatch {
     builder: MessageSetBuilder,
     thunks: Vec<Thunk>,
+    create_time: Instant,
+    last_push_time: Instant,
 }
 
 impl ProducerBatch {
     pub fn new(api_version: ApiVersion, compression: Compression, write_limit: usize) -> Self {
+        let now = Instant::now();
+
         ProducerBatch {
             builder: MessageSetBuilder::new(api_version, compression, write_limit, 0),
             thunks: vec![],
+            create_time: now,
+            last_push_time: now,
         }
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.builder.is_full()
     }
 
     pub fn push_record(&mut self,
                        timestamp: Timestamp,
                        key: Option<Bytes>,
                        value: Option<Bytes>)
-                       -> Result<PushRecord> {
+                       -> Result<PushRecordResult> {
         self.builder.push(timestamp, key, value)?;
 
-        Ok(PushRecord::new(future::ok(RecordMetadata::default())))
+        let (sender, receiver) = channel();
+
+        self.thunks.push(Thunk { sender: sender });
+        self.last_push_time = Instant::now();
+
+        Ok(PushRecordResult { receiver: receiver })
+    }
+}
+
+pub struct PushRecordResult {
+    receiver: Receiver<RecordMetadata>,
+}
+
+impl Future for PushRecordResult {
+    type Item = RecordMetadata;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        match self.receiver.poll() {
+            Ok(result) => Ok(result),
+            Err(Canceled) => bail!(ErrorKind::Canceled),
+        }
     }
 }

@@ -248,6 +248,10 @@ impl MessageSetBuilder {
         }
     }
 
+    pub fn is_full(&self) -> bool {
+        !self.message_set.is_empty() && self.write_limit <= self.estimated_bytes()
+    }
+
     pub fn has_room_for(&self,
                         timestamp: Timestamp,
                         key: Option<&Bytes>,

@@ -18,6 +18,7 @@ error_chain!{
         UnsupportedApiKey(key: ApiKeys)
         IllegalArgument(reason: String)
         InvalidResponse
+        Canceled
         KafkaError(code: KafkaCode)
         OtherError
     }
