@@ -253,6 +253,7 @@ impl MessageSetBuilder {
                         key: Option<&Bytes>,
                         value: Option<&Bytes>)
                         -> bool {
+        self.message_set.is_empty() ||
         self.write_limit >= self.estimated_bytes() + self.record_size(timestamp, key, value)
     }
 
@@ -311,6 +312,10 @@ impl MessageSetBuilder {
 
         if timestamp < 0 {
             bail!(ErrorKind::IllegalArgument(format!("Invalid negative timestamp: {}", timestamp)))
+        }
+
+        if !self.has_room_for(timestamp, key.as_ref(), value.as_ref()) {
+            bail!(ErrorKind::IllegalArgument("message set is full".to_owned()))
         }
 
         let record_size = self.record_size(timestamp, key.as_ref(), value.as_ref());

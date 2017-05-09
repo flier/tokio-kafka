@@ -58,7 +58,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
             .or_insert_with(|| VecDeque::new());
 
         if let Some(batch) = batches.back_mut() {
-            let result = batch.try_push_record(timestamp, key.clone(), value.clone());
+            let result = batch.push_record(timestamp, key.clone(), value.clone());
 
             if let Ok(push_recrod) = result {
                 return push_recrod;
@@ -69,7 +69,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                                            self.compression,
                                            self.batch_size);
 
-        let result = batch.try_push_record(timestamp, key, value);
+        let result = batch.push_record(timestamp, key, value);
 
         batches.push_back(batch);
 
@@ -97,11 +97,11 @@ impl ProducerBatch {
         }
     }
 
-    pub fn try_push_record(&mut self,
-                           timestamp: Timestamp,
-                           key: Option<Bytes>,
-                           value: Option<Bytes>)
-                           -> Result<PushRecord> {
+    pub fn push_record(&mut self,
+                       timestamp: Timestamp,
+                       key: Option<Bytes>,
+                       value: Option<Bytes>)
+                       -> Result<PushRecord> {
         self.builder.push(timestamp, key, value)?;
 
         Ok(PushRecord::new(future::ok(RecordMetadata::default())))
