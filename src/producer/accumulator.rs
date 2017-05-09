@@ -13,6 +13,7 @@ use producer::RecordMetadata;
 
 /// Accumulator acts as a queue that accumulates records
 pub trait Accumulator<'a> {
+    /// Add a record to the accumulator, return the append result
     fn push_record(&mut self,
                    tp: TopicPartition<'a>,
                    timestamp: Timestamp,

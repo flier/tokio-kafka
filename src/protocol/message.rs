@@ -1,4 +1,5 @@
 use std::mem;
+use std::ops::Deref;
 
 use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 
@@ -15,6 +16,19 @@ use protocol::{ApiVersion, Offset, ParseTag, Timestamp, WriteExt, parse_opt_byte
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
 
+const CRC_LENGTH: usize = 4;
+const MAGIC_LENGTH: usize = 1;
+const ATTRIBUTE_LENGTH: usize = 1;
+const TIMESTAMP_LENGTH: usize = 8;
+const KEY_SIZE_LENGTH: usize = 4;
+const VALUE_SIZE_LENGTH: usize = 4;
+const RECORD_HEADER_SIZE: usize = CRC_LENGTH + MAGIC_LENGTH + ATTRIBUTE_LENGTH;
+const RECORD_OVERHEAD_V0: usize = RECORD_HEADER_SIZE + KEY_SIZE_LENGTH + VALUE_SIZE_LENGTH;
+const RECORD_OVERHEAD_V1: usize = RECORD_HEADER_SIZE + TIMESTAMP_LENGTH + KEY_SIZE_LENGTH +
+                                  VALUE_SIZE_LENGTH;
+
+const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
+
 /// Message sets
 ///
 /// One structure common to both the produce and fetch requests is the message set format.
@@ -28,6 +42,14 @@ pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageSet {
     pub messages: Vec<Message>,
+}
+
+impl Deref for MessageSet {
+    type Target = [Message];
+
+    fn deref(&self) -> &Self::Target {
+        self.messages.as_slice()
+    }
 }
 
 /// Message format
@@ -201,6 +223,7 @@ pub struct MessageSetBuilder {
     api_version: ApiVersion,
     compression: Compression,
     write_limit: usize,
+    written_uncompressed: usize,
     base_offset: Offset,
     last_offset: Option<Offset>,
     base_timestamp: Option<Timestamp>,
@@ -217,11 +240,43 @@ impl MessageSetBuilder {
             api_version: api_version,
             compression: compression,
             write_limit: write_limit,
+            written_uncompressed: 0,
             base_offset: base_offset,
             last_offset: None,
             base_timestamp: None,
             message_set: MessageSet { messages: vec![] },
         }
+    }
+
+    pub fn has_room_for(&self,
+                        timestamp: Timestamp,
+                        key: Option<&Bytes>,
+                        value: Option<&Bytes>)
+                        -> bool {
+        self.write_limit >= self.estimated_bytes() + self.record_size(timestamp, key, value)
+    }
+
+    /// Estimate the written bytes to the underlying byte buffer based on uncompressed written bytes
+    fn estimated_bytes(&self) -> usize {
+        (self.written_uncompressed as f32 *
+         match self.compression {
+             Compression::None => 1.0,
+             Compression::GZIP | Compression::Snappy | Compression::LZ4 => 0.5,
+         } * COMPRESSION_RATE_ESTIMATION_FACTOR) as usize
+    }
+
+    fn record_size(&self,
+                   _timestamp: Timestamp,
+                   key: Option<&Bytes>,
+                   value: Option<&Bytes>)
+                   -> usize {
+        let overhead_size = if self.api_version > 0 {
+            RECORD_OVERHEAD_V1
+        } else {
+            RECORD_OVERHEAD_V0
+        };
+
+        overhead_size + key.map_or(0, |b| b.len()) + value.map_or(0, |b| b.len())
     }
 
     pub fn build(self) -> MessageSet {
@@ -258,6 +313,8 @@ impl MessageSetBuilder {
             bail!(ErrorKind::IllegalArgument(format!("Invalid negative timestamp: {}", timestamp)))
         }
 
+        let record_size = self.record_size(timestamp, key.as_ref(), value.as_ref());
+
         self.message_set
             .messages
             .push(Message {
@@ -273,6 +330,8 @@ impl MessageSetBuilder {
         if self.base_timestamp.is_none() {
             self.base_timestamp = Some(timestamp);
         }
+
+        self.written_uncompressed += record_size;
 
         Ok(())
     }
