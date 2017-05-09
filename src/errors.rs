@@ -45,20 +45,10 @@ impl<'a> From<Cow<'a, str>> for Error {
     }
 }
 
-lazy_static! {
-    pub static ref CODEPAGE_HEX: Vec<char> = (0_u32..256)
-        .map(|c| if 0x20 <= c && c <= 0x7E {
-                ::std::char::from_u32(c).unwrap()
-            } else {
-                '.'
-            })
-        .collect();
-}
-
 macro_rules! hexdump {
     ($buf:expr) => (hexdump!($buf, 0));
     ($buf:expr, $off:expr) => (::hexplay::HexViewBuilder::new($buf)
-                                  .codepage(&$crate::errors::CODEPAGE_HEX)
+                                  .codepage(::hexplay::CODEPAGE_ASCII)
                                   .address_offset($off)
                                   .row_width(16)
                                   .finish());
