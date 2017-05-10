@@ -1,5 +1,6 @@
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::time::Duration;
@@ -15,7 +16,7 @@ use tokio_core::reactor::Handle;
 
 use protocol::ApiKeys;
 use network::TopicPartition;
-use client::{Client, Cluster, KafkaClient, ToMilliseconds};
+use client::{Client, Cluster, KafkaClient, Metadata, ToMilliseconds};
 use producer::{Accumulator, FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordAccumulator, SendRecord, Serializer};
 
@@ -48,20 +49,41 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
             let acks = config.acks;
             let ack_timeout = config.ack_timeout();
 
-            handle.spawn(accumulators
-                             .batches()
-                             .for_each(move |(tp, batch)| {
-                                           let records = vec![(tp, batch.build())];
-                                           client
-                                               .borrow_mut()
-                                               .produce_records(acks, ack_timeout, records)
-                                               .and_then(|responses| Ok(()))
+            let produce = accumulators
+                .batches()
+                .for_each(move |(tp, batch)| {
+                    let topic_name: String = String::from(tp.topic_name.borrow());
+                    let partition = tp.partition;
+                    let (thunks, message_set) = batch.build();
 
-                                       })
-                             .map_err(|err| {
-                                          warn!("fail to send records, {}", err);
-                                          ()
-                                      }));
+                    client
+                        .borrow_mut()
+                        .produce_records(acks, ack_timeout, vec![(tp, message_set)])
+                        .map(move |responses| if let Some(partitions) =
+                            responses.get(&topic_name.to_owned()) {
+                                 partitions
+                                     .iter()
+                                     .find(|&&(partition_id, _, _)| partition_id == partition)
+                                     .map(|&(_, error_code, offset)| for thunk in thunks {
+                                              match thunk.send(&topic_name,
+                                                               partition,
+                                                               offset,
+                                                               error_code.into()) {
+                                                  Ok(()) => {}
+                                                  Err(metadata) => {
+                                                      warn!("fail to send record metadata, {:?}",
+                                                            metadata)
+                                                  }
+                                              }
+                                          });
+                             })
+                })
+                .map_err(|err| {
+                             warn!("fail to produce records, {}", err);
+                             ()
+                         });
+
+            handle.spawn(produce);
         }
 
         KafkaProducer {
@@ -111,7 +133,8 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             timestamp,
         } = record;
 
-        let cluster = self.client.borrow().metadata();
+        let client: &RefCell<KafkaClient> = self.client.borrow();
+        let cluster: Rc<Metadata> = client.borrow().metadata();
 
         let partition = self.partitioner
             .partition(&topic_name,

@@ -296,7 +296,7 @@ impl MessageSetBuilder {
                 timestamp: Timestamp,
                 key: Option<Bytes>,
                 value: Option<Bytes>)
-                -> Result<()> {
+                -> Result<Offset> {
         let offset = self.next_offset();
 
         self.push_with_offset(offset, timestamp, key, value)
@@ -307,7 +307,7 @@ impl MessageSetBuilder {
                             timestamp: Timestamp,
                             key: Option<Bytes>,
                             value: Option<Bytes>)
-                            -> Result<()> {
+                            -> Result<Offset> {
         if let Some(last_offset) = self.last_offset {
             if offset <= last_offset {
                 bail!(ErrorKind::IllegalArgument(format!("Illegal offset {} following previous offset {}.", offset, last_offset)))
@@ -323,11 +323,12 @@ impl MessageSetBuilder {
         }
 
         let record_size = self.record_size(timestamp, key.as_ref(), value.as_ref());
+        let relative_offset = offset - self.base_offset;
 
         self.message_set
             .messages
             .push(Message {
-                      offset: offset - self.base_offset,
+                      offset: relative_offset,
                       timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
                       compression: self.compression,
                       key: key,
@@ -342,6 +343,6 @@ impl MessageSetBuilder {
 
         self.written_uncompressed += record_size;
 
-        Ok(())
+        Ok(relative_offset)
     }
 }
