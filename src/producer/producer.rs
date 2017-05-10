@@ -176,52 +176,6 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
 
         SendRecord::new(self.accumulators
                             .push_record(tp, timestamp, key, value, api_version))
-        // let message_set = MessageSet {
-        // messages: vec![Message {
-        // offset: 0,
-        // timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
-        // compression: self.config.compression,
-        // key: key,
-        // value: value,
-        // }],
-        // };
-        //
-        // let batch = BatchRecord {
-        // topic_name: topic_name.clone(),
-        // message_sets: vec![(partition, message_set)],
-        // };
-        //
-        // let produce = self.client
-        // .produce_records(self.config.acks, self.config.ack_timeout(), vec![batch])
-        // .and_then(move |responses| if let Some(partitions) = responses.get(&topic_name) {
-        // let result =
-        // partitions
-        // .iter()
-        // .find(|&&(partition_id, _, _)| partition_id == partition);
-        //
-        // if let Some(&(partition_id, error_code, offset)) = result {
-        // if error_code == KafkaCode::None as i16 {
-        // future::ok(RecordMetadata {
-        // topic_name: topic_name,
-        // partition: partition_id,
-        // offset: offset,
-        // timestamp: timestamp,
-        // serialized_key_size: serialized_key_size,
-        // serialized_value_size: serialized_value_size,
-        // })
-        // } else {
-        // future::err(ErrorKind::KafkaError(KafkaCode::from(error_code))
-        // .into())
-        // }
-        // } else {
-        // future::err("no response for partition".into())
-        // }
-        // } else {
-        // future::err("no response for topic".into())
-        // });
-        //
-        // SendRecord::new(produce)
-        //
     }
 
     fn flush(&mut self) -> FlushProducer {
