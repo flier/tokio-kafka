@@ -118,6 +118,8 @@ mod tests {
   "compression.type": "none",
   "batch.size": 16384,
   "max.request.size": 1048576,
+  "linger.ms": 0,
+  "retry.backoff.ms": 100,
   "timeout.ms": 30000
 }"#;
 
