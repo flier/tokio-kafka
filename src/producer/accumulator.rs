@@ -3,12 +3,12 @@ use std::collections::{HashMap, VecDeque};
 
 use bytes::Bytes;
 
-use futures::{Future, Poll};
+use futures::{Async, Future, Poll, Stream, future};
 use futures::unsync::oneshot::{Canceled, Receiver, Sender, channel};
 
 use errors::{Error, ErrorKind, Result};
 use compression::Compression;
-use protocol::{ApiVersion, MessageSetBuilder, Timestamp, UsableApiVersion};
+use protocol::{ApiVersion, MessageSet, MessageSetBuilder, Timestamp};
 use client::{StaticBoxFuture, TopicPartition};
 use producer::RecordMetadata;
 
@@ -19,40 +19,45 @@ pub trait Accumulator<'a> {
                    tp: TopicPartition<'a>,
                    timestamp: Timestamp,
                    key: Option<Bytes>,
-                   value: Option<Bytes>)
-                   -> Result<RecordAppendResult>;
+                   value: Option<Bytes>,
+                   api_version: ApiVersion)
+                   -> PushRecord;
 }
 
 /// RecordAccumulator acts as a queue that accumulates records into ProducerRecord instances to be sent to the server.
 pub struct RecordAccumulator<'a> {
-    /// Request API versions for current connected brokers
-    pub api_version: UsableApiVersion,
     /// The size to use when allocating ProducerRecord instances
-    pub batch_size: usize,
-    /// The maximum memory the record accumulator can use.
-    pub total_size: usize,
+    batch_size: usize,
     /// The compression codec for the records
-    pub compression: Compression,
+    compression: Compression,
     /// An artificial delay time to add before declaring a records instance that isn't full ready for sending.
     ///
     /// This allows time for more records to arrive.
     /// Setting a non-zero lingerMs will trade off some latency for potentially better throughput
     /// due to more batching (and hence fewer, larger requests).
-    pub linger: Duration,
+    linger: Duration,
     /// An artificial delay time to retry the produce request upon receiving an error.
     ///
     /// This avoids exhausting all retries in a short period of time.
-    pub retry_backoff: Duration,
+    retry_backoff: Duration,
 
-    pub batches: HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>,
+    batches: HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>,
 }
 
-impl<'a> RecordAccumulator<'a> {}
-
-pub struct RecordAppendResult {
-    pub produce_record: PushRecord,
-    pub batch_is_full: bool,
-    pub new_batch_created: bool,
+impl<'a> RecordAccumulator<'a> {
+    pub fn new(batch_size: usize,
+               compression: Compression,
+               linger: Duration,
+               retry_backoff: Duration)
+               -> Self {
+        RecordAccumulator {
+            batch_size: batch_size,
+            compression: compression,
+            linger: linger,
+            retry_backoff: retry_backoff,
+            batches: HashMap::new(),
+        }
+    }
 }
 
 impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
@@ -60,47 +65,55 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                    tp: TopicPartition<'a>,
                    timestamp: Timestamp,
                    key: Option<Bytes>,
-                   value: Option<Bytes>)
-                   -> Result<RecordAppendResult> {
+                   value: Option<Bytes>,
+                   api_version: ApiVersion)
+                   -> PushRecord {
         let batches = self.batches
             .entry(tp)
             .or_insert_with(|| VecDeque::new());
-
-        let batches_len = batches.len();
 
         if let Some(batch) = batches.back_mut() {
             let result = batch.push_record(timestamp, key.clone(), value.clone());
 
             if let Ok(push_recrod) = result {
-                return Ok(RecordAppendResult {
-                              produce_record: PushRecord::new(push_recrod),
-                              batch_is_full: batches_len > 1 || batch.is_full(),
-                              new_batch_created: false,
-                          });
+                return PushRecord::new(push_recrod);
             }
         }
 
-        let mut batch = ProducerBatch::new(self.api_version.max_version,
-                                           self.compression,
-                                           self.batch_size);
+        let mut batch = ProducerBatch::new(api_version, self.compression, self.batch_size);
 
         let result = batch.push_record(timestamp, key, value);
 
-        let batch_is_full = batch.is_full();
-
         batches.push_back(batch);
 
-        result.map(move |push_recrod| {
-                       RecordAppendResult {
-                           produce_record: PushRecord::new(push_recrod),
-                           batch_is_full: batches_len > 0 || batch_is_full,
-                           new_batch_created: true,
-                       }
-                   })
+        match result {
+            Ok(push_recrod) => PushRecord::new(push_recrod),
+            Err(err) => PushRecord::new(future::err(err)),
+        }
     }
 }
 
 pub type PushRecord = StaticBoxFuture<RecordMetadata>;
+
+impl<'a> Stream for RecordAccumulator<'a> {
+    type Item = (TopicPartition<'a>, ProducerBatch);
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        for (tp, batches) in self.batches.iter_mut() {
+            let is_full = batches.len() > 1 ||
+                          batches.back().map_or(false, |batches| batches.is_full());
+
+            if is_full {
+                if let Some(batch) = batches.pop_front() {
+                    return Ok(Async::Ready(Some((tp.clone(), batch))));
+                }
+            }
+        }
+
+        Ok(Async::NotReady)
+    }
+}
 
 pub struct Thunk {
     sender: Sender<RecordMetadata>,
@@ -133,7 +146,7 @@ impl ProducerBatch {
                        timestamp: Timestamp,
                        key: Option<Bytes>,
                        value: Option<Bytes>)
-                       -> Result<PushRecordResult> {
+                       -> Result<FutureRecordMetadata> {
         self.builder.push(timestamp, key, value)?;
 
         let (sender, receiver) = channel();
@@ -141,15 +154,19 @@ impl ProducerBatch {
         self.thunks.push(Thunk { sender: sender });
         self.last_push_time = Instant::now();
 
-        Ok(PushRecordResult { receiver: receiver })
+        Ok(FutureRecordMetadata { receiver: receiver })
+    }
+
+    pub fn build(self) -> MessageSet {
+        self.builder.build()
     }
 }
 
-pub struct PushRecordResult {
+pub struct FutureRecordMetadata {
     receiver: Receiver<RecordMetadata>,
 }
 
-impl Future for PushRecordResult {
+impl Future for FutureRecordMetadata {
     type Item = RecordMetadata;
     type Error = Error;
 

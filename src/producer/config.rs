@@ -9,6 +9,8 @@ use client::ClientConfig;
 pub const DEFAULT_ACK_TIMEOUT_MILLIS: u64 = 30_000;
 pub const DEFAULT_BATCH_SIZE: usize = 16 * 1024;
 pub const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
+pub const DEFAULT_LINGER_MILLIS: u64 = 0;
+pub const DEFAULT_RETRY_BACKOFF_MILLIS: u64 = 100;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProducerConfig {
@@ -34,6 +36,16 @@ pub struct ProducerConfig {
     /// The maximum size of a request in bytes.
     #[serde(rename ="max.request.size")]
     pub max_request_size: usize,
+
+    /// The producer groups together any records
+    /// that arrive in between request transmissions into a single batched request.
+    #[serde(rename="linger.ms")]
+    pub linger: u64,
+
+    /// The amount of time to wait before attempting to retry a failed request to a given topic partition.
+    /// This avoids repeatedly sending requests in a tight loop under some failure scenarios.
+    #[serde(rename="retry.backoff.ms")]
+    pub retry_backoff: u64,
 
     /// The maximum amount of time the server will wait for acknowledgments
     /// from followers to meet the acknowledgment requirements
@@ -64,6 +76,8 @@ impl Default for ProducerConfig {
             compression: Compression::default(),
             batch_size: DEFAULT_BATCH_SIZE,
             max_request_size: DEFAULT_MAX_REQUEST_SIZE,
+            linger: DEFAULT_LINGER_MILLIS,
+            retry_backoff: DEFAULT_RETRY_BACKOFF_MILLIS,
             ack_timeout: DEFAULT_ACK_TIMEOUT_MILLIS,
         }
     }

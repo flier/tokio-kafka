@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::time::Duration;
 use std::net::SocketAddr;
 
 use time;
@@ -7,19 +8,17 @@ use time;
 use bytes::Bytes;
 use bytes::buf::FromBuf;
 
-use futures::{Future, future};
+use futures::future;
 use tokio_core::reactor::Handle;
 
-use errors::ErrorKind;
-use protocol::{KafkaCode, Message, MessageSet, MessageTimestamp};
-use network::BatchRecord;
-use client::{Client, KafkaClient, ToMilliseconds};
-use producer::{FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
-               ProducerRecord, RecordMetadata, SendRecord, Serializer};
+use protocol::ApiKeys;
+use client::{Cluster, KafkaClient, ToMilliseconds, TopicPartition};
+use producer::{Accumulator, FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
+               ProducerRecord, RecordAccumulator, SendRecord, Serializer};
 
 pub struct KafkaProducer<'a, K, V, P> {
     client: KafkaClient<'a>,
-    config: ProducerConfig,
+    accumulators: RecordAccumulator<'a>,
     key_serializer: K,
     value_serializer: V,
     partitioner: P,
@@ -34,7 +33,10 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P> {
                -> Self {
         KafkaProducer {
             client: client,
-            config: config,
+            accumulators: RecordAccumulator::new(config.batch_size,
+                                                 config.compression,
+                                                 Duration::from_millis(config.linger),
+                                                 Duration::from_millis(config.retry_backoff)),
             key_serializer: key_serializer,
             value_serializer: value_serializer,
             partitioner: partitioner,
@@ -97,7 +99,6 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                                   .map_err(|err| warn!("fail to serialize key, {}", err));
                               Bytes::from_buf(buf)
                           });
-        let serialized_key_size = key.as_ref().map_or(0, |bytes| bytes.len());
 
         let value = value.map(|ref value| {
             let mut buf = Vec::with_capacity(16);
@@ -107,56 +108,69 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             Bytes::from_buf(buf)
         });
 
-        let serialized_value_size = value.as_ref().map_or(0, |bytes| bytes.len());
-
         let timestamp =
             timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
-        let message_set = MessageSet {
-            messages: vec![Message {
-                               offset: 0,
-                               timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
-                               compression: self.config.compression,
-                               key: key,
-                               value: value,
-                           }],
+        let tp = TopicPartition {
+            topic_name: topic_name.into(),
+            partition: partition,
         };
 
-        let batch = BatchRecord {
-            topic_name: topic_name.clone(),
-            message_sets: vec![(partition, message_set)],
-        };
+        let api_version = self.client
+            .metadata()
+            .leader_for(&tp)
+            .and_then(|broker| broker.api_versions())
+            .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
+            .map_or(0, |api_version| api_version.max_version);
 
-        let produce = self.client
-            .produce_records(self.config.acks, self.config.ack_timeout(), vec![batch])
-            .and_then(move |responses| if let Some(partitions) = responses.get(&topic_name) {
-                          let result =
-                              partitions
-                                  .iter()
-                                  .find(|&&(partition_id, _, _)| partition_id == partition);
-
-                          if let Some(&(partition_id, error_code, offset)) = result {
-                              if error_code == KafkaCode::None as i16 {
-                                  future::ok(RecordMetadata {
-                                                 topic_name: topic_name,
-                                                 partition: partition_id,
-                                                 offset: offset,
-                                                 timestamp: timestamp,
-                                                 serialized_key_size: serialized_key_size,
-                                                 serialized_value_size: serialized_value_size,
-                                             })
-                              } else {
-                                  future::err(ErrorKind::KafkaError(KafkaCode::from(error_code))
-                                                  .into())
-                              }
-                          } else {
-                              future::err("no response for partition".into())
-                          }
-                      } else {
-                          future::err("no response for topic".into())
-                      });
-
-        SendRecord::new(produce)
+        SendRecord::new(self.accumulators
+                            .push_record(tp, timestamp, key, value, api_version))
+        // let message_set = MessageSet {
+        // messages: vec![Message {
+        // offset: 0,
+        // timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
+        // compression: self.config.compression,
+        // key: key,
+        // value: value,
+        // }],
+        // };
+        //
+        // let batch = BatchRecord {
+        // topic_name: topic_name.clone(),
+        // message_sets: vec![(partition, message_set)],
+        // };
+        //
+        // let produce = self.client
+        // .produce_records(self.config.acks, self.config.ack_timeout(), vec![batch])
+        // .and_then(move |responses| if let Some(partitions) = responses.get(&topic_name) {
+        // let result =
+        // partitions
+        // .iter()
+        // .find(|&&(partition_id, _, _)| partition_id == partition);
+        //
+        // if let Some(&(partition_id, error_code, offset)) = result {
+        // if error_code == KafkaCode::None as i16 {
+        // future::ok(RecordMetadata {
+        // topic_name: topic_name,
+        // partition: partition_id,
+        // offset: offset,
+        // timestamp: timestamp,
+        // serialized_key_size: serialized_key_size,
+        // serialized_value_size: serialized_value_size,
+        // })
+        // } else {
+        // future::err(ErrorKind::KafkaError(KafkaCode::from(error_code))
+        // .into())
+        // }
+        // } else {
+        // future::err("no response for partition".into())
+        // }
+        // } else {
+        // future::err("no response for topic".into())
+        // });
+        //
+        // SendRecord::new(produce)
+        //
     }
 
     fn flush(&mut self) -> FlushProducer {
