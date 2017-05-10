@@ -260,33 +260,30 @@ impl<'a> Client for KafkaClient<'a>
             for topic_name in topic_names {
                 if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
                     for topic_partition in partitions {
-                        if let Some(partition_info) = metadata.find_partition(&topic_partition) {
-                            if let Some(leader) = partition_info.leader() {
-                                if let Some(broker) = metadata.find_broker(leader) {
-                                    let addr = broker
-                                        .addr()
-                                        .to_socket_addrs()
-                                        .unwrap()
-                                        .next()
-                                        .unwrap(); // TODO
-                                    let api_version = broker
-                                        .api_versions()
-                                        .map_or(0, |api_versions| {
-                                            api_versions
-                                                .find(ApiKeys::ListOffsets)
-                                                .map(|api_version| api_version.max_version)
-                                                .unwrap_or(0)
-                                        });
-                                    topics
-                                        .entry((addr, api_version))
-                                        .or_insert_with(|| HashMap::new())
-                                        .entry(Cow::from(topic_name.as_ref().to_owned()))
-                                        .or_insert_with(|| Vec::new())
-                                        .push(topic_partition.partition);
-                                }
-                            }
+                        if let Some(broker) = metadata.leader_for(&topic_partition) {
+                            let addr = broker
+                                .addr()
+                                .to_socket_addrs()
+                                .unwrap()
+                                .next()
+                                .unwrap(); // TODO
+                            let api_version = broker
+                                .api_versions()
+                                .map_or(0, |api_versions| {
+                                    api_versions
+                                        .find(ApiKeys::ListOffsets)
+                                        .map(|api_version| api_version.max_version)
+                                        .unwrap_or(0)
+                                });
+                            topics
+                                .entry((addr, api_version))
+                                .or_insert_with(|| HashMap::new())
+                                .entry(Cow::from(topic_name.as_ref().to_owned()))
+                                .or_insert_with(|| Vec::new())
+                                .push(topic_partition.partition);
                         }
                     }
+
                 }
             }
 
