@@ -1,3 +1,5 @@
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::time::{Duration, Instant};
 use std::collections::{HashMap, VecDeque};
 
@@ -41,7 +43,7 @@ pub struct RecordAccumulator<'a> {
     /// This avoids exhausting all retries in a short period of time.
     retry_backoff: Duration,
 
-    batches: HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>,
+    batches: Rc<RefCell<HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>>>,
 }
 
 impl<'a> RecordAccumulator<'a> {
@@ -55,8 +57,12 @@ impl<'a> RecordAccumulator<'a> {
             compression: compression,
             linger: linger,
             retry_backoff: retry_backoff,
-            batches: HashMap::new(),
+            batches: Rc::new(RefCell::new(HashMap::new())),
         }
+    }
+
+    pub fn batches(&self) -> Batches<'a> {
+        Batches { batches: self.batches.clone() }
     }
 }
 
@@ -68,9 +74,9 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                    value: Option<Bytes>,
                    api_version: ApiVersion)
                    -> PushRecord {
-        let batches = self.batches
-            .entry(tp)
-            .or_insert_with(|| VecDeque::new());
+
+        let mut batches = self.batches.borrow_mut();
+        let batches = batches.entry(tp).or_insert_with(|| VecDeque::new());
 
         if let Some(batch) = batches.back_mut() {
             let result = batch.push_record(timestamp, key.clone(), value.clone());
@@ -95,12 +101,16 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
 
 pub type PushRecord = StaticBoxFuture<RecordMetadata>;
 
-impl<'a> Stream for RecordAccumulator<'a> {
+pub struct Batches<'a> {
+    batches: Rc<RefCell<HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>>>,
+}
+
+impl<'a> Stream for Batches<'a> {
     type Item = (TopicPartition<'a>, ProducerBatch);
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        for (tp, batches) in self.batches.iter_mut() {
+        for (tp, batches) in self.batches.borrow_mut().iter_mut() {
             let is_full = batches.len() > 1 ||
                           batches.back().map_or(false, |batches| batches.is_full());
 

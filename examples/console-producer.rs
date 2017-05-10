@@ -187,8 +187,10 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .with_default_partitioner()
         .build()?;
 
-    let work = producer
-        .client()
+    let client = producer.client();
+
+    let work = client
+        .borrow_mut()
         .load_metadata()
         .map_err(Error::from)
         .and_then(|_| {

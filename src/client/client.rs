@@ -127,7 +127,7 @@ impl<'a> KafkaClient<'a>
         }
     }
 
-    fn handle(&self) -> &Handle {
+    pub fn handle(&self) -> &Handle {
         &self.handle
     }
 

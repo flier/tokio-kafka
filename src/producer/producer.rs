@@ -1,3 +1,5 @@
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::time::Duration;
@@ -8,39 +10,70 @@ use time;
 use bytes::Bytes;
 use bytes::buf::FromBuf;
 
-use futures::future;
+use futures::{Future, Stream, future};
 use tokio_core::reactor::Handle;
 
 use protocol::ApiKeys;
-use client::{Cluster, KafkaClient, ToMilliseconds, TopicPartition};
+use client::{Client, Cluster, KafkaClient, ToMilliseconds, TopicPartition};
 use producer::{Accumulator, FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordAccumulator, SendRecord, Serializer};
 
 pub struct KafkaProducer<'a, K, V, P> {
-    client: KafkaClient<'a>,
+    client: Rc<RefCell<KafkaClient<'a>>>,
+    config: ProducerConfig,
     accumulators: RecordAccumulator<'a>,
     key_serializer: K,
     value_serializer: V,
     partitioner: P,
 }
 
-impl<'a, K, V, P> KafkaProducer<'a, K, V, P> {
+impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
+    where Self: 'static
+{
     pub fn new(client: KafkaClient<'a>,
                config: ProducerConfig,
                key_serializer: K,
                value_serializer: V,
                partitioner: P)
                -> Self {
+        let accumulators = RecordAccumulator::new(config.batch_size,
+                                                  config.compression,
+                                                  Duration::from_millis(config.linger),
+                                                  Duration::from_millis(config.retry_backoff));
+        let handle = client.handle().clone();
+        let client = Rc::new(RefCell::new(client));
+        {
+            let client = client.clone();
+            let acks = config.acks;
+            let ack_timeout = config.ack_timeout();
+
+            handle.spawn(accumulators
+                             .batches()
+                             .for_each(move |(tp, batch)| {
+                                           client
+                                               .borrow_mut()
+                                               .produce_records(acks, ack_timeout, vec![])
+                                               .and_then(|responses| Ok(()))
+
+                                       })
+                             .map_err(|err| {
+                                          warn!("fail to send records, {}", err);
+                                          ()
+                                      }));
+        }
+
         KafkaProducer {
             client: client,
-            accumulators: RecordAccumulator::new(config.batch_size,
-                                                 config.compression,
-                                                 Duration::from_millis(config.linger),
-                                                 Duration::from_millis(config.retry_backoff)),
+            config: config,
+            accumulators: accumulators,
             key_serializer: key_serializer,
             value_serializer: value_serializer,
             partitioner: partitioner,
         }
+    }
+
+    pub fn client(&self) -> Rc<RefCell<KafkaClient<'a>>> {
+        self.client.clone()
     }
 
     pub fn from_client(client: KafkaClient<'a>) -> ProducerBuilder<'a, K, V, P> {
@@ -51,14 +84,6 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P> {
         where I: Iterator<Item = SocketAddr>
     {
         ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
-    }
-
-    pub fn client(&mut self) -> &mut KafkaClient<'a> {
-        &mut self.client
-    }
-
-    pub fn into_client(self) -> KafkaClient<'a> {
-        self.client
     }
 }
 
@@ -84,12 +109,14 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             timestamp,
         } = record;
 
+        let cluster = self.client.borrow().metadata();
+
         let partition = self.partitioner
             .partition(&topic_name,
                        partition,
                        key.as_ref(),
                        value.as_ref(),
-                       self.client.metadata())
+                       cluster.clone())
             .unwrap_or_default();
 
         let key = key.map(|ref key| {
@@ -116,8 +143,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             partition: partition,
         };
 
-        let api_version = self.client
-            .metadata()
+        let api_version = cluster
             .leader_for(&tp)
             .and_then(|broker| broker.api_versions())
             .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
