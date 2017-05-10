@@ -6,7 +6,7 @@ mod stream;
 mod conn;
 mod pool;
 
-pub use self::request::{BatchRecord, KafkaRequest};
+pub use self::request::{KafkaRequest, TopicPartition};
 pub use self::response::KafkaResponse;
 pub use self::codec::KafkaCodec;
 pub use self::dns::{DnsQuery, DnsResolver, Resolver};

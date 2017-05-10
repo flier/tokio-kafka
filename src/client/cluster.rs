@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use protocol::{NodeId, PartitionId, UsableApiVersions};
+use network::TopicPartition;
 
 /// A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
 pub trait Cluster {
@@ -124,13 +125,6 @@ impl From<BrokerIndex> for BrokerRef {
     fn from(index: BrokerIndex) -> Self {
         BrokerRef::new(index)
     }
-}
-
-/// A topic name and partition number
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct TopicPartition<'a> {
-    pub topic_name: Cow<'a, str>,
-    pub partition: PartitionId,
 }
 
 /// Information about a topic-partition.

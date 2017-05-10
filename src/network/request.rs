@@ -10,6 +10,13 @@ use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, E
                MessageSet, MetadataRequest, PartitionId, ProducePartition, ProduceRequest,
                ProduceTopic, RequestHeader, RequiredAck, RequiredAcks};
 
+/// A topic name and partition number
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TopicPartition<'a> {
+    pub topic_name: Cow<'a, str>,
+    pub partition: PartitionId,
+}
+
 #[derive(Debug)]
 pub enum KafkaRequest<'a> {
     Produce(ProduceRequest<'a>),
@@ -17,11 +24,6 @@ pub enum KafkaRequest<'a> {
     ListOffsets(ListOffsetRequest<'a>),
     Metadata(MetadataRequest<'a>),
     ApiVersions(ApiVersionsRequest<'a>),
-}
-
-pub struct BatchRecord {
-    pub topic_name: String,
-    pub message_sets: Vec<(PartitionId, MessageSet)>,
 }
 
 impl<'a> KafkaRequest<'a> {
@@ -40,7 +42,7 @@ impl<'a> KafkaRequest<'a> {
                            client_id: Option<Cow<'a, str>>,
                            required_acks: RequiredAcks,
                            timeout: Duration,
-                           batches: Vec<BatchRecord>)
+                           batches: Vec<(TopicPartition<'a>, MessageSet)>)
                            -> KafkaRequest<'a> {
         let request = ProduceRequest {
             header: RequestHeader {
@@ -53,19 +55,13 @@ impl<'a> KafkaRequest<'a> {
             timeout: timeout.as_secs() as i32 * 1000 + timeout.subsec_nanos() as i32 / 1000_000,
             topics: batches
                 .into_iter()
-                .map(|batch| {
+                .map(|(tp, message_set)| {
                     ProduceTopic {
-                        topic_name: batch.topic_name.into(),
-                        partitions: batch
-                            .message_sets
-                            .into_iter()
-                            .map(|(partition, message_set)| {
-                                     ProducePartition {
-                                         partition: partition,
-                                         message_set: message_set,
-                                     }
-                                 })
-                            .collect(),
+                        topic_name: tp.topic_name.into(),
+                        partitions: vec![ProducePartition {
+                                             partition: tp.partition,
+                                             message_set: message_set,
+                                         }],
                     }
                 })
                 .collect(),

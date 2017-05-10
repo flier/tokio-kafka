@@ -4,7 +4,8 @@ use std::collections::hash_map::HashMap;
 use std::iter::FromIterator;
 
 use protocol::{MetadataResponse, PartitionId};
-use client::{Broker, BrokerRef, Cluster, PartitionInfo, TopicPartition};
+use network::TopicPartition;
+use client::{Broker, BrokerRef, Cluster, PartitionInfo};
 
 #[derive(Debug)]
 pub struct Metadata {

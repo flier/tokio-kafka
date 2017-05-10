@@ -52,8 +52,9 @@ pub mod consts {
 pub use errors::{Error, ErrorKind};
 pub use compression::Compression;
 pub use protocol::{FetchOffset, PartitionId, RequiredAcks};
+pub use network::TopicPartition;
 pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, Metadata,
-                 PartitionOffset, StaticBoxFuture, ToMilliseconds, TopicPartition};
+                 PartitionOffset, StaticBoxFuture, ToMilliseconds};
 pub use producer::{DefaultPartitioner, KafkaProducer, NoopSerializer, Partitioner, Producer,
                    ProducerBuilder, ProducerConfig, ProducerRecord, Serializer,
                    StrEncodingSerializer, StrSerializer};

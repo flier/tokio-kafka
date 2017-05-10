@@ -14,7 +14,8 @@ use futures::{Future, Stream, future};
 use tokio_core::reactor::Handle;
 
 use protocol::ApiKeys;
-use client::{Client, Cluster, KafkaClient, ToMilliseconds, TopicPartition};
+use network::TopicPartition;
+use client::{Client, Cluster, KafkaClient, ToMilliseconds};
 use producer::{Accumulator, FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordAccumulator, SendRecord, Serializer};
 
@@ -50,9 +51,10 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
             handle.spawn(accumulators
                              .batches()
                              .for_each(move |(tp, batch)| {
+                                           let records = vec![(tp, batch.build())];
                                            client
                                                .borrow_mut()
-                                               .produce_records(acks, ack_timeout, vec![])
+                                               .produce_records(acks, ack_timeout, records)
                                                .and_then(|responses| Ok(()))
 
                                        })

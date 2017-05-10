@@ -11,7 +11,8 @@ use futures::unsync::oneshot::{Canceled, Receiver, Sender, channel};
 use errors::{Error, ErrorKind, Result};
 use compression::Compression;
 use protocol::{ApiVersion, MessageSet, MessageSetBuilder, Timestamp};
-use client::{StaticBoxFuture, TopicPartition};
+use network::TopicPartition;
+use client::StaticBoxFuture;
 use producer::RecordMetadata;
 
 /// Accumulator acts as a queue that accumulates records
