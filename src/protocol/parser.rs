@@ -16,7 +16,7 @@ pub trait WriteExt: BufMut + Sized {
     fn put_str<T: ByteOrder, S: AsRef<str>>(&mut self, s: Option<S>) -> Result<()> {
         match s.as_ref() {
             Some(v) if v.as_ref().len() > i16::max_value() as usize => {
-                bail!(ErrorKind::CodecError("String exceeds the maximum size."))
+                bail!(ErrorKind::EncodeError("string exceeds the maximum size."))
             }
             Some(v) if v.as_ref().len() > 0 => {
                 self.put_i16::<T>(v.as_ref().len() as i16);
@@ -33,7 +33,7 @@ pub trait WriteExt: BufMut + Sized {
     fn put_bytes<T: ByteOrder, D: AsRef<[u8]>>(&mut self, d: Option<D>) -> Result<()> {
         match d.as_ref() {
             Some(v) if v.as_ref().len() > i32::max_value() as usize => {
-                bail!(ErrorKind::CodecError("Bytes exceeds the maximum size."))
+                bail!(ErrorKind::EncodeError("bytes exceeds the maximum size."))
             }
             Some(v) if v.as_ref().len() > 0 => {
                 self.put_i32::<T>(v.as_ref().len() as i32);
@@ -52,7 +52,7 @@ pub trait WriteExt: BufMut + Sized {
               F: FnMut(&mut Self, E) -> Result<()>
     {
         if items.len() > i32::max_value() as usize {
-            bail!(ErrorKind::CodecError("Array exceeds the maximum size."))
+            bail!(ErrorKind::EncodeError("array exceeds the maximum size."))
         } else {
             self.put_i32::<T>(items.len() as i32);
 
@@ -90,13 +90,14 @@ macro_rules! parse_tag (
 #[repr(i32)]
 pub enum ParseTag {
     ResponseHeader = 8000,
+    ApiKey = 8001,
 
-    String = 8001,
-    Bytes = 8002,
+    String = 8002,
+    Bytes = 8003,
 
-    MessageSet = 8003,
-    Message = 8004,
-    MessageCrc = 8005,
+    MessageSet = 9001,
+    Message = 9002,
+    MessageCrc = 9003,
 
     ProduceResponse = 10000,
     TopicStatus = 10001,

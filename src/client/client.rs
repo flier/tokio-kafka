@@ -204,7 +204,7 @@ impl<'a> KafkaClient<'a>
             .and_then(|res| if let KafkaResponse::Metadata(res) = res {
                           future::ok(Rc::new(Metadata::from(res)))
                       } else {
-                          future::err(ErrorKind::InvalidResponse.into())
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
                       });
 
         FetchMetadata::new(response)
@@ -231,9 +231,9 @@ impl<'a> Client<'a> for KafkaClient<'a>
         let addr = self.config.hosts.iter().next().unwrap(); // TODO
         let response = self.send_request(addr, request)
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
-                          future::ok(res.topics
-                                         .iter()
-                                         .map(|ref topic| {
+                          let produce = res.topics
+                              .iter()
+                              .map(|ref topic| {
                     (topic.topic_name.to_owned(),
                      topic
                          .partitions
@@ -243,9 +243,11 @@ impl<'a> Client<'a> for KafkaClient<'a>
                               })
                          .collect())
                 })
-                                         .collect())
+                              .collect();
+
+                          future::ok(produce)
                       } else {
-                          future::err(ErrorKind::InvalidResponse.into())
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
                       });
 
         ProduceRecords::new(response)
@@ -305,37 +307,43 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                                          client_id.clone(),
                                                          topics,
                                                          offset);
-                let response =
-                    self.send_request(&addr, request)
-                        .and_then(|res| {
-                            if let KafkaResponse::ListOffsets(res) = res {
-                                let topics =
-                                    res.topics
+                let response = self.send_request(&addr, request)
+                    .and_then(|res| {
+                        if let KafkaResponse::ListOffsets(res) = res {
+                            let topics = res.topics
+                                .iter()
+                                .map(|topic| {
+                                    let partitions = topic
+                                        .partitions
                                         .iter()
-                                        .map(|topic| {
-                                            let partitions = topic
-                                 .partitions
-                                 .iter()
-                                 .flat_map(|partition| {
-                                if partition.error_code == KafkaCode::None as ErrorCode {
-                                    Ok(PartitionOffset {
-                                           partition: partition.partition,
-                                           offset: *partition.offsets.iter().next().unwrap(), //TODO
-                                       })
-                                } else {
-                                    Err(ErrorKind::KafkaError(partition.error_code.into()))
-                                }
-                            }).collect();
-
-                                            (topic.topic_name.clone(), partitions)
+                                        .flat_map(|partition| {
+                                            if partition.error_code ==
+                                               KafkaCode::None as ErrorCode {
+                                                Ok(PartitionOffset {
+                                                       partition: partition.partition,
+                                                       offset: *partition
+                                                                    .offsets
+                                                                    .iter()
+                                                                    .next()
+                                                                    .unwrap(), // TODO
+                                                   })
+                                            } else {
+                                                Err(ErrorKind::KafkaError(partition
+                                                                              .error_code
+                                                                              .into()))
+                                            }
                                         })
-                                        .collect::<Vec<(String, Vec<PartitionOffset>)>>();
+                                        .collect();
 
-                                Ok(topics)
-                            } else {
-                                bail!(ErrorKind::InvalidResponse)
-                            }
-                        });
+                                    (topic.topic_name.clone(), partitions)
+                                })
+                                .collect::<Vec<(String, Vec<PartitionOffset>)>>();
+
+                            Ok(topics)
+                        } else {
+                            bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                        }
+                    });
 
                 responses.push(response);
             }

@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use std::mem;
+use std::fmt;
 use std::str::FromStr;
 
 use errors::{Error, ErrorKind, Result};
@@ -269,5 +270,11 @@ pub enum KafkaCode {
 impl From<ErrorCode> for KafkaCode {
     fn from(v: ErrorCode) -> Self {
         unsafe { mem::transmute(v) }
+    }
+}
+
+impl fmt::Display for KafkaCode {
+    fn fmt(&self, w: &mut fmt::Formatter) -> fmt::Result {
+        write!(w, "{:?}", self)
     }
 }

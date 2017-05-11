@@ -2,12 +2,12 @@ use std::io;
 
 use log::LogLevel::Debug;
 
-use nom::{IResult, Needed};
+use nom::{self, ErrorKind, IResult, Needed};
 
-use protocol::{ApiKeys, ApiVersion, ProduceResponse, parse_produce_response, FetchResponse,
-               parse_fetch_response, ListOffsetResponse, parse_list_offset_response,
-               MetadataResponse, parse_metadata_response, ApiVersionsResponse,
-               parse_api_versions_response, display_parse_error};
+use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, FetchResponse, ListOffsetResponse,
+               MetadataResponse, ParseTag, ProduceResponse, display_parse_error,
+               parse_api_versions_response, parse_fetch_response, parse_list_offset_response,
+               parse_metadata_response, parse_produce_response};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
@@ -19,6 +19,16 @@ pub enum KafkaResponse {
 }
 
 impl KafkaResponse {
+    pub fn api_key(&self) -> ApiKeys {
+        match self {
+            &KafkaResponse::Produce(_) => ApiKeys::Produce,
+            &KafkaResponse::Fetch(_) => ApiKeys::Fetch,
+            &KafkaResponse::ListOffsets(_) => ApiKeys::ListOffsets,
+            &KafkaResponse::Metadata(_) => ApiKeys::Metadata,
+            &KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
+        }
+    }
+
     pub fn parse<T: AsRef<[u8]>>(src: T,
                                  api_key: ApiKeys,
                                  api_version: ApiVersion)
@@ -42,11 +52,7 @@ impl KafkaResponse {
             ApiKeys::ApiVersions => {
                 parse_api_versions_response(buf).map(KafkaResponse::ApiVersions)
             }
-            _ => {
-                warn!("unsupport response type, {:?}", api_key);
-
-                IResult::Incomplete(Needed::Unknown)
-            }
+            _ => IResult::Error(nom::Err::Code(ErrorKind::Custom(ParseTag::ApiKey as u32))),
         };
 
         match res {

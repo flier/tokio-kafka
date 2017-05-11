@@ -209,7 +209,7 @@ pub mod mock {
             SendRecord::new(future::ok(RecordMetadata::default()))
         }
 
-        fn flush(&mut self, force: bool) -> Flush {
+        fn flush(&mut self, _force: bool) -> Flush {
             Flush::new(future::ok(()))
         }
     }

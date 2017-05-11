@@ -1,3 +1,4 @@
+use std::error::Error as StdError;
 use std::borrow::{Borrow, Cow};
 
 use protocol::{ApiKeys, KafkaCode};
@@ -10,34 +11,46 @@ error_chain!{
     }
 
     errors {
-        ConfigError(reason: &'static str)
-        NoHostError
-        LockError
-        ParseError(reason: String)
-        CodecError(reason: &'static str)
-        UnsupportedApiKey(key: ApiKeys) {
-            description("unsupported API key")
-            display("unsupported API key, {:?}", key)
+        ConfigError(reason: &'static str) {
+            description("invalid config")
+            display("invalid config, {:?}", reason)
+        }
+        LockError(reason: String) {
+            description("lock failed")
+            display("lock failed, {}", reason)
+        }
+        ParseError(reason: String) {
+            description("fail to parse")
+            display("fail to parse, {:?}", reason)
+        }
+        EncodeError(reason: &'static str) {
+            description("fail to encode")
+            display("fail to encode, {:?}", reason)
         }
         IllegalArgument(reason: String) {
             description("invalid argument")
             display("invalid argument, {}", reason)
         }
-        InvalidResponse
-        Canceled
+        UnexpectedResponse(api_key: ApiKeys) {
+            description("unexpected response")
+            display("unexpected response, {:?}", api_key)
+        }
+        Canceled(task: &'static str) {
+            description("task canceled")
+            display("task canceled, {}", task)
+        }
         KafkaError(code: KafkaCode) {
             description("kafka error")
             display("kafka error, {:?}", code)
         }
-        OtherError
     }
 }
 
 unsafe impl Sync for Error {}
 
 impl<T> From<::std::sync::PoisonError<T>> for Error {
-    fn from(_: ::std::sync::PoisonError<T>) -> Self {
-        ErrorKind::LockError.into()
+    fn from(err: ::std::sync::PoisonError<T>) -> Self {
+        ErrorKind::LockError(StdError::description(&err).to_owned()).into()
     }
 }
 

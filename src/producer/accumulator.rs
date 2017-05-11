@@ -255,7 +255,7 @@ impl Future for FutureRecordMetadata {
             Ok(Async::Ready(Ok(metadata))) => Ok(Async::Ready(metadata)),
             Ok(Async::Ready(Err(err))) => Err(err),
             Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(Canceled) => bail!(ErrorKind::Canceled),
+            Err(Canceled) => bail!(ErrorKind::Canceled("produce record")),
         }
     }
 }

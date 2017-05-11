@@ -315,12 +315,12 @@ impl MessageSetBuilder {
                             -> Result<Offset> {
         if let Some(last_offset) = self.last_offset {
             if offset <= last_offset {
-                bail!(ErrorKind::IllegalArgument(format!("Illegal offset {} following previous offset {}.", offset, last_offset)))
+                bail!(ErrorKind::IllegalArgument(format!("offset {} following previous offset {}.", offset, last_offset)))
             }
         }
 
         if timestamp < 0 {
-            bail!(ErrorKind::IllegalArgument(format!("Invalid negative timestamp: {}", timestamp)))
+            bail!(ErrorKind::IllegalArgument(format!("negative timestamp: {}", timestamp)))
         }
 
         if !self.has_room_for(timestamp, key.as_ref(), value.as_ref()) {
