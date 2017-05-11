@@ -8,9 +8,6 @@ use std::net::SocketAddr;
 
 use time;
 
-use bytes::Bytes;
-use bytes::buf::FromBuf;
-
 use futures::{Future, Stream, future};
 use tokio_core::reactor::Handle;
 
@@ -123,7 +120,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     type Value = V::Item;
 
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
-        trace!("sending {:?}", record);
+        trace!("sending record {:?}", record);
 
         let ProducerRecord {
             topic_name,
@@ -144,21 +141,20 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                        cluster.clone())
             .unwrap_or_default();
 
-        let key = key.map(|ref key| {
-                              let mut buf = Vec::with_capacity(16);
-                              let _ = self.key_serializer
-                                  .serialize(&topic_name, key, &mut buf)
-                                  .map_err(|err| warn!("fail to serialize key, {}", err));
-                              Bytes::from_buf(buf)
-                          });
+        let key = key.and_then(|key| {
+                                   self.key_serializer
+                                       .serialize(&topic_name, key)
+                                       .map_err(|err| warn!("fail to serialize key, {}", err))
+                                       .ok()
+                               });
 
-        let value = value.map(|ref value| {
-            let mut buf = Vec::with_capacity(16);
-            let _ = self.value_serializer
-                .serialize(&topic_name, value, &mut buf)
-                .map_err(|err| warn!("fail to serialize value, {}", err));
-            Bytes::from_buf(buf)
-        });
+        let value =
+            value.and_then(|value| {
+                               self.value_serializer
+                                   .serialize(&topic_name, value)
+                                   .map_err(|err| warn!("fail to serialize value, {}", err))
+                                   .ok()
+                           });
 
         let timestamp =
             timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);

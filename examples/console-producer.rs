@@ -29,8 +29,8 @@ use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
 use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
-use tokio_kafka::{Client, Compression, Producer, ProducerBuilder, ProducerRecord, RequiredAcks,
-                  StrSerializer};
+use tokio_kafka::{BytesSerializer, Client, Compression, Producer, ProducerBuilder, ProducerRecord,
+                  RequiredAcks};
 use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
@@ -183,7 +183,7 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .with_batch_size(config.batch_size)
         .with_ack_timeout(config.ack_timeout)
         .without_key_serializer()
-        .with_value_serializer(StrSerializer::<String>::default())
+        .with_value_serializer(BytesSerializer::default())
         .with_default_partitioner()
         .build()?;
 

@@ -80,7 +80,7 @@ impl<H> Partitioner for DefaultPartitioner<H>
                 self.records.fetch_add(1, Ordering::Relaxed)
             } % partitions.len();
 
-            trace!("send record to partition #{} base on {}",
+            trace!("partition record to #{} base on {}",
                    index,
                    key.map_or("round-robin", |_| "hash-key"));
 

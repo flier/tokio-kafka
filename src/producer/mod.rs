@@ -12,5 +12,5 @@ pub use self::config::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_M
                        ProducerConfig};
 pub use self::accumulator::{Accumulator, RecordAccumulator};
 pub use self::producer::KafkaProducer;
-pub use self::serialization::{NoopSerializer, Serializer, StrEncodingSerializer, StrSerializer};
+pub use self::serialization::{BytesSerializer, NoopSerializer, Serializer, StrEncodingSerializer};
 pub use self::builder::ProducerBuilder;
