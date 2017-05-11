@@ -23,7 +23,7 @@ use std::net::ToSocketAddrs;
 
 use getopts::Options;
 
-use futures::{Future, Stream};
+use futures::{Future, Stream, future};
 use tokio_core::reactor::Core;
 use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
@@ -31,7 +31,8 @@ use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
 use tokio_kafka::{BytesSerializer, Client, Compression, Producer, ProducerBuilder, ProducerRecord,
                   RequiredAcks};
-use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
+use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE,
+                          DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
 const DEFAULT_TOPIC: &str = "my-topic";
@@ -113,7 +114,7 @@ impl Config {
                topic_name: m.opt_str("topic")
                    .unwrap_or_else(|| DEFAULT_TOPIC.to_owned()),
                input_file: m.opt_str("input"),
-               batch_size: m.opt_str("batch-size").map_or(1, |s| s.parse().unwrap()),
+               batch_size: m.opt_str("batch-size").map_or(DEFAULT_BATCH_SIZE, |s| s.parse().unwrap()),
                compression: m.opt_str("compression")
                    .map(|s| s.parse().unwrap())
                    .unwrap_or_default(),
@@ -188,6 +189,7 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .build()?;
 
     let client = producer.client();
+    let handle = core.handle();
 
     let work = client
         .borrow_mut()
@@ -206,7 +208,7 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
                 .for_each(|line| {
                     trace!("sending line: {}", line);
 
-                    producer
+                    let produce = producer
                         .send(ProducerRecord::from_value(&config.topic_name, line))
                         .map(|md| {
                             trace!("sent to {} #{} @{}, ts={}, key_size={}, value_size={}",
@@ -215,9 +217,15 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
                                    md.offset,
                                    md.timestamp,
                                    md.serialized_key_size,
-                                   md.serialized_value_size)
+                                   md.serialized_value_size);
                         })
-                        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+                        .map_err(|err| {
+                                     warn!("fail to produce records, {}", err);
+                                 });
+
+                    handle.spawn(produce);
+
+                    future::ok(())
                 })
                 .map_err(Error::from)
         });
