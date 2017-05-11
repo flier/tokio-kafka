@@ -79,26 +79,23 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                    value: Option<Bytes>,
                    api_version: ApiVersion)
                    -> PushRecord {
-
         let mut batches = self.batches.borrow_mut();
         let batches = batches.entry(tp).or_insert_with(|| VecDeque::new());
 
         if let Some(batch) = batches.back_mut() {
-            let result = batch.push_record(timestamp, key.clone(), value.clone());
-
-            if let Ok(push_recrod) = result {
+            if let Ok(push_recrod) = batch.push_record(timestamp, key.clone(), value.clone()) {
                 return PushRecord::new(push_recrod);
             }
         }
 
         let mut batch = ProducerBatch::new(api_version, self.compression, self.batch_size);
 
-        let result = batch.push_record(timestamp, key, value);
+        match batch.push_record(timestamp, key, value) {
+            Ok(push_recrod) => {
+                batches.push_back(batch);
 
-        batches.push_back(batch);
-
-        match result {
-            Ok(push_recrod) => PushRecord::new(push_recrod),
+                PushRecord::new(push_recrod)
+            }
             Err(err) => PushRecord::new(future::err(err)),
         }
     }
@@ -154,7 +151,7 @@ pub struct Thunk {
 }
 
 impl Thunk {
-    pub fn send(self,
+    pub fn done(self,
                 topic_name: &str,
                 partition: PartitionId,
                 base_offset: Offset,

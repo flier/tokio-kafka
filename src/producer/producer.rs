@@ -57,24 +57,27 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
                     client
                         .borrow_mut()
                         .produce_records(acks, ack_timeout, vec![(tp, message_set)])
-                        .map(move |responses| if let Some(partitions) =
-                            responses.get(&topic_name.to_owned()) {
-                                 partitions
-                                     .iter()
-                                     .find(|&&(partition_id, _, _)| partition_id == partition)
-                                     .map(|&(_, error_code, offset)| for thunk in thunks {
-                                              match thunk.send(&topic_name,
-                                                               partition,
-                                                               offset,
-                                                               error_code.into()) {
-                                                  Ok(()) => {}
-                                                  Err(metadata) => {
-                                                      warn!("fail to send record metadata, {:?}",
-                                                            metadata)
-                                                  }
-                                              }
-                                          });
-                             })
+                        .map(move |responses| {
+                            responses
+                                .get(&topic_name)
+                                .map(|partitions| {
+                                    partitions
+                                        .iter()
+                                        .find(|&&(partition_id, _, _)| partition_id == partition)
+                                        .map(|&(_, error_code, offset)| for thunk in thunks {
+                                                 match thunk.done(&topic_name,
+                                                                  partition,
+                                                                  offset,
+                                                                  error_code.into()) {
+                                                     Ok(()) => {}
+                                                     Err(metadata) => {
+                                                         warn!("fail to send record metadata, {:?}",
+                                                               metadata)
+                                                     }
+                                                 }
+                                             });
+                                });
+                        })
                 })
                 .map_err(|err| {
                              warn!("fail to produce records, {}", err);
