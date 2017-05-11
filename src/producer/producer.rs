@@ -50,6 +50,8 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
             let produce = accumulators
                 .batches()
                 .for_each(move |(tp, batch)| {
+                    trace!("sending batch to {:?}: {:?}", tp, batch);
+
                     let topic_name: String = String::from(tp.topic_name.borrow());
                     let partition = tp.partition;
                     let (thunks, message_set) = batch.build();
@@ -81,7 +83,6 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
                 })
                 .map_err(|err| {
                              warn!("fail to produce records, {}", err);
-                             ()
                          });
 
             handle.spawn(produce);
@@ -174,8 +175,10 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
             .map_or(0, |api_version| api_version.max_version);
 
-        SendRecord::new(self.accumulators
-                            .push_record(tp, timestamp, key, value, api_version))
+        let result = self.accumulators
+            .push_record(tp, timestamp, key, value, api_version);
+
+        SendRecord::new(result)
     }
 
     fn flush(&mut self) -> Result<()> {

@@ -84,6 +84,8 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
 
         if let Some(batch) = batches.back_mut() {
             if let Ok(push_recrod) = batch.push_record(timestamp, key.clone(), value.clone()) {
+                trace!("push record to latest batch, {:?}", batch);
+
                 return PushRecord::new(push_recrod);
             }
         }
@@ -92,6 +94,8 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
 
         match batch.push_record(timestamp, key, value) {
             Ok(push_recrod) => {
+                trace!("push record to a new batch, {:?}", batch);
+
                 batches.push_back(batch);
 
                 PushRecord::new(push_recrod)
@@ -133,6 +137,8 @@ impl<'a> Stream for Batches<'a> {
 
             if is_full {
                 if let Some(batch) = batches.pop_front() {
+                    trace!("batch is ready to send, {:?}", batch);
+
                     return Ok(Async::Ready(Some((tp.clone(), batch))));
                 }
             }
@@ -142,6 +148,7 @@ impl<'a> Stream for Batches<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Thunk {
     sender: Sender<Result<RecordMetadata>>,
     relative_offset: Offset,
@@ -174,6 +181,7 @@ impl Thunk {
     }
 }
 
+#[derive(Debug)]
 pub struct ProducerBatch {
     builder: MessageSetBuilder,
     thunks: Vec<Thunk>,

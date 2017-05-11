@@ -219,6 +219,7 @@ named_args!(parse_message(api_version: ApiVersion)<Message>,
 );
 
 /// This class is used to write new log data in memory, i.e.
+#[derive(Debug)]
 pub struct MessageSetBuilder {
     api_version: ApiVersion,
     compression: Compression,
