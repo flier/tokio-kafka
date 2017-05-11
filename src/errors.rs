@@ -15,11 +15,20 @@ error_chain!{
         LockError
         ParseError(reason: String)
         CodecError(reason: &'static str)
-        UnsupportedApiKey(key: ApiKeys)
-        IllegalArgument(reason: String)
+        UnsupportedApiKey(key: ApiKeys) {
+            description("unsupported API key")
+            display("unsupported API key, {:?}", key)
+        }
+        IllegalArgument(reason: String) {
+            description("invalid argument")
+            display("invalid argument, {}", reason)
+        }
         InvalidResponse
         Canceled
-        KafkaError(code: KafkaCode)
+        KafkaError(code: KafkaCode) {
+            description("kafka error")
+            display("kafka error, {:?}", code)
+        }
         OtherError
     }
 }

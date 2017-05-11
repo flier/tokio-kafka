@@ -28,7 +28,7 @@ pub trait Accumulator<'a> {
                    api_version: ApiVersion)
                    -> PushRecord;
 
-    fn flush(&mut self) -> Result<()>;
+    fn flush(&mut self);
 }
 
 /// RecordAccumulator acts as a queue that accumulates records into ProducerRecord instances to be sent to the server.
@@ -83,10 +83,15 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
         let batches = batches.entry(tp).or_insert_with(|| VecDeque::new());
 
         if let Some(batch) = batches.back_mut() {
-            if let Ok(push_recrod) = batch.push_record(timestamp, key.clone(), value.clone()) {
-                trace!("push record to latest batch, {:?}", batch);
+            match batch.push_record(timestamp, key.clone(), value.clone()) {
+                Ok(push_recrod) => {
+                    trace!("pushed record to latest batch, {:?}", batch);
 
-                return PushRecord::new(push_recrod);
+                    return PushRecord::new(push_recrod);
+                }
+                Err(err) => {
+                    trace!("fail to push record, {}", err);
+                }
             }
         }
 
@@ -94,7 +99,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
 
         match batch.push_record(timestamp, key, value) {
             Ok(push_recrod) => {
-                trace!("push record to a new batch, {:?}", batch);
+                trace!("pushed record to a new batch, {:?}", batch);
 
                 batches.push_back(batch);
 
@@ -104,7 +109,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
         }
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) {
         for (_, batches) in self.batches.borrow_mut().iter_mut() {
             let api_version = batches.back().map(|batch| batch.api_version());
 
@@ -114,8 +119,6 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                                                      self.batch_size))
             }
         }
-
-        Ok(())
     }
 }
 
@@ -133,7 +136,7 @@ impl<'a> Stream for Batches<'a> {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         for (tp, batches) in self.batches.borrow_mut().iter_mut() {
             let is_full = batches.len() > 1 ||
-                          batches.back().map_or(false, |batches| batches.is_full());
+                          batches.back().map_or(false, |batch| batch.is_full());
 
             if is_full {
                 if let Some(batch) = batches.pop_front() {

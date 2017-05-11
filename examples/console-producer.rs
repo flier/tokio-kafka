@@ -224,6 +224,11 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
                                  });
 
                     handle.spawn(produce);
+                    handle.spawn(producer
+                                     .flush(false)
+                                     .map_err(|err| {
+                                                  warn!("fail to flush records, {}", err);
+                                              }));
 
                     future::ok(())
                 })

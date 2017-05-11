@@ -1,6 +1,5 @@
 use std::hash::Hash;
 
-use errors::Result;
 use protocol::{Offset, PartitionId, Timestamp};
 use client::StaticBoxFuture;
 
@@ -100,7 +99,8 @@ pub trait Producer<'a> {
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord;
 
     /// Flush any accumulated records from the producer.
-    fn flush(&mut self) -> Result<()>;
+    fn flush(&mut self, force: bool) -> Flush;
 }
 
 pub type SendRecord = StaticBoxFuture<RecordMetadata>;
+pub type Flush = StaticBoxFuture;

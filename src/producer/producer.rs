@@ -11,11 +11,10 @@ use time;
 use futures::{Future, Stream};
 use tokio_core::reactor::Handle;
 
-use errors::Result;
 use protocol::ApiKeys;
 use network::TopicPartition;
 use client::{Client, Cluster, KafkaClient, Metadata, ToMilliseconds};
-use producer::{Accumulator, Partitioner, Producer, ProducerBuilder, ProducerConfig,
+use producer::{Accumulator, Flush, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordAccumulator, SendRecord, Serializer};
 
 pub struct KafkaProducer<'a, K, V, P> {
@@ -40,56 +39,9 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
                                                   config.compression,
                                                   Duration::from_millis(config.linger),
                                                   Duration::from_millis(config.retry_backoff));
-        let handle = client.handle().clone();
-        let client = Rc::new(RefCell::new(client));
-        {
-            let client = client.clone();
-            let acks = config.acks;
-            let ack_timeout = config.ack_timeout();
-
-            let produce = accumulators
-                .batches()
-                .for_each(move |(tp, batch)| {
-                    trace!("sending batch to {:?}: {:?}", tp, batch);
-
-                    let topic_name: String = String::from(tp.topic_name.borrow());
-                    let partition = tp.partition;
-                    let (thunks, message_set) = batch.build();
-
-                    client
-                        .borrow_mut()
-                        .produce_records(acks, ack_timeout, vec![(tp, message_set)])
-                        .map(move |responses| {
-                            responses
-                                .get(&topic_name)
-                                .map(|partitions| {
-                                    partitions
-                                        .iter()
-                                        .find(|&&(partition_id, _, _)| partition_id == partition)
-                                        .map(|&(_, error_code, offset)| for thunk in thunks {
-                                                 match thunk.done(&topic_name,
-                                                                  partition,
-                                                                  offset,
-                                                                  error_code.into()) {
-                                                     Ok(()) => {}
-                                                     Err(metadata) => {
-                                                         warn!("fail to send record metadata, {:?}",
-                                                               metadata)
-                                                     }
-                                                 }
-                                             });
-                                });
-                        })
-                })
-                .map_err(|err| {
-                             warn!("fail to produce records, {}", err);
-                         });
-
-            handle.spawn(produce);
-        }
 
         KafkaProducer {
-            client: client,
+            client: Rc::new(RefCell::new(client)),
             config: config,
             accumulators: accumulators,
             key_serializer: key_serializer,
@@ -181,20 +133,61 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         SendRecord::new(result)
     }
 
-    fn flush(&mut self) -> Result<()> {
-        self.accumulators.flush()
+    fn flush(&mut self, force: bool) -> Flush {
+        if force {
+            self.accumulators.flush();
+        }
+
+        let client = self.client.clone();
+        let acks = self.config.acks;
+        let ack_timeout = self.config.ack_timeout();
+
+        let flush = self.accumulators
+            .batches()
+            .for_each(move |(tp, batch)| {
+                trace!("sending batch to {:?}: {:?}", tp, batch);
+
+                let topic_name: String = String::from(tp.topic_name.borrow());
+                let partition = tp.partition;
+                let (thunks, message_set) = batch.build();
+
+                client
+                    .borrow_mut()
+                    .produce_records(acks, ack_timeout, vec![(tp, message_set)])
+                    .map(move |responses| {
+                        responses
+                            .get(&topic_name)
+                            .map(|partitions| {
+                                partitions
+                                    .iter()
+                                    .find(|&&(partition_id, _, _)| partition_id == partition)
+                                    .map(|&(_, error_code, offset)| for thunk in thunks {
+                                             match thunk.done(&topic_name,
+                                                              partition,
+                                                              offset,
+                                                              error_code.into()) {
+                                                 Ok(()) => {}
+                                                 Err(metadata) => {
+                                                     warn!("fail to send record metadata, {:?}",
+                                                           metadata)
+                                                 }
+                                             }
+                                         });
+                            });
+                    })
+            });
+
+        Flush::new(flush)
     }
 }
 
 #[cfg(test)]
 pub mod mock {
-    use std::mem;
     use std::hash::Hash;
 
     use futures::future;
 
-    use errors::Result;
-    use producer::{Producer, ProducerRecord, RecordMetadata, SendRecord};
+    use producer::{Flush, Producer, ProducerRecord, RecordMetadata, SendRecord};
 
     #[derive(Debug, Default)]
     pub struct MockProducer<K, V>
@@ -213,11 +206,11 @@ pub mod mock {
         fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
             self.records.push((record.key, record.value));
 
-            SendRecord::new(future::ok(RecordMetadata { ..unsafe { mem::zeroed() } }))
+            SendRecord::new(future::ok(RecordMetadata::default()))
         }
 
-        fn flush(&mut self) -> Result<()> {
-            Ok(())
+        fn flush(&mut self, force: bool) -> Flush {
+            Flush::new(future::ok(()))
         }
     }
 }
