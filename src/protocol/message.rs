@@ -248,6 +248,10 @@ impl MessageSetBuilder {
         }
     }
 
+    pub fn api_version(&self) -> ApiVersion {
+        self.api_version
+    }
+
     pub fn is_full(&self) -> bool {
         !self.message_set.is_empty() && self.write_limit <= self.estimated_bytes()
     }

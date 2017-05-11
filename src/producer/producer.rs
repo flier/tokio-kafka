@@ -8,13 +8,14 @@ use std::net::SocketAddr;
 
 use time;
 
-use futures::{Future, Stream, future};
+use futures::{Future, Stream};
 use tokio_core::reactor::Handle;
 
+use errors::Result;
 use protocol::ApiKeys;
 use network::TopicPartition;
 use client::{Client, Cluster, KafkaClient, Metadata, ToMilliseconds};
-use producer::{Accumulator, FlushProducer, Partitioner, Producer, ProducerBuilder, ProducerConfig,
+use producer::{Accumulator, Partitioner, Producer, ProducerBuilder, ProducerConfig,
                ProducerRecord, RecordAccumulator, SendRecord, Serializer};
 
 pub struct KafkaProducer<'a, K, V, P> {
@@ -174,8 +175,8 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                             .push_record(tp, timestamp, key, value, api_version))
     }
 
-    fn flush(&mut self) -> FlushProducer {
-        FlushProducer::new(future::ok(()))
+    fn flush(&mut self) -> Result<()> {
+        self.accumulators.flush()
     }
 }
 
@@ -186,7 +187,8 @@ pub mod mock {
 
     use futures::future;
 
-    use producer::{FlushProducer, Producer, ProducerRecord, RecordMetadata, SendRecord};
+    use errors::Result;
+    use producer::{Producer, ProducerRecord, RecordMetadata, SendRecord};
 
     #[derive(Debug, Default)]
     pub struct MockProducer<K, V>
@@ -208,8 +210,8 @@ pub mod mock {
             SendRecord::new(future::ok(RecordMetadata { ..unsafe { mem::zeroed() } }))
         }
 
-        fn flush(&mut self) -> FlushProducer {
-            FlushProducer::new(future::ok(()))
+        fn flush(&mut self) -> Result<()> {
+            Ok(())
         }
     }
 }

@@ -13,7 +13,7 @@ pub trait Serializer {
     type Error;
 
     fn serialize_to<B: BufMut>(&self,
-                               topic: &str,
+                               topic_name: &str,
                                data: Self::Item,
                                buf: &mut B)
                                -> result::Result<(), Error>;
@@ -34,11 +34,15 @@ impl<T> Serializer for NoopSerializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<B: BufMut>(&self, _topic: &str, _data: Self::Item, _buf: &mut B) -> Result<()> {
+    fn serialize_to<B: BufMut>(&self,
+                               _topic_name: &str,
+                               _data: Self::Item,
+                               _buf: &mut B)
+                               -> Result<()> {
         Ok(())
     }
 
-    fn serialize(&self, topic_name: &str, data: Self::Item) -> result::Result<Bytes, Error> {
+    fn serialize(&self, _topic_name: &str, _data: Self::Item) -> result::Result<Bytes, Error> {
         Ok(Bytes::new())
     }
 }

@@ -1,5 +1,6 @@
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::ops::Deref;
 use std::time::{Duration, Instant};
 use std::collections::{HashMap, VecDeque};
 
@@ -26,6 +27,8 @@ pub trait Accumulator<'a> {
                    value: Option<Bytes>,
                    api_version: ApiVersion)
                    -> PushRecord;
+
+    fn flush(&mut self) -> Result<()>;
 }
 
 /// RecordAccumulator acts as a queue that accumulates records into ProducerRecord instances to be sent to the server.
@@ -99,9 +102,24 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
             Err(err) => PushRecord::new(future::err(err)),
         }
     }
+
+    fn flush(&mut self) -> Result<()> {
+        for (_, batches) in self.batches.borrow_mut().iter_mut() {
+            let api_version = batches.back().map(|batch| batch.api_version());
+
+            if let Some(api_version) = api_version {
+                batches.push_back(ProducerBatch::new(api_version,
+                                                     self.compression,
+                                                     self.batch_size))
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub type PushRecord = StaticBoxFuture<RecordMetadata>;
+pub type Flush = StaticBoxFuture;
 
 pub struct Batches<'a> {
     batches: Rc<RefCell<HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>>>,
@@ -166,6 +184,14 @@ pub struct ProducerBatch {
     last_push_time: Instant,
 }
 
+impl Deref for ProducerBatch {
+    type Target = MessageSetBuilder;
+
+    fn deref(&self) -> &Self::Target {
+        &self.builder
+    }
+}
+
 impl ProducerBatch {
     pub fn new(api_version: ApiVersion, compression: Compression, write_limit: usize) -> Self {
         let now = Instant::now();
@@ -176,10 +202,6 @@ impl ProducerBatch {
             create_time: now,
             last_push_time: now,
         }
-    }
-
-    pub fn is_full(&self) -> bool {
-        self.builder.is_full()
     }
 
     pub fn push_record(&mut self,
