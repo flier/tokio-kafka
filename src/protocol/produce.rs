@@ -41,7 +41,7 @@ impl<'a> Encodable for ProduceRequest<'a> {
             buf.put_str::<T, _>(Some(topic.topic_name))?;
             buf.put_array::<T, _, _>(topic.partitions, |buf, partition| {
                 buf.put_i32::<T>(partition.partition);
-                encoder.encode::<T>(partition.message_set, buf)
+                encoder.encode::<T>(&partition.message_set, buf)
             })
         })
     }

@@ -111,13 +111,13 @@ impl MessageSetEncoder {
         MessageSetEncoder { api_version: api_version }
     }
 
-    pub fn encode<T: ByteOrder>(&self, message_set: MessageSet, buf: &mut BytesMut) -> Result<()> {
+    pub fn encode<T: ByteOrder>(&self, message_set: &MessageSet, buf: &mut BytesMut) -> Result<()> {
         let mut offset: Offset = 0;
 
         let size_off = buf.len();
         buf.put_i32::<T>(0);
 
-        for message in message_set.messages {
+        for message in message_set.messages.iter() {
             let offset = if message.compression == Compression::None {
                 message.offset
             } else {
@@ -125,7 +125,7 @@ impl MessageSetEncoder {
                 offset - 1
             };
 
-            self.encode_message::<T>(message, offset, buf)?;
+            self.encode_message::<T>(&message, offset, buf)?;
         }
 
         let message_set_size = buf.len() - size_off - mem::size_of::<i32>();
@@ -136,7 +136,7 @@ impl MessageSetEncoder {
     }
 
     fn encode_message<T: ByteOrder>(&self,
-                                    message: Message,
+                                    message: &Message,
                                     offset: Offset,
                                     buf: &mut BytesMut)
                                     -> Result<()> {
@@ -155,11 +155,15 @@ impl MessageSetEncoder {
                    });
 
         if self.api_version > 0 {
-            buf.put_i64::<T>(message.timestamp.unwrap_or_default().value());
+            buf.put_i64::<T>(message
+                                 .timestamp
+                                 .as_ref()
+                                 .map(|timestamp| timestamp.value())
+                                 .unwrap_or_default());
         }
 
-        buf.put_bytes::<T, _>(message.key)?;
-        buf.put_bytes::<T, _>(message.value)?;
+        buf.put_bytes::<T, _>(message.key.as_ref())?;
+        buf.put_bytes::<T, _>(message.value.as_ref())?;
 
         let size = buf.len() - crc_off;
         let crc = crc32::checksum_ieee(&buf[data_off..]);
