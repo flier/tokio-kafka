@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::borrow::{Borrow, Cow};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -71,6 +71,12 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
         self.client.clone()
     }
 
+    pub fn as_client(&self) -> Ref<KafkaClient<'a>> {
+        let client: &RefCell<KafkaClient> = self.client.borrow();
+
+        client.borrow()
+    }
+
     pub fn from_client(client: KafkaClient<'a>) -> ProducerBuilder<'a, K, V, P> {
         ProducerBuilder::from_client(client)
     }
@@ -104,11 +110,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             timestamp,
         } = record;
 
-        let cluster: Rc<Metadata> = {
-            let client: &RefCell<KafkaClient> = self.client.borrow();
-
-            client.borrow().metadata()
-        };
+        let cluster: Rc<Metadata> = self.as_client().metadata();
 
         let partition = self.partitioner
             .partition(&topic_name,
@@ -159,11 +161,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         }
 
         let client = self.client.clone();
-        let handle = {
-            let client: &RefCell<KafkaClient> = self.client.borrow();
-
-            client.borrow().handle().clone()
-        };
+        let handle = self.as_client().handle().clone();
         let acks = self.config.acks;
         let ack_timeout = self.config.ack_timeout();
         let retry_strategy = self.config.retry_strategy();
