@@ -15,8 +15,23 @@ use errors::Error;
 use protocol::{ApiKeys, RequiredAcks};
 use network::TopicPartition;
 use client::{Client, Cluster, KafkaClient, Metadata, StaticBoxFuture, ToMilliseconds};
-use producer::{Accumulator, Flush, Partitioner, Producer, ProducerBatch, ProducerBuilder,
-               ProducerConfig, ProducerRecord, RecordAccumulator, SendRecord, Serializer};
+use producer::{Accumulator, Partitioner, ProducerBatch, ProducerBuilder, ProducerConfig,
+               ProducerRecord, RecordAccumulator, RecordMetadata, Serializer};
+
+pub trait Producer<'a> {
+    type Key: Hash;
+    type Value;
+
+    /// Send the given record asynchronously and
+    /// return a future which will eventually contain the response information.
+    fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord;
+
+    /// Flush any accumulated records from the producer.
+    fn flush(&mut self, force: bool) -> Flush;
+}
+
+pub type SendRecord = StaticBoxFuture<RecordMetadata>;
+pub type Flush = StaticBoxFuture;
 
 pub struct KafkaProducer<'a, K, V, P> {
     client: Rc<RefCell<KafkaClient<'a>>>,

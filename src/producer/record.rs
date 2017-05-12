@@ -1,7 +1,6 @@
 use std::hash::Hash;
 
 use protocol::{Offset, PartitionId, Timestamp};
-use client::StaticBoxFuture;
 
 /// A key/value pair to be sent to Kafka.
 ///
@@ -89,18 +88,3 @@ pub struct RecordMetadata {
     /// The size of the serialized, uncompressed value in bytes.
     pub serialized_value_size: usize,
 }
-
-pub trait Producer<'a> {
-    type Key: Hash;
-    type Value;
-
-    /// Send the given record asynchronously and
-    /// return a future which will eventually contain the response information.
-    fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord;
-
-    /// Flush any accumulated records from the producer.
-    fn flush(&mut self, force: bool) -> Flush;
-}
-
-pub type SendRecord = StaticBoxFuture<RecordMetadata>;
-pub type Flush = StaticBoxFuture;
