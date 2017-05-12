@@ -24,8 +24,8 @@ use tokio_timer::Timer;
 
 use errors::{Error, ErrorKind};
 use network::{ConnectionId, KafkaConnection, KafkaConnector, Pool, Pooled, TopicPartition};
-use protocol::{ApiKeys, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet, Offset,
-               PartitionId, RequiredAcks};
+use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
+               Offset, PartitionId, RequiredAcks};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
 use client::{ClientConfig, Cluster, Metadata};
 
@@ -43,7 +43,9 @@ pub trait Client<'a>: 'static {
                        records: Vec<(TopicPartition<'a>, MessageSet)>)
                        -> ProduceRecords;
 
-    fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
+    fn fetch_offsets<I, S>(&self, topic_names: I, offset: FetchOffset) -> FetchOffsets
+        where I: Iterator<Item = S>,
+              S: AsRef<str>;
 
     fn load_metadata(&mut self) -> LoadMetadata;
 }
@@ -217,6 +219,50 @@ impl<'a> KafkaClient<'a>
 
         FetchMetadata::new(response)
     }
+
+    fn topics_by_broker<I, S>
+        (&self,
+         topic_names: I)
+         -> HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<PartitionId>>>
+        where I: Iterator<Item = S>,
+              S: AsRef<str>
+    {
+        let metadata = self.state.borrow().metadata();
+
+        let mut topics = HashMap::new();
+
+        for topic_name in topic_names {
+            if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
+                for topic_partition in partitions {
+                    if let Some(broker) = metadata.leader_for(&topic_partition) {
+                        let addr = broker
+                            .addr()
+                            .to_socket_addrs()
+                            .unwrap()
+                            .next()
+                            .unwrap(); // TODO
+                        let api_version = broker
+                            .api_versions()
+                            .map_or(0, |api_versions| {
+                                api_versions
+                                    .find(ApiKeys::ListOffsets)
+                                    .map(|api_version| api_version.max_version)
+                                    .unwrap_or(0)
+                            });
+                        topics
+                            .entry((addr, api_version))
+                            .or_insert_with(|| HashMap::new())
+                            .entry(topic_name.as_ref().into())
+                            .or_insert_with(|| Vec::new())
+                            .push(topic_partition.partition);
+                    }
+                }
+
+            }
+        }
+
+        topics
+    }
 }
 
 impl<'a> Client<'a> for KafkaClient<'a>
@@ -261,44 +307,11 @@ impl<'a> Client<'a> for KafkaClient<'a>
         ProduceRecords::new(response)
     }
 
-    fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets {
-        let topics = {
-            let metadata = self.state.borrow().metadata();
-
-            let mut topics = HashMap::new();
-
-            for topic_name in topic_names {
-                if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
-                    for topic_partition in partitions {
-                        if let Some(broker) = metadata.leader_for(&topic_partition) {
-                            let addr = broker
-                                .addr()
-                                .to_socket_addrs()
-                                .unwrap()
-                                .next()
-                                .unwrap(); // TODO
-                            let api_version = broker
-                                .api_versions()
-                                .map_or(0, |api_versions| {
-                                    api_versions
-                                        .find(ApiKeys::ListOffsets)
-                                        .map(|api_version| api_version.max_version)
-                                        .unwrap_or(0)
-                                });
-                            topics
-                                .entry((addr, api_version))
-                                .or_insert_with(|| HashMap::new())
-                                .entry(Cow::from(topic_name.as_ref().to_owned()))
-                                .or_insert_with(|| Vec::new())
-                                .push(topic_partition.partition);
-                        }
-                    }
-
-                }
-            }
-
-            topics
-        };
+    fn fetch_offsets<I, S>(&self, topic_names: I, offset: FetchOffset) -> FetchOffsets
+        where I: Iterator<Item = S>,
+              S: AsRef<str>
+    {
+        let topics = self.topics_by_broker(topic_names);
 
         let responses = {
             let mut correlation_ids = topics
