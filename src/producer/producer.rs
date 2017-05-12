@@ -213,14 +213,16 @@ impl<'a> Sender<'a>
         Sender { inner: Rc::new(RefCell::new(inner)) }
     }
 
+    pub fn as_inner(&self) -> Ref<SenderInner<'a>> {
+        let inner: &RefCell<SenderInner> = self.inner.borrow();
+
+        inner.borrow()
+    }
+
     pub fn send_batch(&self) -> SendBatch<'a> {
         let inner = self.inner.clone();
 
-        let send_batch = {
-            let inner: &RefCell<SenderInner> = inner.borrow();
-
-            inner.borrow().send_batch()
-        };
+        let send_batch = self.as_inner().send_batch();
 
         SendBatch::new(inner, StaticBoxFuture::new(send_batch))
     }
@@ -229,6 +231,12 @@ impl<'a> Sender<'a>
 impl<'a> SenderInner<'a>
     where Self: 'static
 {
+    pub fn as_client(&self) -> Ref<KafkaClient<'a>> {
+        let client: &RefCell<KafkaClient> = self.client.borrow();
+
+        client.borrow()
+    }
+
     pub fn send_batch(&self) -> StaticBoxFuture {
         trace!("sending batch to {:?}: {:?}", self.tp, self.message_set);
 
@@ -239,9 +247,7 @@ impl<'a> SenderInner<'a>
         let message_set = Cow::Owned(self.message_set.clone());
         let thunks = self.thunks.clone();
 
-        let client: &RefCell<KafkaClient> = self.client.borrow();
-
-        let send_batch = client
+        let send_batch = self.as_client()
             .borrow()
             .produce_records(acks,
                              ack_timeout,
