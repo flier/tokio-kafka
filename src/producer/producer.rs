@@ -104,8 +104,11 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             timestamp,
         } = record;
 
-        let client: &RefCell<KafkaClient> = self.client.borrow();
-        let cluster: Rc<Metadata> = client.borrow().metadata();
+        let cluster: Rc<Metadata> = {
+            let client: &RefCell<KafkaClient> = self.client.borrow();
+
+            client.borrow().metadata()
+        };
 
         let partition = self.partitioner
             .partition(&topic_name,
@@ -217,8 +220,8 @@ impl<'a> Sender<'a>
 
         let send_batch = {
             let inner: &RefCell<SenderInner> = inner.borrow();
-            let inner = inner.borrow();
-            inner.send_batch()
+
+            inner.borrow().send_batch()
         };
 
         SendBatch::new(inner, StaticBoxFuture::new(send_batch))
