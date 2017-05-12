@@ -20,6 +20,7 @@ use tokio_proto::streaming::{Body, Message};
 use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
+use tokio_timer::Timer;
 
 use errors::{Error, ErrorKind};
 use network::{ConnectionId, KafkaConnection, KafkaConnector, Pool, Pooled, TopicPartition};
@@ -88,6 +89,7 @@ pub struct KafkaClient<'a> {
     config: ClientConfig,
     handle: Handle,
     connector: KafkaConnector,
+    timer: Timer,
     pool: Pool<SocketAddr, TokioClient<'a>>,
     state: Rc<RefCell<State>>,
 }
@@ -122,6 +124,7 @@ impl<'a> KafkaClient<'a>
             config: config,
             handle: handle.clone(),
             connector: KafkaConnector::new(handle),
+            timer: Timer::default(),
             pool: pool,
             state: Rc::new(RefCell::new(State::new())),
         }
@@ -129,6 +132,10 @@ impl<'a> KafkaClient<'a>
 
     pub fn handle(&self) -> &Handle {
         &self.handle
+    }
+
+    pub fn timer(&self) -> &Timer {
+        &self.timer
     }
 
     pub fn metadata(&self) -> Rc<Metadata> {
@@ -184,7 +191,8 @@ impl<'a> KafkaClient<'a>
                  })
             .map_err(Error::from);
 
-        FutureResponse::new(response)
+        FutureResponse::new(self.timer
+                                .timeout(response, self.config.request_timeout()))
     }
 
     fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata

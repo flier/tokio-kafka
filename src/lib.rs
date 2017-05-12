@@ -45,7 +45,7 @@ mod producer;
 mod consumer;
 
 pub mod consts {
-    pub use client::DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS;
+    pub use client::{DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_REQUEST_TIMEOUT_MILLS};
     pub use producer::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_MAX_REQUEST_SIZE};
 }
 

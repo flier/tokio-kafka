@@ -43,10 +43,21 @@ error_chain!{
             description("kafka error")
             display("kafka error, {:?}", code)
         }
+        TimeoutError(reason: String) {
+            description("operation timed out")
+            display("operation timed out, {:?}", reason)
+        }
     }
 }
 
 unsafe impl Sync for Error {}
+unsafe impl Send for Error {}
+
+impl<'a> From<Cow<'a, str>> for Error {
+    fn from(s: Cow<'a, str>) -> Self {
+        ErrorKind::Msg(String::from(s.borrow())).into()
+    }
+}
 
 impl<T> From<::std::sync::PoisonError<T>> for Error {
     fn from(err: ::std::sync::PoisonError<T>) -> Self {
@@ -62,9 +73,9 @@ impl<P> From<::nom::verbose_errors::Err<P>> for Error
     }
 }
 
-impl<'a> From<Cow<'a, str>> for Error {
-    fn from(s: Cow<'a, str>) -> Self {
-        ErrorKind::Msg(String::from(s.borrow())).into()
+impl<T> From<::tokio_timer::TimeoutError<T>> for Error {
+    fn from(err: ::tokio_timer::TimeoutError<T>) -> Self {
+        ErrorKind::TimeoutError(StdError::description(&err).to_owned()).into()
     }
 }
 

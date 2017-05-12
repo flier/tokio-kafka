@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use time::Timespec;
 
 pub const DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS: u64 = 5000;
+pub const DEFAULT_REQUEST_TIMEOUT_MILLS: u64 = 30_000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientConfig {
@@ -21,6 +22,10 @@ pub struct ClientConfig {
     /// Close idle connections after the number of milliseconds specified by this config.
     #[serde(rename = "connection.max.idle.ms")]
     pub max_connection_idle: u64,
+
+    /// the maximum amount of time the client will wait for the response of a request.
+    #[serde(rename = "request.timeout.ms")]
+    pub request_timeout: u64,
 }
 
 impl Default for ClientConfig {
@@ -29,6 +34,7 @@ impl Default for ClientConfig {
             hosts: vec![],
             client_id: None,
             max_connection_idle: DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
+            request_timeout: DEFAULT_REQUEST_TIMEOUT_MILLS,
         }
     }
 }
@@ -42,12 +48,14 @@ impl ClientConfig {
             ..Default::default()
         }
     }
-}
 
-impl ClientConfig {
     pub fn max_connection_idle(&self) -> Duration {
         Duration::new((self.max_connection_idle / 1000) as u64,
                       (self.max_connection_idle % 1000) as u32 * 1000_000)
+    }
+
+    pub fn request_timeout(&self) -> Duration {
+        Duration::from_millis(self.request_timeout)
     }
 }
 
@@ -78,14 +86,15 @@ mod tests {
         let config = ClientConfig {
             hosts: vec!["127.0.0.1:9092".parse().unwrap()],
             client_id: Some("tokio-kafka".to_owned()),
-            max_connection_idle: 5000,
+            ..Default::default()
         };
         let json = r#"{
   "bootstrap.servers": [
     "127.0.0.1:9092"
   ],
   "client.id": "tokio-kafka",
-  "connection.max.idle.ms": 5000
+  "connection.max.idle.ms": 5000,
+  "request.timeout.ms": 30000
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);

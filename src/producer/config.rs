@@ -111,7 +111,8 @@ mod tests {
   "client": {
     "bootstrap.servers": [],
     "client.id": null,
-    "connection.max.idle.ms": 5000
+    "connection.max.idle.ms": 5000,
+    "request.timeout.ms": 30000
   },
   "retries": 0,
   "acks": "one",
