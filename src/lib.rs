@@ -1,3 +1,4 @@
+#![recursion_limit="128"]
 #![allow(dead_code)]
 
 #[macro_use]
@@ -26,6 +27,7 @@ extern crate tokio_io;
 extern crate tokio_proto;
 extern crate tokio_service;
 extern crate tokio_timer;
+extern crate tokio_retry;
 extern crate tokio_tls;
 extern crate native_tls;
 

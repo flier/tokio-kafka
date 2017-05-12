@@ -16,10 +16,6 @@ pub const DEFAULT_RETRY_BACKOFF_MILLIS: u64 = 100;
 pub struct ProducerConfig {
     pub client: ClientConfig,
 
-    /// Setting a value greater than zero will cause the client to resend any record
-    /// whose send fails with a potentially transient error.
-    pub retries: usize,
-
     /// The number of acknowledgments the producer requires the leader
     /// to have received before considering a request complete.
     pub acks: RequiredAcks,
@@ -41,6 +37,10 @@ pub struct ProducerConfig {
     /// that arrive in between request transmissions into a single batched request.
     #[serde(rename="linger.ms")]
     pub linger: u64,
+
+    /// Setting a value greater than zero will cause the client to resend any record
+    /// whose send fails with a potentially transient error.
+    pub retries: usize,
 
     /// The amount of time to wait before attempting to retry a failed request to a given topic partition.
     /// This avoids repeatedly sending requests in a tight loop under some failure scenarios.
@@ -114,12 +114,12 @@ mod tests {
     "connection.max.idle.ms": 5000,
     "request.timeout.ms": 30000
   },
-  "retries": 0,
   "acks": "one",
   "compression.type": "none",
   "batch.size": 16384,
   "max.request.size": 1048576,
   "linger.ms": 0,
+  "retries": 0,
   "retry.backoff.ms": 100,
   "timeout.ms": 30000
 }"#;

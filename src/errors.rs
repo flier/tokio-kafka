@@ -47,6 +47,10 @@ error_chain!{
             description("operation timed out")
             display("operation timed out, {:?}", reason)
         }
+        RetryError(reason: String) {
+            description("retry failed")
+            display("retry failed, {:?}", reason)
+        }
     }
 }
 
@@ -76,6 +80,12 @@ impl<P> From<::nom::verbose_errors::Err<P>> for Error
 impl<T> From<::tokio_timer::TimeoutError<T>> for Error {
     fn from(err: ::tokio_timer::TimeoutError<T>) -> Self {
         ErrorKind::TimeoutError(StdError::description(&err).to_owned()).into()
+    }
+}
+
+impl<E: StdError> From<::tokio_retry::Error<E>> for Error {
+    fn from(err: ::tokio_retry::Error<E>) -> Self {
+        ErrorKind::RetryError(StdError::description(&err).to_owned()).into()
     }
 }
 

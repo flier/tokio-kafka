@@ -123,7 +123,6 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
 }
 
 pub type PushRecord = StaticBoxFuture<RecordMetadata>;
-pub type Flush = StaticBoxFuture;
 
 pub struct Batches<'a> {
     batches: Rc<RefCell<HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>>>,
