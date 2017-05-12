@@ -20,13 +20,13 @@ pub struct ProduceRequest<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceTopic<'a> {
     pub topic_name: Cow<'a, str>,
-    pub partitions: Vec<ProducePartition>,
+    pub partitions: Vec<ProducePartition<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProducePartition {
+pub struct ProducePartition<'a> {
     pub partition: PartitionId,
-    pub message_set: MessageSet,
+    pub message_set: Cow<'a, MessageSet>,
 }
 
 impl<'a> Encodable for ProduceRequest<'a> {
@@ -199,7 +199,7 @@ mod tests {
                 topic_name: "topic".into(),
                 partitions: vec![ProducePartition {
                     partition: 1,
-                    message_set: MessageSet {
+                    message_set: Cow::Owned(MessageSet {
                         messages: vec![Message {
                             offset: 0,
                             compression: Compression::None,
@@ -207,7 +207,7 @@ mod tests {
                             value: Some(Bytes::from(&b"value"[..])),
                             timestamp: Some(MessageTimestamp::CreateTime(456)),
                         }],
-                    },
+                    }),
                 }],
             }],
         };

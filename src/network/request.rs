@@ -42,7 +42,7 @@ impl<'a> KafkaRequest<'a> {
                            client_id: Option<Cow<'a, str>>,
                            required_acks: RequiredAcks,
                            timeout: Duration,
-                           batches: Vec<(TopicPartition<'a>, MessageSet)>)
+                           batches: Vec<(TopicPartition<'a>, Cow<'a, MessageSet>)>)
                            -> KafkaRequest<'a> {
         let request = ProduceRequest {
             header: RequestHeader {

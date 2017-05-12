@@ -1,6 +1,6 @@
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::time::Duration;
@@ -10,13 +10,15 @@ use time;
 
 use futures::{Future, Poll, Stream};
 use tokio_core::reactor::Handle;
+use tokio_retry::Retry;
+use tokio_retry::strategy::{ExponentialBackoff, jitter};
 
 use errors::Error;
-use protocol::{ApiKeys, RequiredAcks};
+use protocol::{ApiKeys, MessageSet, RequiredAcks};
 use network::TopicPartition;
 use client::{Client, Cluster, KafkaClient, Metadata, StaticBoxFuture, ToMilliseconds};
 use producer::{Accumulator, Partitioner, ProducerBatch, ProducerBuilder, ProducerConfig,
-               ProducerRecord, RecordAccumulator, RecordMetadata, Serializer};
+               ProducerRecord, RecordAccumulator, RecordMetadata, Serializer, Thunk};
 
 pub trait Producer<'a> {
     type Key: Hash;
@@ -155,23 +157,45 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         }
 
         let client = self.client.clone();
+        let handle = {
+            let client: &RefCell<KafkaClient> = self.client.borrow();
+
+            client.borrow().handle().clone()
+        };
         let acks = self.config.acks;
         let ack_timeout = self.config.ack_timeout();
+        let retry_strategy = ExponentialBackoff::from_millis(self.config.retry_backoff)
+            .map(jitter)
+            .take(self.config.retries)
+            .collect::<Vec<Duration>>();
 
         Flush::new(self.accumulators
                        .batches()
                        .for_each(move |(tp, batch)| {
-                                     SendBatch::new(client.clone(), acks, ack_timeout, tp, batch)
-                                 }))
+            let sender = Sender::new(client.clone(), acks, ack_timeout, tp, batch);
+
+            Retry::spawn(handle.clone(),
+                         retry_strategy.clone(),
+                         move || sender.send_batch())
+                    .map_err(Error::from)
+        }))
     }
 }
 
-pub struct SendBatch<'a> {
-    client: Rc<RefCell<KafkaClient<'a>>>,
-    future: StaticBoxFuture,
+struct Sender<'a> {
+    inner: Rc<RefCell<SenderInner<'a>>>,
 }
 
-impl<'a> SendBatch<'a>
+pub struct SenderInner<'a> {
+    client: Rc<RefCell<KafkaClient<'a>>>,
+    acks: RequiredAcks,
+    ack_timeout: Duration,
+    tp: TopicPartition<'a>,
+    thunks: Rc<RefCell<Option<Vec<Thunk>>>>,
+    message_set: MessageSet,
+}
+
+impl<'a> Sender<'a>
     where Self: 'static
 {
     pub fn new(client: Rc<RefCell<KafkaClient<'a>>>,
@@ -179,16 +203,56 @@ impl<'a> SendBatch<'a>
                ack_timeout: Duration,
                tp: TopicPartition<'a>,
                batch: ProducerBatch)
-               -> SendBatch<'a> {
-        trace!("sending batch to {:?}: {:?}", tp, batch);
-
-        let topic_name: String = String::from(tp.topic_name.borrow());
-        let partition = tp.partition;
+               -> Sender<'a> {
         let (thunks, message_set) = batch.build();
+        let inner = SenderInner {
+            client: client,
+            acks: acks,
+            ack_timeout: ack_timeout,
+            tp: tp,
+            thunks: Rc::new(RefCell::new(Some(thunks))),
+            message_set: message_set,
+        };
+        Sender { inner: Rc::new(RefCell::new(inner)) }
+    }
 
-        let future = client
-            .borrow_mut()
-            .produce_records(acks, ack_timeout, vec![(tp, message_set)])
+    pub fn send_batch(&self) -> SendBatch<'a> {
+        let inner = self.inner.clone();
+
+        let send_batch = {
+            let inner: &RefCell<SenderInner> = inner.borrow();
+            let inner = inner.borrow();
+            inner.send_batch()
+        };
+
+        SendBatch::new(inner, StaticBoxFuture::new(send_batch))
+    }
+}
+
+impl<'a> SenderInner<'a>
+    where Self: 'static
+{
+    pub fn send_batch(&self) -> StaticBoxFuture {
+        trace!("sending batch to {:?}: {:?}", self.tp, self.message_set);
+
+        let topic_name: String = String::from(self.tp.topic_name.borrow());
+        let partition = self.tp.partition;
+        let acks = self.acks;
+        let ack_timeout = self.ack_timeout;
+        let message_set = Cow::Owned(self.message_set.clone());
+        let thunks = self.thunks.clone();
+
+        let client: &RefCell<KafkaClient> = self.client.borrow();
+
+        let send_batch = client
+            .borrow()
+            .produce_records(acks,
+                             ack_timeout,
+                             vec![(TopicPartition {
+                                       topic_name: topic_name.clone().into(),
+                                       partition: partition,
+                                   },
+                                   message_set)])
             .map(move |responses| {
                 responses
                     .get(&topic_name)
@@ -196,23 +260,41 @@ impl<'a> SendBatch<'a>
                         partitions
                             .iter()
                             .find(|&&(partition_id, _, _)| partition_id == partition)
-                            .map(|&(_, error_code, offset)| for thunk in thunks {
-                                     match thunk.done(&topic_name,
-                                                      partition,
-                                                      offset,
-                                                      error_code.into()) {
-                                         Ok(()) => {}
-                                         Err(metadata) => {
-                                             warn!("fail to send record metadata, {:?}", metadata)
-                                         }
-                                     }
-                                 });
+                            .map(|&(_, error_code, offset)| {
+                                let thunks: &RefCell<Option<Vec<Thunk>>> = thunks.borrow();
+
+                                if let Some(thunks) = thunks.borrow_mut().take() {
+                                    for thunk in thunks {
+                                        match thunk.done(&topic_name,
+                                                         partition,
+                                                         offset,
+                                                         error_code.into()) {
+                                            Ok(()) => {}
+                                            Err(metadata) => {
+                                                warn!("fail to send record metadata, {:?}",
+                                                      metadata)
+                                            }
+                                        }
+                                    }
+                                }
+                            });
                     });
             });
 
+        StaticBoxFuture::new(send_batch)
+    }
+}
+
+pub struct SendBatch<'a> {
+    inner: Rc<RefCell<SenderInner<'a>>>,
+    future: StaticBoxFuture,
+}
+
+impl<'a> SendBatch<'a> {
+    pub fn new(inner: Rc<RefCell<SenderInner<'a>>>, future: StaticBoxFuture) -> SendBatch<'a> {
         SendBatch {
-            client: client,
-            future: StaticBoxFuture::new(future),
+            inner: inner,
+            future: future,
         }
     }
 }
