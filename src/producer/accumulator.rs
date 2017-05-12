@@ -1,21 +1,18 @@
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::ops::Deref;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::collections::{HashMap, VecDeque};
 
 use bytes::Bytes;
 
-use futures::{Async, Future, Poll, Stream, future};
-use futures::unsync::oneshot::{Canceled, Receiver, Sender, channel};
+use futures::{Async, Poll, Stream, future};
 
-use errors::{Error, ErrorKind, Result};
+use errors::Error;
 use compression::Compression;
-use protocol::{ApiVersion, KafkaCode, MessageSet, MessageSetBuilder, Offset, PartitionId,
-               Timestamp};
+use protocol::{ApiVersion, Timestamp};
 use network::TopicPartition;
 use client::StaticBoxFuture;
-use producer::RecordMetadata;
+use producer::{ProducerBatch, RecordMetadata};
 
 /// Accumulator acts as a queue that accumulates records
 pub trait Accumulator<'a> {
@@ -147,114 +144,5 @@ impl<'a> Stream for Batches<'a> {
         }
 
         Ok(Async::NotReady)
-    }
-}
-
-#[derive(Debug)]
-pub struct Thunk {
-    sender: Sender<Result<RecordMetadata>>,
-    relative_offset: Offset,
-    timestamp: Timestamp,
-    key_size: usize,
-    value_size: usize,
-}
-
-impl Thunk {
-    pub fn done(self,
-                topic_name: &str,
-                partition: PartitionId,
-                base_offset: Offset,
-                error_code: KafkaCode)
-                -> ::std::result::Result<(), Result<RecordMetadata>> {
-        let result = if error_code == KafkaCode::None {
-            Ok(RecordMetadata {
-                   topic_name: topic_name.to_owned(),
-                   partition: partition,
-                   offset: base_offset + self.relative_offset,
-                   timestamp: self.timestamp,
-                   serialized_key_size: self.key_size,
-                   serialized_value_size: self.value_size,
-               })
-        } else {
-            Err(ErrorKind::KafkaError(error_code).into())
-        };
-
-        self.sender.send(result)
-    }
-}
-
-#[derive(Debug)]
-pub struct ProducerBatch {
-    builder: MessageSetBuilder,
-    thunks: Vec<Thunk>,
-    create_time: Instant,
-    last_push_time: Instant,
-}
-
-impl Deref for ProducerBatch {
-    type Target = MessageSetBuilder;
-
-    fn deref(&self) -> &Self::Target {
-        &self.builder
-    }
-}
-
-impl ProducerBatch {
-    pub fn new(api_version: ApiVersion, compression: Compression, write_limit: usize) -> Self {
-        let now = Instant::now();
-
-        ProducerBatch {
-            builder: MessageSetBuilder::new(api_version, compression, write_limit, 0),
-            thunks: vec![],
-            create_time: now,
-            last_push_time: now,
-        }
-    }
-
-    pub fn push_record(&mut self,
-                       timestamp: Timestamp,
-                       key: Option<Bytes>,
-                       value: Option<Bytes>)
-                       -> Result<FutureRecordMetadata> {
-        let key_size = key.as_ref().map_or(0, |b| b.len());
-        let value_size = value.as_ref().map_or(0, |b| b.len());
-
-        let relative_offset = self.builder.push(timestamp, key, value)?;
-
-        let (sender, receiver) = channel();
-
-        self.thunks
-            .push(Thunk {
-                      sender: sender,
-                      relative_offset: relative_offset,
-                      timestamp: timestamp,
-                      key_size: key_size,
-                      value_size: value_size,
-                  });
-        self.last_push_time = Instant::now();
-
-        Ok(FutureRecordMetadata { receiver: receiver })
-    }
-
-    pub fn build(self) -> (Vec<Thunk>, MessageSet) {
-        (self.thunks, self.builder.build())
-    }
-}
-
-pub struct FutureRecordMetadata {
-    receiver: Receiver<Result<RecordMetadata>>,
-}
-
-impl Future for FutureRecordMetadata {
-    type Item = RecordMetadata;
-    type Error = Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.receiver.poll() {
-            Ok(Async::Ready(Ok(metadata))) => Ok(Async::Ready(metadata)),
-            Ok(Async::Ready(Err(err))) => Err(err),
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(Canceled) => bail!(ErrorKind::Canceled("produce record")),
-        }
     }
 }
