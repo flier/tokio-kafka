@@ -43,9 +43,7 @@ pub trait Client<'a>: 'static {
                        records: Vec<(TopicPartition<'a>, MessageSet)>)
                        -> ProduceRecords;
 
-    fn fetch_offsets<I, S>(&self, topic_names: I, offset: FetchOffset) -> FetchOffsets
-        where I: Iterator<Item = S>,
-              S: AsRef<str>;
+    fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
 
     fn load_metadata(&mut self) -> LoadMetadata;
 }
@@ -220,18 +218,17 @@ impl<'a> KafkaClient<'a>
         FetchMetadata::new(response)
     }
 
-    fn topics_by_broker<I, S>
+    fn topics_by_broker<S>
         (&self,
-         topic_names: I)
+         topic_names: &[S])
          -> HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<PartitionId>>>
-        where I: Iterator<Item = S>,
-              S: AsRef<str>
+        where S: AsRef<str>
     {
         let metadata = self.state.borrow().metadata();
 
         let mut topics = HashMap::new();
 
-        for topic_name in topic_names {
+        for topic_name in topic_names.iter() {
             if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
                 for topic_partition in partitions {
                     if let Some(broker) = metadata.leader_for(&topic_partition) {
@@ -252,7 +249,7 @@ impl<'a> KafkaClient<'a>
                         topics
                             .entry((addr, api_version))
                             .or_insert_with(|| HashMap::new())
-                            .entry(topic_name.as_ref().into())
+                            .entry(topic_name.as_ref().to_owned().into())
                             .or_insert_with(|| Vec::new())
                             .push(topic_partition.partition);
                     }
@@ -307,10 +304,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
         ProduceRecords::new(response)
     }
 
-    fn fetch_offsets<I, S>(&self, topic_names: I, offset: FetchOffset) -> FetchOffsets
-        where I: Iterator<Item = S>,
-              S: AsRef<str>
-    {
+    fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets {
         let topics = self.topics_by_broker(topic_names);
 
         let responses = {
