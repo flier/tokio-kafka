@@ -129,13 +129,13 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                                    .ok()
                            });
 
-        let timestamp =
-            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
-
         let tp = TopicPartition {
             topic_name: topic_name.into(),
             partition: partition,
         };
+
+        let timestamp =
+            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
         let api_version = cluster
             .leader_for(&tp)
@@ -143,14 +143,14 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
             .map_or(0, |api_version| api_version.max_version);
 
-        let result = self.accumulators
-            .push_record(tp, timestamp, key, value, api_version);
-
-        SendRecord::new(result)
+        SendRecord::new(self.accumulators
+                            .push_record(tp, timestamp, key, value, api_version))
     }
 
     fn flush(&mut self, force: bool) -> Flush {
         if force {
+            trace!("force to flush batches");
+
             self.accumulators.flush();
         }
 
@@ -158,13 +158,11 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         let acks = self.config.acks;
         let ack_timeout = self.config.ack_timeout();
 
-        let flush = self.accumulators
-            .batches()
-            .for_each(move |(tp, batch)| {
-                          SendBatch::new(client.clone(), acks, ack_timeout, tp, batch)
-                      });
-
-        Flush::new(flush)
+        Flush::new(self.accumulators
+                       .batches()
+                       .for_each(move |(tp, batch)| {
+                                     SendBatch::new(client.clone(), acks, ack_timeout, tp, batch)
+                                 }))
     }
 }
 
