@@ -28,12 +28,12 @@ pub enum KafkaRequest<'a> {
 
 impl<'a> KafkaRequest<'a> {
     pub fn header(&self) -> &RequestHeader {
-        match self {
-            &KafkaRequest::Produce(ref req) => &req.header,
-            &KafkaRequest::Fetch(ref req) => &req.header,
-            &KafkaRequest::ListOffsets(ref req) => &req.header,
-            &KafkaRequest::Metadata(ref req) => &req.header,
-            &KafkaRequest::ApiVersions(ref req) => &req.header,
+        match *self {
+            KafkaRequest::Produce(ref req) => &req.header,
+            KafkaRequest::Fetch(ref req) => &req.header,
+            KafkaRequest::ListOffsets(ref req) => &req.header,
+            KafkaRequest::Metadata(ref req) => &req.header,
+            KafkaRequest::ApiVersions(ref req) => &req.header,
         }
     }
 

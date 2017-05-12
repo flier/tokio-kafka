@@ -151,7 +151,7 @@ impl<'a, I, K> Sink for KafkaConnection<'a, I, K>
                              }
                          })
             }
-            Frame::Body { .. } => Ok(AsyncSink::Ready),
+            Frame::Body { .. } |
             Frame::Error { .. } => Ok(AsyncSink::Ready),
         }
     }

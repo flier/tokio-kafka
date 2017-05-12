@@ -95,7 +95,11 @@ impl<K, T> Pool<K, T>
 
         match entry {
             Some(entry) => {
-                inner.idle.entry(key).or_insert(Vec::new()).push(entry);
+                inner
+                    .idle
+                    .entry(key)
+                    .or_insert_with(Vec::new)
+                    .push(entry);
             }
             None => trace!("found parked {:?}", key),
         }
@@ -134,7 +138,7 @@ impl<K, T> Pool<K, T>
             .borrow_mut()
             .parked
             .entry(key)
-            .or_insert(VecDeque::new())
+            .or_insert_with(VecDeque::new)
             .push_back(tx);
     }
 }

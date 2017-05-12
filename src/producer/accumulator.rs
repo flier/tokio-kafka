@@ -28,7 +28,7 @@ pub trait Accumulator<'a> {
     fn flush(&mut self);
 }
 
-/// RecordAccumulator acts as a queue that accumulates records into ProducerRecord instances to be sent to the server.
+/// `RecordAccumulator` acts as a queue that accumulates records into `ProducerRecord` instances to be sent to the server.
 pub struct RecordAccumulator<'a> {
     /// The size to use when allocating ProducerRecord instances
     batch_size: usize,
@@ -77,7 +77,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                    api_version: ApiVersion)
                    -> PushRecord {
         let mut batches = self.batches.borrow_mut();
-        let batches = batches.entry(tp).or_insert_with(|| VecDeque::new());
+        let batches = batches.entry(tp).or_insert_with(VecDeque::new);
 
         if let Some(batch) = batches.back_mut() {
             match batch.push_record(timestamp, key.clone(), value.clone()) {

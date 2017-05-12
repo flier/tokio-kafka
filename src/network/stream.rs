@@ -74,8 +74,8 @@ impl Future for Connect {
         loop {
             let state;
 
-            let ref domain = self.domain;
-            let ref connector = self.connector;
+            let domain = &self.domain;
+            let connector = &self.connector;
 
             match self.state {
                 State::Resolving(ref mut future) => {
@@ -108,8 +108,7 @@ impl Future for Connect {
                             if let (&Some(ref domain), &Some(ref connector)) = (domain, connector) {
                                 trace!("TCP connected to {}, start TLS handshake", addr);
 
-                                state = State::Handshaking(connector.connect_async(&domain,
-                                                                                   stream),
+                                state = State::Handshaking(connector.connect_async(domain, stream),
                                                            addr);
                             } else {
                                 trace!("TCP connected to {}", addr);
@@ -163,34 +162,34 @@ pub enum KafkaStream {
 
 impl fmt::Debug for KafkaStream {
     fn fmt(&self, w: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &KafkaStream::Tcp(ref addr, _) => write!(w, "TcpStream({})", addr),
-            &KafkaStream::Tls(ref addr, _) => write!(w, "TlsStream({})", addr),
+        match *self {
+            KafkaStream::Tcp(ref addr, _) => write!(w, "TcpStream({})", addr),
+            KafkaStream::Tls(ref addr, _) => write!(w, "TlsStream({})", addr),
         }
     }
 }
 
 impl Read for KafkaStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            &mut KafkaStream::Tcp(_, ref mut stream) => stream.read(buf),
-            &mut KafkaStream::Tls(_, ref mut stream) => stream.read(buf),
+        match *self {
+            KafkaStream::Tcp(_, ref mut stream) => stream.read(buf),
+            KafkaStream::Tls(_, ref mut stream) => stream.read(buf),
         }
     }
 }
 
 impl Write for KafkaStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            &mut KafkaStream::Tcp(_, ref mut stream) => stream.write(buf),
-            &mut KafkaStream::Tls(_, ref mut stream) => stream.write(buf),
+        match *self {
+            KafkaStream::Tcp(_, ref mut stream) => stream.write(buf),
+            KafkaStream::Tls(_, ref mut stream) => stream.write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        match self {
-            &mut KafkaStream::Tcp(_, ref mut stream) => stream.flush(),
-            &mut KafkaStream::Tls(_, ref mut stream) => stream.flush(),
+        match *self {
+            KafkaStream::Tcp(_, ref mut stream) => stream.flush(),
+            KafkaStream::Tls(_, ref mut stream) => stream.flush(),
         }
     }
 }
@@ -199,18 +198,18 @@ impl AsyncRead for KafkaStream {}
 
 impl AsyncWrite for KafkaStream {
     fn shutdown(&mut self) -> Poll<(), io::Error> {
-        match self {
-            &mut KafkaStream::Tcp(_, ref mut stream) => AsyncWrite::shutdown(stream),
-            &mut KafkaStream::Tls(_, ref mut stream) => stream.shutdown(),
+        match *self {
+            KafkaStream::Tcp(_, ref mut stream) => AsyncWrite::shutdown(stream),
+            KafkaStream::Tls(_, ref mut stream) => stream.shutdown(),
         }
     }
 }
 
 impl KafkaStream {
     pub fn addr(&self) -> &SocketAddr {
-        match self {
-            &KafkaStream::Tcp(ref addr, _) |
-            &KafkaStream::Tls(ref addr, _) => addr,
+        match *self {
+            KafkaStream::Tcp(ref addr, _) |
+            KafkaStream::Tls(ref addr, _) => addr,
         }
     }
 }

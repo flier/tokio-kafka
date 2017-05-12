@@ -44,7 +44,7 @@ pub type NodeId = i32;
 pub type ReplicaId = i32;
 pub type RequiredAck = i16;
 
-/// The following are the numeric codes that the ApiKey in the request can take for each of the below request types.
+/// The following are the numeric codes that the `ApiKey` in the request can take for each of the below request types.
 #[derive(Debug, Copy, Clone)]
 #[repr(i16)]
 pub enum ApiKeys {

@@ -18,7 +18,7 @@ pub trait WriteExt: BufMut + Sized {
             Some(v) if v.as_ref().len() > i16::max_value() as usize => {
                 bail!(ErrorKind::EncodeError("string exceeds the maximum size."))
             }
-            Some(v) if v.as_ref().len() > 0 => {
+            Some(v) if !v.as_ref().is_empty() => {
                 self.put_i16::<T>(v.as_ref().len() as i16);
                 self.put_slice(v.as_ref().as_bytes());
                 Ok(())
@@ -35,7 +35,7 @@ pub trait WriteExt: BufMut + Sized {
             Some(v) if v.as_ref().len() > i32::max_value() as usize => {
                 bail!(ErrorKind::EncodeError("bytes exceeds the maximum size."))
             }
-            Some(v) if v.as_ref().len() > 0 => {
+            Some(v) if !v.as_ref().is_empty() => {
                 self.put_i32::<T>(v.as_ref().len() as i32);
                 self.put_slice(v.as_ref());
                 Ok(())
@@ -157,28 +157,28 @@ lazy_static!{
 
 fn reset_color(v: &mut Vec<u8>) {
     v.push(0x1B);
-    v.push('[' as u8);
+    v.push(b'[');
     v.push(0);
-    v.push('m' as u8);
+    v.push(b'm');
 }
 
 fn write_color(v: &mut Vec<u8>, color: u8) {
     v.push(0x1B);
-    v.push('[' as u8);
+    v.push(b'[');
     v.push(1);
-    v.push(';' as u8);
+    v.push(b';');
     let s = color.to_string();
     let bytes = s.as_bytes();
     v.extend(bytes.iter().cloned());
-    v.push('m' as u8);
+    v.push(b'm');
 }
 
-fn print_codes<E>(colors: HashMap<u32, (nom::ErrorKind<E>, u8)>,
-                  names: HashMap<u32, &str>)
+fn print_codes<E>(colors: &HashMap<u32, (nom::ErrorKind<E>, u8)>,
+                  names: &HashMap<u32, &str>)
                   -> String {
     let mut v = Vec::new();
-    for (code, &(ref err, color)) in &colors {
-        if let Some(&s) = names.get(&code) {
+    for (code, &(ref err, color)) in colors {
+        if let Some(&s) = names.get(code) {
             let bytes = s.as_bytes();
             write_color(&mut v, color);
             v.extend(bytes.iter().cloned());
@@ -189,7 +189,7 @@ fn print_codes<E>(colors: HashMap<u32, (nom::ErrorKind<E>, u8)>,
             v.extend(bytes.iter().cloned());
         }
         reset_color(&mut v);
-        v.push(' ' as u8);
+        v.push(b' ');
     }
     reset_color(&mut v);
 
@@ -202,12 +202,12 @@ fn generate_colors(v: &[(nom::ErrorKind<u32>, usize, usize)])
     let mut color = 0;
 
     for &(ref c, _, _) in v.iter() {
-        if let &nom::ErrorKind::Custom(code) = c {
+        if let nom::ErrorKind::Custom(code) = *c {
             h.insert(code, (c.clone(), color + 31));
         } else {
-            h.insert(error_to_u32(&c), (c.clone(), color + 31));
+            h.insert(error_to_u32(c), (c.clone(), color + 31));
         }
-        color = color + 1 % 7;
+        color = (color + 1) % 7;
     }
 
     h
@@ -217,7 +217,7 @@ pub fn display_parse_error<O>(input: &[u8], res: IResult<&[u8], O>) {
     if let Some(v) = prepare_errors(input, res) {
         let colors = generate_colors(&v);
         trace!("parsers codes: {}\n{}",
-               print_codes(colors, PARSE_TAGS.clone()),
+               print_codes(&colors, &PARSE_TAGS),
                print_offsets(input, 0, &v));
     }
 }

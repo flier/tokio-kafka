@@ -47,9 +47,9 @@ enum State {
 
 impl fmt::Debug for State {
     fn fmt(&self, w: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &State::Resolving(_) => write!(w, "resolving"),
-            &State::Resolved(ref addrs) => write!(w, "resolved({:?})", addrs),
+        match *self {
+            State::Resolving(_) => write!(w, "resolving"),
+            State::Resolved(ref addrs) => write!(w, "resolved({:?})", addrs),
         }
     }
 }

@@ -150,10 +150,10 @@ impl<'a> KafkaClient<'a>
             let handle = self.handle.clone();
             let connection_id = self.state.borrow_mut().next_connection_id();
             let pool = self.pool.clone();
-            let key = Rc::new(addr.clone());
+            let key = Rc::new(*addr);
 
             self.connector
-                .tcp(addr.clone())
+                .tcp(*addr)
                 .map(move |io| {
                     let (tx, rx) = oneshot::channel();
                     let client = RemoteClient {
@@ -185,7 +185,7 @@ impl<'a> KafkaClient<'a>
                      debug!("received message: {:?}", msg);
 
                      match msg {
-                         Message::WithoutBody(res) => res,
+                         Message::WithoutBody(res) |
                          Message::WithBody(res, _) => res,
                      }
                  })
@@ -248,9 +248,9 @@ impl<'a> KafkaClient<'a>
                             });
                         topics
                             .entry((addr, api_version))
-                            .or_insert_with(|| HashMap::new())
+                            .or_insert_with(HashMap::new)
                             .entry(topic_name.as_ref().to_owned().into())
-                            .or_insert_with(|| Vec::new())
+                            .or_insert_with(Vec::new)
                             .push(topic_partition.partition);
                     }
                 }
@@ -284,7 +284,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
                           let produce = res.topics
                               .iter()
-                              .map(|ref topic| {
+                              .map(|topic| {
                     (topic.topic_name.to_owned(),
                      topic
                          .partitions
@@ -373,8 +373,8 @@ impl<'a> Client<'a> for KafkaClient<'a>
                     for &(ref topic_name, ref partitions) in topics {
                         offsets
                             .entry(topic_name.clone())
-                            .or_insert_with(|| Vec::new())
-                            .extend(partitions.iter().map(|partition| partition.clone()))
+                            .or_insert_with(Vec::new)
+                            .extend(partitions.iter().cloned())
                     }
                     offsets
                 })

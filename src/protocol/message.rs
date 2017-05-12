@@ -36,9 +36,9 @@ const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
 /// A message set is just a sequence of messages with offset and size information.
 ///  This format happens to be used both for the on-disk storage on the broker and the on-the-wire format.
 ///
-/// MessageSet => [Offset MessageSize Message]
+/// `MessageSet` => [Offset `MessageSize` Message]
 ///   Offset => int64
-///   MessageSize => int32
+///   `MessageSize` => int32
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageSet {
     pub messages: Vec<Message>,
@@ -55,17 +55,17 @@ impl Deref for MessageSet {
 /// Message format
 ///
 /// v0
-/// Message => Crc MagicByte Attributes Key Value
+/// Message => Crc `MagicByte` Attributes Key Value
 ///   Crc => int32
-///   MagicByte => int8
+///   `MagicByte` => int8
 ///   Attributes => int8
 ///   Key => bytes
 ///   Value => bytes
 ///
 /// v1 (supported since 0.10.0)
-/// Message => Crc MagicByte Attributes Key Value
+/// Message => Crc `MagicByte` Attributes Key Value
 ///   Crc => int32
-///   MagicByte => int8
+///   `MagicByte` => int8
 ///   Attributes => int8
 ///   Timestamp => int64
 ///   Key => bytes
@@ -87,9 +87,9 @@ pub enum MessageTimestamp {
 
 impl MessageTimestamp {
     pub fn value(&self) -> Timestamp {
-        match self {
-            &MessageTimestamp::CreateTime(v) |
-            &MessageTimestamp::LogAppendTime(v) => v,
+        match *self {
+            MessageTimestamp::CreateTime(v) |
+            MessageTimestamp::LogAppendTime(v) => v,
         }
     }
 }
@@ -117,7 +117,7 @@ impl MessageSetEncoder {
         let size_off = buf.len();
         buf.put_i32::<T>(0);
 
-        for message in message_set.messages.iter() {
+        for message in &message_set.messages {
             let offset = if message.compression == Compression::None {
                 message.offset
             } else {
@@ -125,7 +125,7 @@ impl MessageSetEncoder {
                 offset - 1
             };
 
-            self.encode_message::<T>(&message, offset, buf)?;
+            self.encode_message::<T>(message, offset, buf)?;
         }
 
         let message_set_size = buf.len() - size_off - mem::size_of::<i32>();

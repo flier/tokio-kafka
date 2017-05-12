@@ -20,12 +20,12 @@ pub enum KafkaResponse {
 
 impl KafkaResponse {
     pub fn api_key(&self) -> ApiKeys {
-        match self {
-            &KafkaResponse::Produce(_) => ApiKeys::Produce,
-            &KafkaResponse::Fetch(_) => ApiKeys::Fetch,
-            &KafkaResponse::ListOffsets(_) => ApiKeys::ListOffsets,
-            &KafkaResponse::Metadata(_) => ApiKeys::Metadata,
-            &KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
+        match *self {
+            KafkaResponse::Produce(_) => ApiKeys::Produce,
+            KafkaResponse::Fetch(_) => ApiKeys::Fetch,
+            KafkaResponse::ListOffsets(_) => ApiKeys::ListOffsets,
+            KafkaResponse::Metadata(_) => ApiKeys::Metadata,
+            KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
         }
     }
 
