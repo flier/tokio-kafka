@@ -2,6 +2,8 @@ use std::time::Duration;
 use std::ops::{Deref, DerefMut};
 use std::net::SocketAddr;
 
+use tokio_retry::strategy::{ExponentialBackoff, jitter};
+
 use compression::Compression;
 use protocol::RequiredAcks;
 use client::ClientConfig;
@@ -95,6 +97,13 @@ impl ProducerConfig {
 
     pub fn ack_timeout(&self) -> Duration {
         Duration::from_millis(self.ack_timeout)
+    }
+
+    pub fn retry_strategy(&self) -> Vec<Duration> {
+        ExponentialBackoff::from_millis(self.retry_backoff)
+            .map(jitter)
+            .take(self.retries)
+            .collect()
     }
 }
 

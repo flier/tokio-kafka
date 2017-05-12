@@ -11,7 +11,6 @@ use time;
 use futures::{Future, Poll, Stream};
 use tokio_core::reactor::Handle;
 use tokio_retry::Retry;
-use tokio_retry::strategy::{ExponentialBackoff, jitter};
 
 use errors::Error;
 use protocol::{ApiKeys, MessageSet, RequiredAcks};
@@ -164,10 +163,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         };
         let acks = self.config.acks;
         let ack_timeout = self.config.ack_timeout();
-        let retry_strategy = ExponentialBackoff::from_millis(self.config.retry_backoff)
-            .map(jitter)
-            .take(self.config.retries)
-            .collect::<Vec<Duration>>();
+        let retry_strategy = self.config.retry_strategy();
 
         Flush::new(self.accumulators
                        .batches()
