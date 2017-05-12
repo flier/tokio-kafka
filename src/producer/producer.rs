@@ -8,14 +8,15 @@ use std::net::SocketAddr;
 
 use time;
 
-use futures::{Future, Stream};
+use futures::{Future, Poll, Stream};
 use tokio_core::reactor::Handle;
 
-use protocol::ApiKeys;
+use errors::Error;
+use protocol::{ApiKeys, RequiredAcks};
 use network::TopicPartition;
-use client::{Client, Cluster, KafkaClient, Metadata, ToMilliseconds};
-use producer::{Accumulator, Flush, Partitioner, Producer, ProducerBuilder, ProducerConfig,
-               ProducerRecord, RecordAccumulator, SendRecord, Serializer};
+use client::{Client, Cluster, KafkaClient, Metadata, StaticBoxFuture, ToMilliseconds};
+use producer::{Accumulator, Flush, Partitioner, Producer, ProducerBatch, ProducerBuilder,
+               ProducerConfig, ProducerRecord, RecordAccumulator, SendRecord, Serializer};
 
 pub struct KafkaProducer<'a, K, V, P> {
     client: Rc<RefCell<KafkaClient<'a>>>,
@@ -145,39 +146,70 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         let flush = self.accumulators
             .batches()
             .for_each(move |(tp, batch)| {
-                trace!("sending batch to {:?}: {:?}", tp, batch);
-
-                let topic_name: String = String::from(tp.topic_name.borrow());
-                let partition = tp.partition;
-                let (thunks, message_set) = batch.build();
-
-                client
-                    .borrow_mut()
-                    .produce_records(acks, ack_timeout, vec![(tp, message_set)])
-                    .map(move |responses| {
-                        responses
-                            .get(&topic_name)
-                            .map(|partitions| {
-                                partitions
-                                    .iter()
-                                    .find(|&&(partition_id, _, _)| partition_id == partition)
-                                    .map(|&(_, error_code, offset)| for thunk in thunks {
-                                             match thunk.done(&topic_name,
-                                                              partition,
-                                                              offset,
-                                                              error_code.into()) {
-                                                 Ok(()) => {}
-                                                 Err(metadata) => {
-                                                     warn!("fail to send record metadata, {:?}",
-                                                           metadata)
-                                                 }
-                                             }
-                                         });
-                            });
-                    })
-            });
+                          SendBatch::new(client.clone(), acks, ack_timeout, tp, batch)
+                      });
 
         Flush::new(flush)
+    }
+}
+
+pub struct SendBatch<'a> {
+    client: Rc<RefCell<KafkaClient<'a>>>,
+    future: StaticBoxFuture,
+}
+
+impl<'a> SendBatch<'a>
+    where Self: 'static
+{
+    pub fn new(client: Rc<RefCell<KafkaClient<'a>>>,
+               acks: RequiredAcks,
+               ack_timeout: Duration,
+               tp: TopicPartition<'a>,
+               batch: ProducerBatch)
+               -> SendBatch<'a> {
+        trace!("sending batch to {:?}: {:?}", tp, batch);
+
+        let topic_name: String = String::from(tp.topic_name.borrow());
+        let partition = tp.partition;
+        let (thunks, message_set) = batch.build();
+
+        let future = client
+            .borrow_mut()
+            .produce_records(acks, ack_timeout, vec![(tp, message_set)])
+            .map(move |responses| {
+                responses
+                    .get(&topic_name)
+                    .map(|partitions| {
+                        partitions
+                            .iter()
+                            .find(|&&(partition_id, _, _)| partition_id == partition)
+                            .map(|&(_, error_code, offset)| for thunk in thunks {
+                                     match thunk.done(&topic_name,
+                                                      partition,
+                                                      offset,
+                                                      error_code.into()) {
+                                         Ok(()) => {}
+                                         Err(metadata) => {
+                                             warn!("fail to send record metadata, {:?}", metadata)
+                                         }
+                                     }
+                                 });
+                    });
+            });
+
+        SendBatch {
+            client: client,
+            future: StaticBoxFuture::new(future),
+        }
+    }
+}
+
+impl<'a> Future for SendBatch<'a> {
+    type Item = ();
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.future.poll()
     }
 }
 
