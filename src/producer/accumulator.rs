@@ -57,7 +57,10 @@ impl<'a> RecordAccumulator<'a> {
     }
 
     pub fn batches(&self) -> Batches<'a> {
-        Batches { batches: self.batches.clone() }
+        Batches {
+            batches: self.batches.clone(),
+            linger: self.linger,
+        }
     }
 }
 
@@ -122,6 +125,7 @@ pub type PushRecord = StaticBoxFuture<RecordMetadata>;
 
 pub struct Batches<'a> {
     batches: Rc<RefCell<HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>>>,
+    linger: Duration,
 }
 
 impl<'a> Stream for Batches<'a> {
@@ -130,14 +134,19 @@ impl<'a> Stream for Batches<'a> {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         for (tp, batches) in self.batches.borrow_mut().iter_mut() {
-            let is_full = batches.len() > 1 ||
-                          batches.back().map_or(false, |batch| batch.is_full());
+            loop {
+                let ready = batches
+                    .back()
+                    .map_or(false, |batch| {
+                        batch.is_full() || batch.create_time().elapsed() >= self.linger
+                    });
 
-            if is_full {
-                if let Some(batch) = batches.pop_front() {
-                    trace!("batch is ready to send, {:?}", batch);
+                if ready {
+                    if let Some(batch) = batches.pop_front() {
+                        trace!("batch is ready to send, {:?}", batch);
 
-                    return Ok(Async::Ready(Some((tp.clone(), batch))));
+                        return Ok(Async::Ready(Some((tp.clone(), batch))));
+                    }
                 }
             }
         }

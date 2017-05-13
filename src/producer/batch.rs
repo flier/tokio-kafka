@@ -73,6 +73,14 @@ impl ProducerBatch {
         }
     }
 
+    pub fn create_time(&self) -> &Instant {
+        &self.create_time
+    }
+
+    pub fn last_push_time(&self) -> &Instant {
+        &self.last_push_time
+    }
+
     pub fn push_record(&mut self,
                        timestamp: Timestamp,
                        key: Option<Bytes>,
