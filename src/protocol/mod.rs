@@ -71,6 +71,12 @@ pub enum ApiKeys {
     DeleteTopics = 20,
 }
 
+impl ApiKeys {
+    pub fn as_api_key(&self) -> ApiKey {
+        unsafe { mem::transmute(*self) }
+    }
+}
+
 impl From<ApiKey> for ApiKeys {
     fn from(v: ApiKey) -> Self {
         unsafe { mem::transmute(v) }

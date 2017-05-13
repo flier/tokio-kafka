@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use bytes::{ByteOrder, BytesMut};
 
 use nom::{be_i16, be_i32};
@@ -40,7 +42,19 @@ pub struct UsableApiVersion {
 #[derive(Clone, Debug)]
 pub struct UsableApiVersions(Vec<UsableApiVersion>);
 
+impl Deref for UsableApiVersions {
+    type Target = [UsableApiVersion];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl UsableApiVersions {
+    pub fn new(api_versions: Vec<UsableApiVersion>) -> Self {
+        UsableApiVersions(api_versions)
+    }
+
     pub fn find(&self, api_key: ApiKeys) -> Option<&UsableApiVersion> {
         self.0.iter().find(|v| v.api_key == api_key as ApiKey)
     }

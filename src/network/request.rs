@@ -130,6 +130,22 @@ impl<'a> KafkaRequest<'a> {
 
         KafkaRequest::Metadata(request)
     }
+
+    pub fn fetch_api_versions(api_version: ApiVersion,
+                              correlation_id: CorrelationId,
+                              client_id: Option<Cow<'a, str>>)
+                              -> Self {
+        let request = ApiVersionsRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::ApiVersions as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+        };
+
+        KafkaRequest::ApiVersions(request)
+    }
 }
 
 impl<'a> Encodable for KafkaRequest<'a> {

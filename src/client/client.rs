@@ -25,9 +25,9 @@ use tokio_timer::Timer;
 use errors::{Error, ErrorKind};
 use network::{ConnectionId, KafkaConnection, KafkaConnector, Pool, Pooled, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
-               Offset, PartitionId, RequiredAcks};
+               Offset, PartitionId, RequiredAcks, UsableApiVersions};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
-use client::{ClientConfig, Cluster, Metadata};
+use client::{Broker, ClientConfig, Cluster, Metadata};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
@@ -217,6 +217,31 @@ impl<'a> KafkaClient<'a>
                       });
 
         FetchMetadata::new(response)
+    }
+
+    fn fetch_api_versions(&self, broker: &Broker) -> FetchApiVersions {
+        debug!("fetch API versions for broker: {:?}", broker);
+
+        let addr = broker
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
+
+        let api_version = 0;
+        let correlation_id = self.state.borrow_mut().next_correlation_id();
+        let client_id = self.config.client_id.clone().map(Cow::from);
+        let request = KafkaRequest::fetch_api_versions(api_version, correlation_id, client_id);
+
+        let response = self.send_request(&addr, request)
+            .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
+                          future::ok(UsableApiVersions::new(res.api_versions))
+                      } else {
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                      });
+
+        FetchApiVersions::new(response)
     }
 
     fn topics_by_broker<S>
@@ -457,6 +482,7 @@ pub type SendRequest = StaticBoxFuture;
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
+pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
 pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 
 type TokioBody = Body<BytesMut, io::Error>;
