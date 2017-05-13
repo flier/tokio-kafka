@@ -65,6 +65,10 @@ impl Broker {
         self.node_id
     }
 
+    pub fn as_ref(&self) -> BrokerRef {
+        BrokerRef::new(self.node_id)
+    }
+
     pub fn host(&self) -> &str {
         &self.host
     }
@@ -80,6 +84,15 @@ impl Broker {
 
     pub fn api_versions(&self) -> Option<&UsableApiVersions> {
         self.api_versions.as_ref()
+    }
+
+    pub fn with_api_versions(&self, api_versions: Option<UsableApiVersions>) -> Self {
+        Broker {
+            node_id: self.node_id,
+            host: self.host.clone(),
+            port: self.port,
+            api_versions: api_versions,
+        }
     }
 }
 
@@ -97,7 +110,7 @@ static UNKNOWN_BROKER_INDEX: BrokerIndex = ::std::i32::MAX;
 // index to an unknown broker (aka the null value.) Code indexing
 // `self.brokers` using a `BrokerRef` _must_ check against this
 // constant and/or treat it conditionally.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct BrokerRef(BrokerIndex);
 
 impl BrokerRef {

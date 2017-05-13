@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::collections::HashMap;
+use std::iter::FromIterator;
 use std::time::Duration;
 
 use bytes::BytesMut;
@@ -27,7 +28,7 @@ use network::{ConnectionId, KafkaConnection, KafkaConnector, Pool, Pooled, Topic
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
                Offset, PartitionId, RequiredAcks, UsableApiVersions};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
-use client::{Broker, ClientConfig, Cluster, Metadata};
+use client::{Broker, BrokerRef, ClientConfig, Cluster, Metadata};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
@@ -82,6 +83,15 @@ impl State {
         debug!("updating metadata, {:?}", metadata);
 
         self.metadata = metadata;
+        self.metadata.clone()
+    }
+
+    pub fn update_api_versions(&mut self,
+                               api_versions: HashMap<BrokerRef, UsableApiVersions>)
+                               -> Rc<Metadata> {
+        debug!("updating API versions, {:?}", api_versions);
+
+        self.metadata = Rc::new(self.metadata.with_api_versions(api_versions));
         self.metadata.clone()
     }
 }
@@ -248,6 +258,41 @@ impl<'a> KafkaClient<'a>
                       });
 
         FetchApiVersions::new(response)
+    }
+
+    fn load_api_verions(&self) -> LoadApiVersions {
+        let metadata = self.state.borrow().metadata();
+        let responses = {
+            let mut responses = Vec::new();
+
+            for broker in metadata.brokers() {
+                let broker_ref = broker.as_ref();
+                let addr = broker
+                    .addr()
+                    .to_socket_addrs()
+                    .unwrap()
+                    .next()
+                    .unwrap(); // TODO
+                let request = KafkaRequest::fetch_api_versions(0, // api_version,
+                                                               self.next_correlation_id(),
+                                                               self.client_id());
+
+                let response = self.send_request(&addr, request)
+                    .and_then(move |res| if let KafkaResponse::ApiVersions(res) = res {
+                                  future::ok((broker_ref, UsableApiVersions::new(res.api_versions)))
+                              } else {
+                                  future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                              });
+
+                responses.push(response);
+            }
+
+            responses
+        };
+
+        LoadApiVersions::new(StaticBoxFuture::new(future::join_all(responses)
+                                                      .map(HashMap::from_iter)),
+                             self.state.clone())
     }
 
     fn topics_by_broker<S>
@@ -420,19 +465,22 @@ impl<'a> Client<'a> for KafkaClient<'a>
     fn load_metadata(&mut self) -> LoadMetadata {
         debug!("loading metadata...");
 
-        let state = self.state.clone();
-        let fetch_metadata = self.fetch_metadata::<&str>(&[]);
-
-        LoadMetadata {
-            fetch_metadata: fetch_metadata,
-            state: state,
-        }
+        LoadMetadata::new(self.fetch_metadata::<&str>(&[]), self.state.clone())
     }
 }
 
 pub struct LoadMetadata {
     fetch_metadata: FetchMetadata,
     state: Rc<RefCell<State>>,
+}
+
+impl LoadMetadata {
+    pub fn new(fetch_metadata: FetchMetadata, state: Rc<RefCell<State>>) -> Self {
+        LoadMetadata {
+            fetch_metadata: fetch_metadata,
+            state: state,
+        }
+    }
 }
 
 impl Future for LoadMetadata
@@ -447,6 +495,43 @@ impl Future for LoadMetadata
                 self.state
                     .borrow_mut()
                     .update_metadata(metadata.clone());
+
+                Ok(Async::Ready(metadata))
+            }
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+pub struct LoadApiVersions {
+    fetch_api_versions: StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>,
+    state: Rc<RefCell<State>>,
+}
+
+impl LoadApiVersions {
+    pub fn new(fetch_api_versions: StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>,
+               state: Rc<RefCell<State>>)
+               -> Self {
+        LoadApiVersions {
+            fetch_api_versions: fetch_api_versions,
+            state: state,
+        }
+    }
+}
+
+impl Future for LoadApiVersions
+    where Self: 'static
+{
+    type Item = Rc<Metadata>;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        match self.fetch_api_versions.poll() {
+            Ok(Async::Ready(api_versions)) => {
+                let metadata = self.state
+                    .borrow_mut()
+                    .update_api_versions(api_versions);
 
                 Ok(Async::Ready(metadata))
             }

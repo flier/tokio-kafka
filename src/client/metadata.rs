@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use std::collections::hash_map::HashMap;
 use std::iter::FromIterator;
 
-use protocol::{MetadataResponse, PartitionId};
+use protocol::{MetadataResponse, PartitionId, UsableApiVersions};
 use network::TopicPartition;
 use client::{Broker, BrokerRef, Cluster, PartitionInfo};
 
@@ -38,6 +38,27 @@ impl Metadata {
                                                                })
                                                           })),
             group_coordinators: HashMap::new(),
+        }
+    }
+
+    fn find_broker_mut(&mut self, broker_ref: BrokerRef) -> Option<&mut Broker> {
+        self.brokers
+            .iter_mut()
+            .find(|broker| broker.id() == broker_ref.index())
+    }
+
+    pub fn with_api_versions(&self, api_versions: HashMap<BrokerRef, UsableApiVersions>) -> Self {
+        Metadata {
+            brokers: self.brokers
+                .iter()
+                .map(|broker| {
+                         broker.with_api_versions(api_versions
+                                                      .get(&broker.as_ref())
+                                                      .map(|api_versions| api_versions.clone()))
+                     })
+                .collect(),
+            topic_partitions: self.topic_partitions.clone(),
+            group_coordinators: self.group_coordinators.clone(),
         }
     }
 }
@@ -171,7 +192,7 @@ impl From<MetadataResponse> for Metadata {
 }
 
 /// A representation of partitions for a single topic.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TopicPartitions {
     // ~ This list keeps information about each partition of the
     // corresponding topic - even about partitions currently without a
