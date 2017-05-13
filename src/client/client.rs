@@ -284,15 +284,14 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                                     records);
         let addr = self.metadata()
             .leader_for(&tp)
-            .map_or_else(|| self.config.hosts.iter().next().unwrap().clone(),
-                         |broker| {
-                             broker
-                                 .addr()
-                                 .to_socket_addrs()
-                                 .unwrap()
-                                 .next()
-                                 .unwrap()
-                         });
+            .map_or_else(|| *self.config.hosts.iter().next().unwrap(), |broker| {
+                broker
+                    .addr()
+                    .to_socket_addrs()
+                    .unwrap()
+                    .next()
+                    .unwrap()
+            });
         let response = self.send_request(&addr, request)
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
                           let produce = res.topics

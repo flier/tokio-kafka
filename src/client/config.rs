@@ -3,6 +3,8 @@ use std::net::SocketAddr;
 
 use time::Timespec;
 
+use client::KafkaVersion;
+
 pub const DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS: u64 = 5000;
 pub const DEFAULT_REQUEST_TIMEOUT_MILLS: u64 = 30_000;
 
@@ -26,6 +28,18 @@ pub struct ClientConfig {
     /// the maximum amount of time the client will wait for the response of a request.
     #[serde(rename = "request.timeout.ms")]
     pub request_timeout: u64,
+
+    /// Request broker's supported API versions to adjust functionality to available protocol features.
+    #[serde(rename = "api.version.request")]
+    pub api_version_request: bool,
+
+    /// Older broker versions (<0.10.0) provides no way for a client to query for supported protocol features
+    /// making it impossible for the client to know what features it may use.
+    /// As a workaround a user may set this property to the expected broker version and
+    /// the client will automatically adjust its feature set accordingly if the ApiVersionRequest fails (or is disabled).
+    /// The fallback broker version will be used for api.version.fallback.ms. Valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+    #[serde(rename = "broker.version.fallback")]
+    pub broker_version_fallback: KafkaVersion,
 }
 
 impl Default for ClientConfig {
@@ -35,6 +49,8 @@ impl Default for ClientConfig {
             client_id: None,
             max_connection_idle: DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
             request_timeout: DEFAULT_REQUEST_TIMEOUT_MILLS,
+            api_version_request: false,
+            broker_version_fallback: KafkaVersion::default(),
         }
     }
 }
@@ -94,7 +110,9 @@ mod tests {
   ],
   "client.id": "tokio-kafka",
   "connection.max.idle.ms": 5000,
-  "request.timeout.ms": 30000
+  "request.timeout.ms": 30000,
+  "api.version.request": false,
+  "broker.version.fallback": "0.9.0"
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);

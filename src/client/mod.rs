@@ -1,8 +1,10 @@
+mod version;
 mod config;
 mod cluster;
 mod metadata;
 mod client;
 
+pub use self::version::KafkaVersion;
 pub use self::config::{ClientConfig, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
                        DEFAULT_REQUEST_TIMEOUT_MILLS, ToMilliseconds};
 pub use self::cluster::{Broker, BrokerRef, Cluster, PartitionInfo};
