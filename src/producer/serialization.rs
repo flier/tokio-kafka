@@ -1,3 +1,5 @@
+use std::mem;
+use std::slice;
 use std::result;
 use std::marker::PhantomData;
 
@@ -44,6 +46,32 @@ impl<T> Serializer for NoopSerializer<T> {
 
     fn serialize(&self, _topic_name: &str, _data: Self::Item) -> result::Result<Bytes, Error> {
         Ok(Bytes::new())
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RawSerializer<T> {
+    phantom: PhantomData<T>,
+}
+
+impl<T> Serializer for RawSerializer<T> {
+    type Item = T;
+    type Error = Error;
+
+    fn serialize_to<M: BufMut>(&self,
+                               _topic_name: &str,
+                               data: Self::Item,
+                               buf: &mut M)
+                               -> Result<()> {
+        buf.put_slice(unsafe { slice::from_raw_parts(mem::transmute(&data), mem::size_of::<T>()) });
+
+        Ok(())
+    }
+
+    fn serialize(&self, _topic_name: &str, data: Self::Item) -> result::Result<Bytes, Error> {
+        Ok(Bytes::from_buf(unsafe {
+                               slice::from_raw_parts(mem::transmute(&data), mem::size_of::<T>())
+                           }))
     }
 }
 
