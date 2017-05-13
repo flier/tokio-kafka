@@ -19,10 +19,11 @@ extern crate twox_hash;
 extern crate time;
 extern crate hexplay;
 extern crate encoding;
-
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate prometheus;
 
 extern crate futures;
 extern crate futures_cpupool;

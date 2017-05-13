@@ -3,7 +3,6 @@ use std::cell::{Ref, RefCell};
 use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::time::Duration;
 use std::net::SocketAddr;
 
 use time;
