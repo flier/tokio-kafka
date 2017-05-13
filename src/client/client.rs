@@ -143,6 +143,14 @@ impl<'a> KafkaClient<'a>
         self.state.borrow().metadata()
     }
 
+    fn next_correlation_id(&self) -> CorrelationId {
+        self.state.borrow_mut().next_correlation_id()
+    }
+
+    fn client_id(&self) -> Option<Cow<'a, str>> {
+        self.config.client_id.clone().map(Cow::from)
+    }
+
     fn send_request(&self, addr: &SocketAddr, request: KafkaRequest<'a>) -> FutureResponse {
         trace!("sending request to {}, {:?}", addr, request);
 
@@ -203,11 +211,10 @@ impl<'a> KafkaClient<'a>
 
         let addr = self.config.hosts.iter().next().unwrap(); // TODO
 
-        let api_version = 0;
-        let correlation_id = self.state.borrow_mut().next_correlation_id();
-        let client_id = self.config.client_id.clone().map(Cow::from);
-        let request =
-            KafkaRequest::fetch_metadata(api_version, correlation_id, client_id, topic_names);
+        let request = KafkaRequest::fetch_metadata(0, // api_version
+                                                   self.next_correlation_id(),
+                                                   self.client_id(),
+                                                   topic_names);
 
         let response = self.send_request(addr, request)
             .and_then(|res| if let KafkaResponse::Metadata(res) = res {
@@ -229,10 +236,9 @@ impl<'a> KafkaClient<'a>
             .next()
             .unwrap(); // TODO
 
-        let api_version = 0;
-        let correlation_id = self.state.borrow_mut().next_correlation_id();
-        let client_id = self.config.client_id.clone().map(Cow::from);
-        let request = KafkaRequest::fetch_api_versions(api_version, correlation_id, client_id);
+        let request = KafkaRequest::fetch_api_versions(0, // api_version,
+                                                       self.next_correlation_id(),
+                                                       self.client_id());
 
         let response = self.send_request(&addr, request)
             .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
@@ -297,12 +303,9 @@ impl<'a> Client<'a> for KafkaClient<'a>
                        tp: TopicPartition<'a>,
                        records: Vec<Cow<'a, MessageSet>>)
                        -> ProduceRecords {
-        let api_version = 0;
-        let correlation_id = self.state.borrow_mut().next_correlation_id();
-        let client_id = self.config.client_id.clone().map(Cow::from);
-        let request = KafkaRequest::produce_records(api_version,
-                                                    correlation_id,
-                                                    client_id,
+        let request = KafkaRequest::produce_records(0, // api_version,
+                                                    self.next_correlation_id(),
+                                                    self.client_id(),
                                                     required_acks,
                                                     timeout,
                                                     &tp,
@@ -345,18 +348,12 @@ impl<'a> Client<'a> for KafkaClient<'a>
         let topics = self.topics_by_broker(topic_names);
 
         let responses = {
-            let mut correlation_ids = topics
-                .iter()
-                .map(|_| self.state.borrow_mut().next_correlation_id())
-                .collect::<Vec<CorrelationId>>();
-            let client_id = self.config.client_id.clone().map(Cow::from);
-
             let mut responses = Vec::new();
 
             for ((addr, api_version), topics) in topics {
                 let request = KafkaRequest::list_offsets(api_version,
-                                                         correlation_ids.pop().unwrap(),
-                                                         client_id.clone(),
+                                                         self.next_correlation_id(),
+                                                         self.client_id(),
                                                          topics,
                                                          offset);
                 let response = self.send_request(&addr, request)
