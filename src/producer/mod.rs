@@ -16,5 +16,6 @@ pub use self::batch::{ProducerBatch, Thunk};
 pub use self::accumulator::{Accumulator, RecordAccumulator};
 pub use self::sender::{SendBatch, Sender};
 pub use self::producer::{Flush, KafkaProducer, Producer, SendRecord};
-pub use self::serialization::{BytesSerializer, NoopSerializer, Serializer, StrEncodingSerializer};
+pub use self::serialization::{BytesSerializer, NoopSerializer, RawSerializer, Serializer,
+                              StrEncodingSerializer};
 pub use self::builder::ProducerBuilder;

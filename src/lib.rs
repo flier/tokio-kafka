@@ -62,5 +62,5 @@ pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, 
                  Metadata, PartitionOffset, StaticBoxFuture, ToMilliseconds};
 pub use producer::{BytesSerializer, DefaultPartitioner, KafkaProducer, NoopSerializer,
                    Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerRecord,
-                   Serializer, StrEncodingSerializer};
+                   RawSerializer, Serializer, StrEncodingSerializer};
 pub use consumer::KafkaConsumer;
