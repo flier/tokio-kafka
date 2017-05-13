@@ -40,7 +40,8 @@ pub trait Client<'a>: 'static {
     fn produce_records(&self,
                        acks: RequiredAcks,
                        timeout: Duration,
-                       records: Vec<(TopicPartition<'a>, Cow<'a, MessageSet>)>)
+                       TopicPartition<'a>,
+                       records: Vec<Cow<'a, MessageSet>>)
                        -> ProduceRecords;
 
     fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
@@ -268,7 +269,8 @@ impl<'a> Client<'a> for KafkaClient<'a>
     fn produce_records(&self,
                        required_acks: RequiredAcks,
                        timeout: Duration,
-                       records: Vec<(TopicPartition<'a>, Cow<'a, MessageSet>)>)
+                       tp: TopicPartition<'a>,
+                       records: Vec<Cow<'a, MessageSet>>)
                        -> ProduceRecords {
         let api_version = 0;
         let correlation_id = self.state.borrow_mut().next_correlation_id();
@@ -278,9 +280,20 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                                     client_id,
                                                     required_acks,
                                                     timeout,
+                                                    &tp,
                                                     records);
-        let addr = self.config.hosts.iter().next().unwrap(); // TODO
-        let response = self.send_request(addr, request)
+        let addr = self.metadata()
+            .leader_for(&tp)
+            .map_or_else(|| self.config.hosts.iter().next().unwrap().clone(),
+                         |broker| {
+                             broker
+                                 .addr()
+                                 .to_socket_addrs()
+                                 .unwrap()
+                                 .next()
+                                 .unwrap()
+                         });
+        let response = self.send_request(&addr, request)
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
                           let produce = res.topics
                               .iter()

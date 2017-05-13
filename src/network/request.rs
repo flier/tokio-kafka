@@ -42,7 +42,8 @@ impl<'a> KafkaRequest<'a> {
                            client_id: Option<Cow<'a, str>>,
                            required_acks: RequiredAcks,
                            timeout: Duration,
-                           batches: Vec<(TopicPartition<'a>, Cow<'a, MessageSet>)>)
+                           tp: &TopicPartition<'a>,
+                           records: Vec<Cow<'a, MessageSet>>)
                            -> KafkaRequest<'a> {
         let request = ProduceRequest {
             header: RequestHeader {
@@ -53,11 +54,11 @@ impl<'a> KafkaRequest<'a> {
             },
             required_acks: required_acks as RequiredAck,
             timeout: timeout.as_secs() as i32 * 1000 + timeout.subsec_nanos() as i32 / 1000_000,
-            topics: batches
+            topics: records
                 .into_iter()
-                .map(|(tp, message_set)| {
+                .map(move |message_set| {
                     ProduceTopic {
-                        topic_name: tp.topic_name.into(),
+                        topic_name: tp.topic_name.to_owned().into(),
                         partitions: vec![ProducePartition {
                                              partition: tp.partition,
                                              message_set: message_set,

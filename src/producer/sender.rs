@@ -83,11 +83,11 @@ impl<'a> SenderInner<'a>
             .borrow()
             .produce_records(acks,
                              ack_timeout,
-                             vec![(TopicPartition {
-                                       topic_name: topic_name.clone().into(),
-                                       partition: partition,
-                                   },
-                                   message_set)])
+                             TopicPartition {
+                                 topic_name: topic_name.clone().into(),
+                                 partition: partition,
+                             },
+                             vec![message_set])
             .map(move |responses| {
                 responses
                     .get(&topic_name)
