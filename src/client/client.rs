@@ -267,32 +267,17 @@ impl<'a> KafkaClient<'a>
 
             for broker in metadata.brokers() {
                 let broker_ref = broker.as_ref();
-                let addr = broker
-                    .addr()
-                    .to_socket_addrs()
-                    .unwrap()
-                    .next()
-                    .unwrap(); // TODO
-                let request = KafkaRequest::fetch_api_versions(0, // api_version,
-                                                               self.next_correlation_id(),
-                                                               self.client_id());
-
-                let response = self.send_request(&addr, request)
-                    .and_then(move |res| if let KafkaResponse::ApiVersions(res) = res {
-                                  future::ok((broker_ref, UsableApiVersions::new(res.api_versions)))
-                              } else {
-                                  future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                              });
+                let response = self.fetch_api_versions(broker)
+                    .map(move |api_versions| (broker_ref, api_versions));
 
                 responses.push(response);
             }
 
             responses
         };
+        let responses = future::join_all(responses).map(HashMap::from_iter);
 
-        LoadApiVersions::new(StaticBoxFuture::new(future::join_all(responses)
-                                                      .map(HashMap::from_iter)),
-                             self.state.clone())
+        LoadApiVersions::new(StaticBoxFuture::new(responses), self.state.clone())
     }
 
     fn topics_by_broker<S>
@@ -331,7 +316,6 @@ impl<'a> KafkaClient<'a>
                             .push(topic_partition.partition);
                     }
                 }
-
             }
         }
 
