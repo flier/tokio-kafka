@@ -32,33 +32,26 @@ pub trait Accumulator<'a> {
 pub struct RecordAccumulator<'a> {
     /// The size to use when allocating ProducerRecord instances
     batch_size: usize,
+
     /// The compression codec for the records
     compression: Compression,
+
     /// An artificial delay time to add before declaring a records instance that isn't full ready for sending.
     ///
     /// This allows time for more records to arrive.
     /// Setting a non-zero lingerMs will trade off some latency for potentially better throughput
     /// due to more batching (and hence fewer, larger requests).
     linger: Duration,
-    /// An artificial delay time to retry the produce request upon receiving an error.
-    ///
-    /// This avoids exhausting all retries in a short period of time.
-    retry_backoff: Duration,
 
     batches: Rc<RefCell<HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>>>,
 }
 
 impl<'a> RecordAccumulator<'a> {
-    pub fn new(batch_size: usize,
-               compression: Compression,
-               linger: Duration,
-               retry_backoff: Duration)
-               -> Self {
+    pub fn new(batch_size: usize, compression: Compression, linger: Duration) -> Self {
         RecordAccumulator {
             batch_size: batch_size,
             compression: compression,
             linger: linger,
-            retry_backoff: retry_backoff,
             batches: Rc::new(RefCell::new(HashMap::new())),
         }
     }
@@ -87,7 +80,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                     return PushRecord::new(push_recrod);
                 }
                 Err(err) => {
-                    trace!("fail to push record, {}", err);
+                    debug!("fail to push record, {}", err);
                 }
             }
         }
@@ -102,11 +95,17 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
 
                 PushRecord::new(push_recrod)
             }
-            Err(err) => PushRecord::new(future::err(err)),
+            Err(err) => {
+                warn!("fail to push record, {}", err);
+
+                PushRecord::new(future::err(err))
+            }
         }
     }
 
     fn flush(&mut self) {
+        trace!("flush all batches");
+
         for (_, batches) in self.batches.borrow_mut().iter_mut() {
             let api_version = batches.back().map(|batch| batch.api_version());
 

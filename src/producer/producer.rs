@@ -37,7 +37,7 @@ pub type Flush = StaticBoxFuture;
 pub struct KafkaProducer<'a, K, V, P> {
     client: Rc<RefCell<KafkaClient<'a>>>,
     config: ProducerConfig,
-    accumulators: RecordAccumulator<'a>,
+    accumulator: RecordAccumulator<'a>,
     key_serializer: K,
     value_serializer: V,
     partitioner: P,
@@ -52,15 +52,13 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
                value_serializer: V,
                partitioner: P)
                -> Self {
-        let accumulators = RecordAccumulator::new(config.batch_size,
-                                                  config.compression,
-                                                  Duration::from_millis(config.linger),
-                                                  Duration::from_millis(config.retry_backoff));
+        let accumulator =
+            RecordAccumulator::new(config.batch_size, config.compression, config.linger());
 
         KafkaProducer {
             client: Rc::new(RefCell::new(client)),
             config: config,
-            accumulators: accumulators,
+            accumulator: accumulator,
             key_serializer: key_serializer,
             value_serializer: value_serializer,
             partitioner: partitioner,
@@ -149,7 +147,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
             .map_or(0, |api_version| api_version.max_version);
 
-        SendRecord::new(self.accumulators
+        SendRecord::new(self.accumulator
                             .push_record(tp, timestamp, key, value, api_version))
     }
 
@@ -157,7 +155,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         if force {
             trace!("force to flush batches");
 
-            self.accumulators.flush();
+            self.accumulator.flush();
         }
 
         let client = self.client.clone();
@@ -166,7 +164,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         let ack_timeout = self.config.ack_timeout();
         let retry_strategy = self.config.retry_strategy();
 
-        Flush::new(self.accumulators
+        Flush::new(self.accumulator
                        .batches()
                        .for_each(move |(tp, batch)| {
             let sender = Sender::new(client.clone(), acks, ack_timeout, tp, batch);

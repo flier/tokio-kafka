@@ -95,6 +95,14 @@ impl ProducerConfig {
         }
     }
 
+    /// The producer groups together any records
+    /// that arrive in between request transmissions into a single batched request.
+    pub fn linger(&self) -> Duration {
+        Duration::from_millis(self.linger)
+    }
+
+    /// The maximum amount of time the server will wait for acknowledgments
+    /// from followers to meet the acknowledgment requirements
     pub fn ack_timeout(&self) -> Duration {
         Duration::from_millis(self.ack_timeout)
     }
