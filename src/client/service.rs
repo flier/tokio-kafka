@@ -74,12 +74,11 @@ impl<'a> Service for KafkaService<'a>
             .as_ref()
             .map(|metrics| metrics.send_request(&request));
 
-        let checkout = self.pool.checkout(&addr);
+        let checkout = self.pool.checkout(addr);
         let connect = {
             let handle = self.handle.clone();
             let connection_id = self.state.borrow_mut().next_connection_id();
             let pool = self.pool.clone();
-            let key = Rc::new(addr);
 
             self.connector
                 .tcp(addr)
@@ -90,7 +89,7 @@ impl<'a> Service for KafkaService<'a>
                             client_rx: RefCell::new(Some(rx)),
                         }
                         .bind_client(&handle, io);
-                    let pooled = pool.pooled(key, client);
+                    let pooled = pool.pooled(addr, client);
                     drop(tx.send(pooled.clone()));
                     pooled
                 })
@@ -98,7 +97,7 @@ impl<'a> Service for KafkaService<'a>
 
         let race = checkout
             .select(connect)
-            .map(|(conn, _work)| conn)
+            .map(|(client, _work)| client)
             .map_err(|(err, _work)| {
                 warn!("fail to checkout connection, {}", err);
                 // the Pool Checkout cannot error, so the only error
@@ -185,7 +184,9 @@ impl<'a, T> ClientProto<T> for RemoteClient<'a>
     type BindTransport = BindingClient<'a, T>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        trace!("bind transport for {:?}", io);
+        trace!("connection #{} bind transport for {:?}",
+               self.connection_id,
+               io);
 
         BindingClient {
             connection_id: self.connection_id,
@@ -213,16 +214,11 @@ impl<'a, T> Future for BindingClient<'a, T>
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.rx.poll() {
             Ok(Async::Ready(client)) => {
-                trace!("got connection #{} for {:?}, client {:?}",
-                       self.connection_id,
-                       self.io,
-                       client);
-
-                let codec = KafkaCodec::new();
+                trace!("got connection #{} with {:?}", self.connection_id, client);
 
                 Ok(Async::Ready(KafkaConnection::new(self.connection_id,
                                                 self.io.take().expect("binding client io lost"),
-                                                codec,
+                                                KafkaCodec::new(),
                                                 client)))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),

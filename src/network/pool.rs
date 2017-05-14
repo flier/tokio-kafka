@@ -28,8 +28,8 @@ struct PoolInner<K, T>
 {
     enabled: bool,
     timeout: Option<Duration>,
-    idle: HashMap<Rc<K>, Vec<Entry<T>>>,
-    parked: HashMap<Rc<K>, VecDeque<oneshot::Sender<Entry<T>>>>,
+    idle: HashMap<K, Vec<Entry<T>>>,
+    parked: HashMap<K, VecDeque<oneshot::Sender<Entry<T>>>>,
 }
 
 impl<K, T> Pool<K, T>
@@ -63,15 +63,15 @@ impl<K, T> Pool<K, T>
         self.inner.borrow().timeout
     }
 
-    pub fn checkout(&self, key: &K) -> Checkout<K, T> {
+    pub fn checkout(&self, key: K) -> Checkout<K, T> {
         Checkout {
-            key: Rc::new(key.clone()),
+            key: key,
             pool: self.clone(),
             parked: None,
         }
     }
 
-    fn put(&mut self, key: Rc<K>, entry: Entry<T>) {
+    fn put(&mut self, key: K, entry: Entry<T>) {
         trace!("put {:?}", key);
 
         let mut inner = self.inner.borrow_mut();
@@ -95,6 +95,8 @@ impl<K, T> Pool<K, T>
 
         match entry {
             Some(entry) => {
+                trace!("insert parked entry for {:?}", key);
+
                 inner
                     .idle
                     .entry(key)
@@ -105,7 +107,7 @@ impl<K, T> Pool<K, T>
         }
     }
 
-    pub fn pooled(&self, key: Rc<K>, value: T) -> Pooled<K, T> {
+    pub fn pooled(&self, key: K, value: T) -> Pooled<K, T> {
         trace!("pooled {:?}", key);
 
         Pooled {
@@ -119,7 +121,7 @@ impl<K, T> Pool<K, T>
         }
     }
 
-    fn reuse(&self, key: Rc<K>, mut entry: Entry<T>) -> Pooled<K, T> {
+    fn reuse(&self, key: K, mut entry: Entry<T>) -> Pooled<K, T> {
         trace!("reuse {:?}", key);
 
         entry.reused = true;
@@ -131,8 +133,8 @@ impl<K, T> Pool<K, T>
         }
     }
 
-    fn park(&mut self, key: Rc<K>, tx: oneshot::Sender<Entry<T>>) {
-        trace!("park {:?}", key);
+    fn park(&mut self, key: K, tx: oneshot::Sender<Entry<T>>) {
+        trace!("park for key {:?}", key);
 
         self.inner
             .borrow_mut()
@@ -149,7 +151,7 @@ pub struct Pooled<K, T>
           T: Clone
 {
     entry: Entry<T>,
-    key: Rc<K>,
+    key: K,
     pool: Pool<K, T>,
 }
 
@@ -222,7 +224,7 @@ pub struct Checkout<K, T>
     where K: Clone + Hash + Eq,
           T: Clone
 {
-    key: Rc<K>,
+    key: K,
     pool: Pool<K, T>,
     parked: Option<oneshot::Receiver<Entry<T>>>,
 }
@@ -239,12 +241,18 @@ impl<K, T> Future for Checkout<K, T>
         if let Some(ref mut rx) = self.parked {
             match rx.poll() {
                 Ok(Async::Ready(entry)) => {
-                    trace!("found parked for {:?}", self.key);
+                    trace!("found parked item for {:?}", self.key);
 
                     return Ok(Async::Ready(self.pool.reuse(self.key.clone(), entry)));
                 }
-                Ok(Async::NotReady) => (),
-                Err(oneshot::Canceled) => drop_parked = true,
+                Ok(Async::NotReady) => {
+                    trace!("parked entry not ready");
+                }
+                Err(oneshot::Canceled) => {
+                    trace!("drop canceled parked");
+
+                    drop_parked = true;
+                }
             }
         }
         if drop_parked {
@@ -253,6 +261,9 @@ impl<K, T> Future for Checkout<K, T>
 
         let expiration = Expiration::new(self.pool.inner.borrow().timeout);
         let key = &self.key;
+
+        trace!("checkout key={:?}, expiration={:?}", key, expiration);
+
         let mut should_remove = false;
         let entry = self.pool
             .inner
@@ -260,6 +271,8 @@ impl<K, T> Future for Checkout<K, T>
             .idle
             .get_mut(key)
             .and_then(|list| {
+                trace!("found {} idle pooled items", list.len());
+
                 while let Some(entry) = list.pop() {
                     match entry.status.get() {
                         Status::Idle(idle_at) if !expiration.expires(idle_at) => {
@@ -269,7 +282,9 @@ impl<K, T> Future for Checkout<K, T>
                             return Some(entry);
                         }
                         _ => {
-                            trace!("removing unacceptable pooled for {:?}", key);
+                            trace!("removing unacceptable pooled for {:?}， status={:?}",
+                                   key,
+                                   entry.status);
 
                             // every other case the Entry should just be dropped
                             // 1. Idle but expired
@@ -286,20 +301,28 @@ impl<K, T> Future for Checkout<K, T>
             self.pool.inner.borrow_mut().idle.remove(key);
         }
         match entry {
-            Some(entry) => Ok(Async::Ready(self.pool.reuse(self.key.clone(), entry))),
+            Some(entry) => {
+                trace!("resuse entry for key {:?}", self.key);
+
+                Ok(Async::Ready(self.pool.reuse(self.key.clone(), entry)))
+            }
             None => {
+                trace!("no pooled entry for key {:?}", self.key);
+
                 if self.parked.is_none() {
                     let (tx, mut rx) = oneshot::channel();
                     let _ = rx.poll(); // park this task
                     self.pool.park(self.key.clone(), tx);
                     self.parked = Some(rx);
                 }
+
                 Ok(Async::NotReady)
             }
         }
     }
 }
 
+#[derive(Clone, Debug)]
 struct Expiration(Option<Instant>);
 
 impl Expiration {
