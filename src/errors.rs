@@ -8,6 +8,7 @@ error_chain!{
         IoError(::std::io::Error);
         ParseIntError(::std::num::ParseIntError);
         TlsError(::native_tls::Error);
+        MetricsError(::prometheus::Error);
     }
 
     errors {

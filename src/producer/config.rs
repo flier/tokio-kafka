@@ -131,7 +131,8 @@ mod tests {
     "connection.max.idle.ms": 5000,
     "request.timeout.ms": 30000,
     "api.version.request": false,
-    "broker.version.fallback": "0.9.0"
+    "broker.version.fallback": "0.9.0",
+    "metrics": false
   },
   "acks": "one",
   "compression.type": "none",

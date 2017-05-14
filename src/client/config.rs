@@ -40,6 +40,8 @@ pub struct ClientConfig {
     /// The fallback broker version will be used for api.version.fallback.ms. Valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
     #[serde(rename = "broker.version.fallback")]
     pub broker_version_fallback: KafkaVersion,
+
+    pub metrics: bool,
 }
 
 impl Default for ClientConfig {
@@ -51,6 +53,7 @@ impl Default for ClientConfig {
             request_timeout: DEFAULT_REQUEST_TIMEOUT_MILLS,
             api_version_request: false,
             broker_version_fallback: KafkaVersion::default(),
+            metrics: false,
         }
     }
 }
@@ -112,7 +115,8 @@ mod tests {
   "connection.max.idle.ms": 5000,
   "request.timeout.ms": 30000,
   "api.version.request": false,
-  "broker.version.fallback": "0.9.0"
+  "broker.version.fallback": "0.9.0",
+  "metrics": false
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);

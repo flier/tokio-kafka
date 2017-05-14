@@ -28,7 +28,7 @@ use network::{ConnectionId, KafkaConnection, KafkaConnector, Pool, Pooled, Topic
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
                Offset, PartitionId, RequiredAcks, UsableApiVersions};
 use network::{KafkaCodec, KafkaRequest, KafkaResponse};
-use client::{Broker, BrokerRef, ClientConfig, Cluster, Metadata};
+use client::{Broker, BrokerRef, ClientConfig, Cluster, Metadata, Metrics};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
@@ -101,6 +101,7 @@ pub struct KafkaClient<'a> {
     handle: Handle,
     connector: KafkaConnector,
     timer: Timer,
+    metrics: Option<Rc<Metrics>>,
     pool: Pool<SocketAddr, TokioClient<'a>>,
     state: Rc<RefCell<State>>,
 }
@@ -130,12 +131,18 @@ impl<'a> KafkaClient<'a>
 
     pub fn from_config(config: ClientConfig, handle: Handle) -> KafkaClient<'a> {
         let pool = Pool::new(config.max_connection_idle());
+        let metrics = if config.metrics {
+            Some(Rc::new(Metrics::new().expect("fail to register metrics")))
+        } else {
+            None
+        };
 
         KafkaClient {
             config: config,
             handle: handle.clone(),
             connector: KafkaConnector::new(handle),
             timer: Timer::default(),
+            metrics: metrics,
             pool: pool,
             state: Rc::new(RefCell::new(State::new())),
         }
@@ -147,6 +154,10 @@ impl<'a> KafkaClient<'a>
 
     pub fn timer(&self) -> &Timer {
         &self.timer
+    }
+
+    pub fn metrics(&self) -> Option<Rc<Metrics>> {
+        self.metrics.clone()
     }
 
     pub fn metadata(&self) -> Rc<Metadata> {
@@ -163,6 +174,12 @@ impl<'a> KafkaClient<'a>
 
     fn send_request(&self, addr: &SocketAddr, request: KafkaRequest<'a>) -> FutureResponse {
         trace!("sending request to {}, {:?}", addr, request);
+
+        let metrics = self.metrics.clone();
+
+        metrics
+            .as_ref()
+            .map(|metrics| metrics.send_request(&request));
 
         let checkout = self.pool.checkout(addr);
         let connect = {
@@ -207,6 +224,11 @@ impl<'a> KafkaClient<'a>
                          Message::WithoutBody(res) |
                          Message::WithBody(res, _) => res,
                      }
+                 })
+            .map(|response| {
+                     metrics.map(|metrics| metrics.received_response(&response));
+
+                     response
                  })
             .map_err(Error::from);
 

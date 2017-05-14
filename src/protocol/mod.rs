@@ -72,8 +72,34 @@ pub enum ApiKeys {
 }
 
 impl ApiKeys {
-    pub fn as_api_key(&self) -> ApiKey {
+    pub fn key(&self) -> ApiKey {
         unsafe { mem::transmute(*self) }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match *self {
+            ApiKeys::Produce => "Produce",
+            ApiKeys::Fetch => "Fetch",
+            ApiKeys::ListOffsets => "ListOffsets",
+            ApiKeys::Metadata => "Metadata",
+            ApiKeys::LeaderAndIsr => "LeaderAndIsr",
+            ApiKeys::StopReplica => "StopReplica",
+            ApiKeys::UpdateMetadata => "UpdateMetadata",
+            ApiKeys::ControlledShutdown => "ControlledShutdown",
+            ApiKeys::OffsetCommit => "OffsetCommit",
+            ApiKeys::OffsetFetch => "OffsetFetch",
+            ApiKeys::GroupCoordinator => "GroupCoordinator",
+            ApiKeys::JoinGroup => "JoinGroup",
+            ApiKeys::Heartbeat => "Heartbeat",
+            ApiKeys::LeaveGroup => "LeaveGroup",
+            ApiKeys::SyncGroup => "SyncGroup",
+            ApiKeys::DescribeGroups => "DescribeGroups",
+            ApiKeys::ListGroups => "ListGroups",
+            ApiKeys::SaslHandshake => "SaslHandshake",
+            ApiKeys::ApiVersions => "ApiVersions",
+            ApiKeys::CreateTopics => "CreateTopics",
+            ApiKeys::DeleteTopics => "DeleteTopics",
+        }
     }
 }
 
