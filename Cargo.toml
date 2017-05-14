@@ -14,7 +14,7 @@ log = "0.3"
 error-chain = "0.10"
 lazy_static = "0.2"
 bytes = "0.4"
-nom = { version = "2.2", features = ["verbose-errors"] }
+nom = { version = "3.0", features = ["verbose-errors"] }
 crc = "1.4"
 twox-hash = "1.1"
 time = "0.1"

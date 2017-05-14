@@ -375,7 +375,8 @@ mod tests {
         assert_eq!(parse_str(b"\xff\xff"),
                    IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::String as u32),
                                                     &[255, 255][..],
-                                                    Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
+                                                    vec![Err::Position(ErrorKind::CondReduce,
+                                                                       &[][..])])));
         assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], Cow::from("")));
         assert_eq!(parse_str(b"\0\x04test"),
                    IResult::Done(&b""[..], Cow::from("test")));
@@ -397,7 +398,8 @@ mod tests {
         assert_eq!(parse_string(b"\xff\xff"),
                    IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::String as u32),
                                                     &[255, 255][..],
-                                                    Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
+                                                    vec![Err::Position(ErrorKind::CondReduce,
+                                                                       &[][..])])));
         assert_eq!(parse_string(b"\0\0"),
                    IResult::Done(&b""[..], "".to_owned()));
         assert_eq!(parse_string(b"\0\x04test"),
@@ -421,7 +423,8 @@ mod tests {
         assert_eq!(parse_bytes(b"\xff\xff\xff\xff"),
                    IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::Bytes as u32),
                                                     &[255, 255, 255, 255][..],
-                                                    Box::new(Err::Position(ErrorKind::CondReduce, &[][..])))));
+                                                    vec![Err::Position(ErrorKind::CondReduce,
+                                                                       &[][..])])));
         assert_eq!(parse_bytes(b"\0\0\0\0"),
                    IResult::Done(&b""[..], Bytes::new()));
         assert_eq!(parse_bytes(b"\0\0\0\x04test"),
