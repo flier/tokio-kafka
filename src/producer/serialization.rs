@@ -63,14 +63,17 @@ impl<T> Serializer for RawSerializer<T> {
                                data: Self::Item,
                                buf: &mut M)
                                -> Result<()> {
-        buf.put_slice(unsafe { slice::from_raw_parts(mem::transmute(&data), mem::size_of::<T>()) });
+        buf.put_slice(unsafe {
+                          slice::from_raw_parts(&data as *const T as *const u8, mem::size_of::<T>())
+                      });
 
         Ok(())
     }
 
     fn serialize(&self, _topic_name: &str, data: Self::Item) -> result::Result<Bytes, Error> {
         Ok(Bytes::from_buf(unsafe {
-                               slice::from_raw_parts(mem::transmute(&data), mem::size_of::<T>())
+                               slice::from_raw_parts(&data as *const T as *const u8,
+                                                     mem::size_of::<T>())
                            }))
     }
 }

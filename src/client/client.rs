@@ -50,6 +50,7 @@ pub trait Client<'a>: 'static {
     fn load_metadata(&mut self) -> LoadMetadata;
 }
 
+#[derive(Debug, Default)]
 pub struct State {
     connection_id: ConnectionId,
     correlation_id: CorrelationId,
@@ -57,14 +58,6 @@ pub struct State {
 }
 
 impl State {
-    pub fn new() -> Self {
-        State {
-            connection_id: 0,
-            correlation_id: 0,
-            metadata: Rc::new(Metadata::default()),
-        }
-    }
-
     pub fn next_connection_id(&mut self) -> ConnectionId {
         self.connection_id = self.connection_id.wrapping_add(1);
         self.connection_id - 1
@@ -144,7 +137,7 @@ impl<'a> KafkaClient<'a>
             timer: Timer::default(),
             metrics: metrics,
             pool: pool,
-            state: Rc::new(RefCell::new(State::new())),
+            state: Rc::new(RefCell::new(State::default())),
         }
     }
 

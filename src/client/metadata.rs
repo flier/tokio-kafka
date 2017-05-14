@@ -52,9 +52,7 @@ impl Metadata {
             brokers: self.brokers
                 .iter()
                 .map(|broker| {
-                         broker.with_api_versions(api_versions
-                                                      .get(&broker.as_ref())
-                                                      .map(|api_versions| api_versions.clone()))
+                         broker.with_api_versions(api_versions.get(&broker.as_ref()).cloned())
                      })
                 .collect(),
             topic_partitions: self.topic_partitions.clone(),
