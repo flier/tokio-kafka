@@ -241,21 +241,29 @@ impl<'a> KafkaClient<'a>
     {
         debug!("fetch metadata for toipcs: {:?}", topic_names);
 
-        let addr = self.config.hosts.iter().next().unwrap(); // TODO
+        let responses = {
+            let mut responses = Vec::new();
 
-        let request = KafkaRequest::fetch_metadata(0, // api_version
-                                                   self.next_correlation_id(),
-                                                   self.client_id(),
-                                                   topic_names);
+            for addr in &self.config.hosts {
+                let request = KafkaRequest::fetch_metadata(0, // api_version
+                                                           self.next_correlation_id(),
+                                                           self.client_id(),
+                                                           topic_names);
 
-        let response = self.send_request(addr, request)
-            .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                          future::ok(Rc::new(Metadata::from(res)))
-                      } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
+                let response = self.send_request(addr, request)
+                    .and_then(|res| if let KafkaResponse::Metadata(res) = res {
+                                  future::ok(Rc::new(Metadata::from(res)))
+                              } else {
+                                  future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                              });
 
-        FetchMetadata::new(response)
+                responses.push(response);
+            }
+
+            responses
+        };
+
+        FetchMetadata::new(future::select_ok(responses).map(|(metadata, _)| metadata))
     }
 
     fn fetch_api_versions(&self, broker: &Broker) -> FetchApiVersions {
