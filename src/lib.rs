@@ -19,6 +19,7 @@ extern crate twox_hash;
 extern crate time;
 extern crate hexplay;
 extern crate encoding;
+extern crate byteorder;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;

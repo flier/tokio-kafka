@@ -3,6 +3,15 @@ use std::str::FromStr;
 
 use errors::{Error, ErrorKind, Result};
 
+#[cfg(feature = "gzip")]
+pub mod gzip;
+
+#[cfg(feature = "snappy")]
+pub mod snappy;
+
+#[cfg(feature = "lz4")]
+pub mod lz4;
+
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[repr(i8)]

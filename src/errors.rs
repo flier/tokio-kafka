@@ -9,6 +9,7 @@ error_chain!{
         ParseIntError(::std::num::ParseIntError);
         TlsError(::native_tls::Error);
         MetricsError(::prometheus::Error);
+        SnappyError(::snap::Error) #[cfg(feature = "snappy")];
     }
 
     errors {
@@ -51,6 +52,17 @@ error_chain!{
         RetryError(reason: String) {
             description("retry failed")
             display("retry failed, {:?}", reason)
+        }
+        UnsupportedCompression {
+            description("Unsupported compression format")
+        }
+        UnexpectedEOF {
+            description("Unexpected EOF")
+        }
+        #[cfg(feature = "lz4")]
+        Lz4Error(reason: String) {
+          description("LZ4 error")
+          display("LZ4 error, {:?}", reason)
         }
     }
 }
