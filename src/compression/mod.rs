@@ -8,8 +8,11 @@ use errors::{Error, ErrorKind, Result};
 #[repr(i8)]
 pub enum Compression {
     None = 0,
+    #[cfg(feature = "gzip")]
     GZIP = 1,
+    #[cfg(feature = "snappy")]
     Snappy = 2,
+    #[cfg(feature = "lz4")]
     LZ4 = 3,
 }
 
@@ -21,7 +24,7 @@ impl Default for Compression {
 
 impl From<i8> for Compression {
     fn from(v: i8) -> Self {
-        unsafe { mem::transmute(v & 0x07) }
+        unsafe { mem::transmute(v) }
     }
 }
 
@@ -31,8 +34,11 @@ impl FromStr for Compression {
     fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "none" => Ok(Compression::None),
+            #[cfg(feature = "gzip")]
             "gzip" => Ok(Compression::GZIP),
+            #[cfg(feature = "snappy")]
             "snappy" => Ok(Compression::Snappy),
+            #[cfg(feature = "lz4")]
             "lz4" => Ok(Compression::LZ4),
             _ => bail!(ErrorKind::ParseError(format!("unknown compression: {}", s))),
         }

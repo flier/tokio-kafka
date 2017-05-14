@@ -37,6 +37,15 @@ extern crate tokio_retry;
 extern crate tokio_tls;
 extern crate native_tls;
 
+#[cfg(feature = "gzip")]
+extern crate flate2;
+
+#[cfg(feature = "snappy")]
+extern crate snap;
+
+#[cfg(feature = "lz4")]
+extern crate lz4_compress;
+
 #[cfg(test)]
 extern crate pretty_env_logger;
 
