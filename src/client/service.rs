@@ -17,7 +17,6 @@ use tokio_proto::streaming::{Body, Message};
 use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
-use tokio_timer::Timer;
 
 use errors::Error;
 use network::{ConnectionId, KafkaCodec, KafkaConnection, KafkaConnector, KafkaRequest,
@@ -39,9 +38,7 @@ impl State {
 pub struct KafkaService<'a> {
     handle: Handle,
     pool: Pool<SocketAddr, TokioClient<'a>>,
-    request_timeout: Duration,
     connector: KafkaConnector,
-    timer: Timer,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
 }
@@ -49,22 +46,15 @@ pub struct KafkaService<'a> {
 impl<'a> KafkaService<'a> {
     pub fn new(handle: Handle,
                max_connection_idle: Duration,
-               request_timeout: Duration,
                metrics: Option<Rc<Metrics>>)
                -> Self {
         KafkaService {
             handle: handle.clone(),
             pool: Pool::new(max_connection_idle),
-            request_timeout: request_timeout,
             connector: KafkaConnector::new(handle),
-            timer: Timer::default(),
             metrics: metrics,
             state: Rc::new(RefCell::new(State::default())),
         }
-    }
-
-    pub fn timer(&self) -> &Timer {
-        &self.timer
     }
 }
 
@@ -78,9 +68,6 @@ impl<'a> Service for KafkaService<'a>
 
     fn call(&self, req: Self::Request) -> Self::Future {
         let (addr, request) = req;
-
-        trace!("sending request to {}, {:?}", addr, request);
-
         let metrics = self.metrics.clone();
 
         metrics
@@ -138,7 +125,7 @@ impl<'a> Service for KafkaService<'a>
                  })
             .map_err(Error::from);
 
-        FutureResponse::new(self.timer.timeout(response, self.request_timeout))
+        FutureResponse::new(response)
     }
 }
 

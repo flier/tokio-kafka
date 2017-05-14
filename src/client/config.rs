@@ -3,10 +3,13 @@ use std::net::SocketAddr;
 
 use time::Timespec;
 
+use tokio_timer::{Timer, wheel};
+
 use client::KafkaVersion;
 
 pub const DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS: u64 = 5000;
 pub const DEFAULT_REQUEST_TIMEOUT_MILLS: u64 = 30_000;
+pub const DEFAULT_TIMER_TICK_MILLS: u64 = 100;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientConfig {
@@ -75,6 +78,14 @@ impl ClientConfig {
 
     pub fn request_timeout(&self) -> Duration {
         Duration::from_millis(self.request_timeout)
+    }
+
+    pub fn timer(&self) -> Timer {
+        wheel()
+            .tick_duration(Duration::from_millis(DEFAULT_TIMER_TICK_MILLS))
+            .num_slots((self.request_timeout / DEFAULT_TIMER_TICK_MILLS).next_power_of_two() as
+                       usize)
+            .build()
     }
 }
 

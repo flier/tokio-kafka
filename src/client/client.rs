@@ -12,6 +12,7 @@ use futures::{Async, Poll};
 use futures::future::{self, Future};
 use tokio_core::reactor::Handle;
 use tokio_service::Service;
+use tokio_middleware::{Log, Timeout};
 
 use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
@@ -75,7 +76,7 @@ impl State {
 pub struct KafkaClient<'a> {
     config: ClientConfig,
     handle: Handle,
-    service: KafkaService<'a>,
+    service: Log<Timeout<KafkaService<'a>>>,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
 }
@@ -109,10 +110,11 @@ impl<'a> KafkaClient<'a>
         } else {
             None
         };
-        let service = KafkaService::new(handle.clone(),
-                                        config.max_connection_idle(),
-                                        config.request_timeout(),
-                                        metrics.clone());
+        let service = Log::new(Timeout::new(KafkaService::new(handle.clone(),
+                                                              config.max_connection_idle(),
+                                                              metrics.clone()),
+                                            config.timer(),
+                                            config.request_timeout()));
 
         KafkaClient {
             config: config,
