@@ -485,7 +485,6 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
     }
 }
 
-pub type SendRequest = StaticBoxFuture;
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;

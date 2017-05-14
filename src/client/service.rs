@@ -138,11 +138,19 @@ impl<'a> Service for KafkaService<'a>
                  })
             .map_err(Error::from);
 
-        FutureResponse(StaticBoxFuture::new(self.timer.timeout(response, self.request_timeout)))
+        FutureResponse::new(self.timer.timeout(response, self.request_timeout))
     }
 }
 
 pub struct FutureResponse(StaticBoxFuture<KafkaResponse>);
+
+impl FutureResponse {
+    pub fn new<F>(future: F) -> Self
+        where F: Future<Item = KafkaResponse, Error = Error> + 'static
+    {
+        FutureResponse(StaticBoxFuture::new(future))
+    }
+}
 
 impl Future for FutureResponse {
     type Item = KafkaResponse;
