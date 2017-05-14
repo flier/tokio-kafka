@@ -17,8 +17,7 @@ use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
                Offset, PartitionId, RequiredAcks, UsableApiVersions};
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
-use client::{Broker, BrokerRef, ClientConfig, Cluster, FutureResponse, KafkaService, Metadata,
-             Metrics};
+use client::{Broker, BrokerRef, ClientConfig, Cluster, KafkaService, Metadata, Metrics};
 
 /// A retrieved offset for a particular partition in the context of an already known topic.
 #[derive(Clone, Debug)]
@@ -144,10 +143,6 @@ impl<'a> KafkaClient<'a>
         self.config.client_id.clone().map(Cow::from)
     }
 
-    fn send_request(&self, addr: &SocketAddr, request: KafkaRequest<'a>) -> FutureResponse {
-        self.service.call((*addr, request))
-    }
-
     fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
         where S: AsRef<str> + Debug
     {
@@ -162,7 +157,8 @@ impl<'a> KafkaClient<'a>
                                                            self.client_id(),
                                                            topic_names);
 
-                let response = self.send_request(addr, request)
+                let response = self.service
+                    .call((*addr, request))
                     .and_then(|res| if let KafkaResponse::Metadata(res) = res {
                                   future::ok(Rc::new(Metadata::from(res)))
                               } else {
@@ -192,7 +188,8 @@ impl<'a> KafkaClient<'a>
                                                        self.next_correlation_id(),
                                                        self.client_id());
 
-        let response = self.send_request(&addr, request)
+        let response = self.service
+            .call((addr, request))
             .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
                           future::ok(UsableApiVersions::new(res.api_versions))
                       } else {
@@ -291,7 +288,8 @@ impl<'a> Client<'a> for KafkaClient<'a>
                     .next()
                     .unwrap()
             });
-        let response = self.send_request(&addr, request)
+        let response = self.service
+            .call((addr, request))
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
                           let produce = res.topics
                               .iter()
@@ -327,7 +325,8 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                                          self.client_id(),
                                                          topics,
                                                          offset);
-                let response = self.send_request(&addr, request)
+                let response = self.service
+                    .call((addr, request))
                     .and_then(|res| {
                         if let KafkaResponse::ListOffsets(res) = res {
                             let topics = res.topics
