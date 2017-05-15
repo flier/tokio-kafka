@@ -10,8 +10,8 @@ mod builder;
 
 pub use self::record::{ProducerRecord, RecordMetadata};
 pub use self::partitioner::{DefaultPartitioner, Partitioner};
-pub use self::config::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_MAX_REQUEST_SIZE,
-                       ProducerConfig};
+pub use self::config::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
+                       DEFAULT_MAX_REQUEST_SIZE, ProducerConfig};
 pub use self::batch::{ProducerBatch, Thunk};
 pub use self::accumulator::{Accumulator, RecordAccumulator};
 pub use self::sender::{SendBatch, Sender};

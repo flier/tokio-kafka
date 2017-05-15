@@ -31,7 +31,7 @@ use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
 use tokio_kafka::{BytesSerializer, Client, Compression, Producer, ProducerBuilder, ProducerRecord,
                   RequiredAcks};
-use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE,
+use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
                           DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
@@ -60,6 +60,7 @@ struct Config {
     required_acks: RequiredAcks,
     idle_timeout: Duration,
     ack_timeout: Duration,
+    linger: Duration,
 }
 
 impl Config {
@@ -92,6 +93,10 @@ impl Config {
         opts.optopt("",
                     "idle-timeout",
                     "Specify timeout for idle connections",
+                    "MS");
+        opts.optopt("",
+                    "linger",
+                    "The producer groups together any records in the linger timeout",
                     "MS");
 
         let m = opts.parse(&args[1..])?;
@@ -126,6 +131,8 @@ impl Config {
                            |s| s.parse().unwrap())),
                ack_timeout: Duration::from_millis(m.opt_str("ack-timeout")
                    .map_or(DEFAULT_ACK_TIMEOUT_MILLIS, |s| s.parse().unwrap())),
+               linger: Duration::from_millis(m.opt_str("linger")
+                   .map_or(DEFAULT_LINGER_MILLIS, |s| s.parse().unwrap())),
            })
     }
 }
@@ -183,6 +190,7 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .with_compression(config.compression)
         .with_batch_size(config.batch_size)
         .with_ack_timeout(config.ack_timeout)
+        .with_linger(config.linger)
         .without_key_serializer()
         .with_value_serializer(BytesSerializer::default())
         .with_default_partitioner()
@@ -223,12 +231,13 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
                                      warn!("fail to produce records, {}", err);
                                  });
 
-                    handle.spawn(produce);
-                    handle.spawn(producer
-                                     .flush(false)
-                                     .map_err(|err| {
-                                                  warn!("fail to flush records, {}", err);
-                                              }));
+                    let flush = producer
+                        .flush(false)
+                        .map_err(|err| {
+                                     warn!("fail to flush records, {}", err);
+                                 });
+
+                    handle.spawn(produce.join(flush).map(|_| ()));
 
                     future::ok(())
                 })

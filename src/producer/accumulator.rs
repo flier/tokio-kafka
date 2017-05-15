@@ -134,19 +134,18 @@ impl<'a> Stream for Batches<'a> {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         for (tp, batches) in self.batches.borrow_mut().iter_mut() {
-            loop {
-                let ready = batches
+            let ready =
+                batches
                     .back()
                     .map_or(false, |batch| {
                         batch.is_full() || batch.create_time().elapsed() >= self.linger
                     });
 
-                if ready {
-                    if let Some(batch) = batches.pop_front() {
-                        trace!("batch is ready to send, {:?}", batch);
+            if ready {
+                if let Some(batch) = batches.pop_front() {
+                    trace!("batch is ready to send, {:?}", batch);
 
-                        return Ok(Async::Ready(Some((tp.clone(), batch))));
-                    }
+                    return Ok(Async::Ready(Some((tp.clone(), batch))));
                 }
             }
         }

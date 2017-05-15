@@ -111,6 +111,11 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
         self
     }
 
+    pub fn with_linger(mut self, linger: Duration) -> Self {
+        self.config.linger = linger.as_millis();
+        self
+    }
+
     pub fn with_client(mut self, client: KafkaClient<'a>) -> Self {
         self.client = Some(client);
         self
