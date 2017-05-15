@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use futures::{Future, Poll};
 
-use errors::Error;
+use errors::{Error, Result};
 use protocol::{MessageSet, RequiredAcks};
 use network::TopicPartition;
 use client::{Client, KafkaClient, StaticBoxFuture};
@@ -32,8 +32,8 @@ impl<'a> Sender<'a>
                ack_timeout: Duration,
                tp: TopicPartition<'a>,
                batch: ProducerBatch)
-               -> Sender<'a> {
-        let (thunks, message_set) = batch.build();
+               -> Result<Sender<'a>> {
+        let (thunks, message_set) = batch.build()?;
         let inner = SenderInner {
             client: client,
             acks: acks,
@@ -42,7 +42,7 @@ impl<'a> Sender<'a>
             thunks: Rc::new(RefCell::new(Some(thunks))),
             message_set: message_set,
         };
-        Sender { inner: Rc::new(RefCell::new(inner)) }
+        Ok(Sender { inner: Rc::new(RefCell::new(inner)) })
     }
 
     fn as_inner(&self) -> Ref<SenderInner<'a>> {

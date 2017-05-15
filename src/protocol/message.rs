@@ -10,7 +10,7 @@ use time;
 use crc::crc32;
 
 use errors::{ErrorKind, Result};
-use compression::Compression;
+use compression::{self, Compression};
 use protocol::{ApiVersion, Offset, ParseTag, Timestamp, WriteExt, parse_opt_bytes};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
@@ -52,6 +52,15 @@ impl Deref for MessageSet {
     }
 }
 
+impl MessageSet {
+    fn record_size(&self, api_version: ApiVersion) -> usize {
+        self.messages
+            .iter()
+            .fold(mem::size_of::<i32>(), // The size, in bytes, of the message set that follows.
+                  |size, message| size + message.record_size(api_version))
+    }
+}
+
 /// Message format
 ///
 /// v0
@@ -77,6 +86,20 @@ pub struct Message {
     pub compression: Compression,
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
+}
+
+impl Message {
+    fn record_size(&self, api_version: ApiVersion) -> usize {
+        let overhead_size = if api_version > 0 {
+            RECORD_OVERHEAD_V1
+        } else {
+            RECORD_OVERHEAD_V0
+        };
+        let key_size = self.key.as_ref().map_or(0, |b| b.len());
+        let value_size = self.value.as_ref().map_or(0, |b| b.len());
+
+        overhead_size + key_size + value_size
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -113,6 +136,8 @@ impl MessageSetEncoder {
 
     pub fn encode<T: ByteOrder>(&self, message_set: &MessageSet, buf: &mut BytesMut) -> Result<()> {
         let mut offset: Offset = 0;
+
+        buf.reserve(message_set.record_size(self.api_version));
 
         let size_off = buf.len();
         buf.put_i32::<T>(0);
@@ -293,8 +318,33 @@ impl MessageSetBuilder {
         overhead_size + key.map_or(0, |b| b.len()) + value.map_or(0, |b| b.len())
     }
 
-    pub fn build(self) -> MessageSet {
-        self.message_set
+    #[cfg(any(feature = "gzip", feature = "snappy", feature = "lz4"))]
+    fn wrap<T: ByteOrder>(&self, compress: fn(&[u8]) -> Result<Vec<u8>>) -> Result<MessageSet> {
+        let mut buf = BytesMut::with_capacity(self.message_set.record_size(self.api_version));
+        let encoder = MessageSetEncoder::new(self.api_version);
+        encoder.encode::<T>(&self.message_set, &mut buf)?;
+        let compressed = compress(&buf)?;
+        Ok(MessageSet {
+               messages: vec![Message{
+                            offset: 0,
+                            timestamp: Some(MessageTimestamp::default()),
+                            compression:Compression::None,
+                            key: None,
+                            value: Some(Bytes::from(compressed)),
+                        }],
+           })
+    }
+
+    pub fn build<T: ByteOrder>(self) -> Result<MessageSet> {
+        match self.compression {
+            #[cfg(feature = "gzip")]
+            Compression::GZIP => self.wrap::<T>(compression::gzip::compress),
+            #[cfg(feature = "snappy")]
+            Compression::Snappy => self.wrap::<T>(compression::snappy::compress),
+            #[cfg(feature = "lz4")]
+            Compression::LZ4 => self.wrap::<T>(compression::lz4::compress),
+            Compression::None => Ok(self.message_set),
+        }
     }
 
     pub fn next_offset(&self) -> Offset {

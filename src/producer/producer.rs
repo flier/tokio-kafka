@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 
 use time;
 
-use futures::{Future, Stream};
+use futures::{Future, Stream, future};
 use tokio_core::reactor::Handle;
 use tokio_retry::Retry;
 
@@ -165,14 +165,21 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
 
         Flush::new(self.accumulator
                        .batches()
-                       .for_each(move |(tp, batch)| {
-            let sender = Sender::new(client.clone(), acks, ack_timeout, tp, batch);
-
-            Retry::spawn(handle.clone(),
-                         retry_strategy.clone(),
-                         move || sender.send_batch())
-                    .map_err(Error::from)
-        }))
+                       .for_each(move |(tp, batch)| match Sender::new(client.clone(),
+                                                                      acks,
+                                                                      ack_timeout,
+                                                                      tp,
+                                                                      batch) {
+                                     Ok(sender) => {
+                                         StaticBoxFuture::new(Retry::spawn(handle.clone(),
+                                                                           retry_strategy.clone(),
+                                                                           move || {
+                                                                               sender.send_batch()
+                                                                           })
+                                                                      .map_err(Error::from))
+                                     }
+                                     Err(err) => StaticBoxFuture::new(future::err(err)),
+                                 }))
     }
 }
 

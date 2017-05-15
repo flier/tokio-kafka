@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use std::time::Instant;
 
-use bytes::Bytes;
+use bytes::{BigEndian, Bytes};
 
 use futures::{Async, Future, Poll};
 use futures::unsync::oneshot::{Canceled, Receiver, Sender, channel};
@@ -106,8 +106,8 @@ impl ProducerBatch {
         Ok(FutureRecordMetadata { receiver: receiver })
     }
 
-    pub fn build(self) -> (Vec<Thunk>, MessageSet) {
-        (self.thunks, self.builder.build())
+    pub fn build(self) -> Result<(Vec<Thunk>, MessageSet)> {
+        Ok((self.thunks, self.builder.build::<BigEndian>()?))
     }
 }
 

@@ -11,8 +11,8 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use errors::{ErrorKind, Result};
 
-pub fn compress(src: &[u8]) -> Vec<u8> {
-    lz4_compress::compress(src)
+pub fn compress(src: &[u8]) -> Result<Vec<u8>> {
+    Ok(lz4_compress::compress(src))
 }
 
 pub fn uncompress(src: &[u8]) -> Result<Vec<u8>> {
@@ -208,7 +208,9 @@ impl Lz4Frame {
                buf.len(),
                &buf[..cmp::min(16, buf.len())]);
 
-        let compressed_data = compress(buf);
+        let compressed_data =
+            compress(buf)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "lz4 encode error"))?;
         writer
             .write_u32::<LittleEndian>(compressed_data.len() as u32)?;
         let mut wrote = mem::size_of::<u32>();
@@ -412,13 +414,13 @@ mod tests {
         use std::iter;
 
         let comp_msg = compress(b"test");
-        assert_eq!(comp_msg, &[64, 116, 101, 115, 116]);
+        assert_eq!(comp_msg.unwrap(), &[64, 116, 101, 115, 116]);
 
         let comp_msg = compress(iter::repeat(123)
                                     .take(1000)
                                     .collect::<Vec<u8>>()
                                     .as_slice());
-        assert_eq!(comp_msg, &[31, 123, 1, 0, 255, 255, 255, 215, 0]);
+        assert_eq!(comp_msg.unwrap(), &[31, 123, 1, 0, 255, 255, 255, 215, 0]);
     }
 
     #[test]
