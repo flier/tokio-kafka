@@ -1,3 +1,6 @@
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::hash::Hash;
 use std::time::Duration;
 use std::ops::{Deref, DerefMut};
 use std::net::SocketAddr;
@@ -8,18 +11,26 @@ use errors::{ErrorKind, Result};
 use compression::Compression;
 use protocol::{RequiredAcks, ToMilliseconds};
 use client::KafkaClient;
-use producer::{DefaultPartitioner, KafkaProducer, NoopSerializer, ProducerConfig};
+use producer::{DefaultPartitioner, KafkaProducer, NoopSerializer, ProducerConfig,
+               ProducerInterceptor, ProducerInterceptors, Serializer};
 
-pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner> {
+pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner>
+    where K: Serializer,
+          V: Serializer
+{
     config: ProducerConfig,
     client: Option<KafkaClient<'a>>,
     handle: Option<Handle>,
     key_serializer: Option<K>,
     value_serializer: Option<V>,
     partitioner: Option<P>,
+    interceptors: Option<Rc<RefCell<ProducerInterceptors<K::Item, V::Item>>>>,
 }
 
-impl<'a, K, V, P> Deref for ProducerBuilder<'a, K, V, P> {
+impl<'a, K, V, P> Deref for ProducerBuilder<'a, K, V, P>
+    where K: Serializer,
+          V: Serializer
+{
     type Target = ProducerConfig;
 
     fn deref(&self) -> &Self::Target {
@@ -27,13 +38,19 @@ impl<'a, K, V, P> Deref for ProducerBuilder<'a, K, V, P> {
     }
 }
 
-impl<'a, K, V, P> DerefMut for ProducerBuilder<'a, K, V, P> {
+impl<'a, K, V, P> DerefMut for ProducerBuilder<'a, K, V, P>
+    where K: Serializer,
+          V: Serializer
+{
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.config
     }
 }
 
-impl<'a, K, V, P> Default for ProducerBuilder<'a, K, V, P> {
+impl<'a, K, V, P> Default for ProducerBuilder<'a, K, V, P>
+    where K: Serializer,
+          V: Serializer
+{
     fn default() -> Self {
         ProducerBuilder {
             config: ProducerConfig::default(),
@@ -42,11 +59,15 @@ impl<'a, K, V, P> Default for ProducerBuilder<'a, K, V, P> {
             key_serializer: None,
             value_serializer: None,
             partitioner: None,
+            interceptors: None,
         }
     }
 }
 
-impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
+impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
+    where K: Serializer,
+          V: Serializer
+{
     pub fn new() -> Self {
         ProducerBuilder::default()
     }
@@ -59,6 +80,7 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
             key_serializer: None,
             value_serializer: None,
             partitioner: None,
+            interceptors: None,
         }
     }
 
@@ -70,6 +92,7 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
             key_serializer: None,
             value_serializer: None,
             partitioner: None,
+            interceptors: None,
         }
     }
 
@@ -80,7 +103,10 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
     }
 }
 
-impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
+impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
+    where K: Serializer,
+          V: Serializer
+{
     pub fn with_client_id(mut self, client_id: String) -> Self {
         self.config.client_id = Some(client_id);
         self
@@ -140,23 +166,44 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P> {
         self.partitioner = Some(partitioner);
         self
     }
+
+    pub fn with_interceptor<I>(mut self, interceptor: I) -> Self
+        where I: ProducerInterceptor<Key = K::Item, Value = V::Item> + 'static,
+              K::Item: Hash
+    {
+        let interceptors =
+            self.interceptors
+                .unwrap_or_else(|| Rc::new(RefCell::new(ProducerInterceptors::new())));
+
+        interceptors.borrow_mut().push(Box::new(interceptor));
+
+        self.interceptors = Some(interceptors);
+        self
+    }
 }
 
-impl<'a, V, P> ProducerBuilder<'a, NoopSerializer<()>, V, P> {
+impl<'a, V, P> ProducerBuilder<'a, NoopSerializer<()>, V, P>
+    where V: Serializer
+{
     pub fn without_key_serializer(mut self) -> Self {
         self.key_serializer = Some(NoopSerializer::default());
         self
     }
 }
 
-impl<'a, K, P> ProducerBuilder<'a, K, NoopSerializer<()>, P> {
+impl<'a, K, P> ProducerBuilder<'a, K, NoopSerializer<()>, P>
+    where K: Serializer
+{
     pub fn without_value_serializer(mut self) -> Self {
         self.value_serializer = Some(NoopSerializer::default());
         self
     }
 }
 
-impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner> {
+impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner>
+    where K: Serializer,
+          V: Serializer
+{
     pub fn with_default_partitioner(mut self) -> Self {
         self.partitioner = Some(DefaultPartitioner::default());
         self
@@ -164,7 +211,9 @@ impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner> {
 }
 
 impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
-    where Self: 'static
+    where K: Serializer,
+          V: Serializer,
+          Self: 'static
 {
     pub fn build(self) -> Result<KafkaProducer<'a, K, V, P>> {
         let client = if let Some(client) = self.client {
@@ -182,6 +231,7 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
                               self.value_serializer
                                   .ok_or(ErrorKind::ConfigError("missed value serializer"))?,
                               self.partitioner
-                                  .ok_or(ErrorKind::ConfigError("missed partitioner"))?))
+                                  .ok_or(ErrorKind::ConfigError("missed partitioner"))?,
+                              self.interceptors))
     }
 }

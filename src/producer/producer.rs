@@ -15,8 +15,9 @@ use errors::Error;
 use protocol::{ApiKeys, ToMilliseconds};
 use network::TopicPartition;
 use client::{Cluster, KafkaClient, Metadata, StaticBoxFuture};
-use producer::{Accumulator, Partitioner, ProducerBuilder, ProducerConfig, ProducerRecord,
-               RecordAccumulator, RecordMetadata, Sender, Serializer};
+use producer::{Accumulator, Partitioner, ProducerBuilder, ProducerConfig, ProducerInterceptor,
+               ProducerInterceptors, ProducerRecord, RecordAccumulator, RecordMetadata, Sender,
+               Serializer};
 
 pub trait Producer<'a> {
     type Key: Hash;
@@ -33,23 +34,30 @@ pub trait Producer<'a> {
 pub type SendRecord = StaticBoxFuture<RecordMetadata>;
 pub type Flush = StaticBoxFuture;
 
-pub struct KafkaProducer<'a, K, V, P> {
+pub struct KafkaProducer<'a, K, V, P>
+    where K: Serializer,
+          V: Serializer
+{
     client: Rc<RefCell<KafkaClient<'a>>>,
     config: ProducerConfig,
     accumulator: RecordAccumulator<'a>,
     key_serializer: K,
     value_serializer: V,
     partitioner: P,
+    interceptors: Option<Rc<RefCell<ProducerInterceptors<K::Item, V::Item>>>>,
 }
 
 impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
-    where Self: 'static
+    where K: Serializer,
+          V: Serializer,
+          Self: 'static
 {
     pub fn new(client: KafkaClient<'a>,
                config: ProducerConfig,
                key_serializer: K,
                value_serializer: V,
-               partitioner: P)
+               partitioner: P,
+               interceptors: Option<Rc<RefCell<ProducerInterceptors<K::Item, V::Item>>>>)
                -> Self {
         let accumulator =
             RecordAccumulator::new(config.batch_size, config.compression, config.linger());
@@ -61,6 +69,7 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
             key_serializer: key_serializer,
             value_serializer: value_serializer,
             partitioner: partitioner,
+            interceptors: interceptors,
         }
     }
 
@@ -74,12 +83,17 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
         client.borrow()
     }
 
-    pub fn from_client(client: KafkaClient<'a>) -> ProducerBuilder<'a, K, V, P> {
+    pub fn from_client(client: KafkaClient<'a>) -> ProducerBuilder<'a, K, V, P>
+        where K: Serializer,
+              V: Serializer
+    {
         ProducerBuilder::from_client(client)
     }
 
     pub fn from_hosts<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, P>
-        where I: Iterator<Item = SocketAddr>
+        where I: Iterator<Item = SocketAddr>,
+              K: Serializer,
+              V: Serializer
     {
         ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
     }
@@ -96,8 +110,18 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     type Key = K::Item;
     type Value = V::Item;
 
-    fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
+    fn send(&mut self, mut record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
         trace!("sending record {:?}", record);
+
+        if let Some(ref interceptors) = self.interceptors {
+            let interceptors: &RefCell<ProducerInterceptors<Self::Key, Self::Value>> =
+                interceptors.borrow();
+
+            record = match interceptors.borrow().send(record) {
+                Ok(record) => record,
+                Err(err) => return SendRecord::new(future::err(err)),
+            }
+        }
 
         let ProducerRecord {
             topic_name,
@@ -160,6 +184,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         }
 
         let client = self.client.clone();
+        let interceptor = self.interceptors.clone();
         let handle = self.as_client().handle().clone();
         let acks = self.config.acks;
         let ack_timeout = self.config.ack_timeout();
@@ -168,7 +193,12 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         Flush::new(self.accumulator
                        .batches()
                        .for_each(move |(tp, batch)| {
-            let sender = Sender::new(client.clone(), acks, ack_timeout, tp, batch);
+            let sender = Sender::new(client.clone(),
+                                     interceptor.clone(),
+                                     acks,
+                                     ack_timeout,
+                                     tp,
+                                     batch);
 
             match sender {
                 Ok(sender) => {

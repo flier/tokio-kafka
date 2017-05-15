@@ -29,8 +29,8 @@ use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
 use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
-use tokio_kafka::{BytesSerializer, Client, Compression, Producer, ProducerBuilder, ProducerRecord,
-                  RequiredAcks};
+use tokio_kafka::{BytesSerializer, Client, Compression, Producer, ProducerBuilder,
+                  ProducerInterceptor, ProducerRecord, RecordMetadata, RequiredAcks};
 use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
                           DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
@@ -176,6 +176,25 @@ fn run(config: Config) -> Result<()> {
     }
 }
 
+pub struct LogInterceptor {}
+
+impl ProducerInterceptor for LogInterceptor {
+    type Key = ();
+    type Value = String;
+
+    fn send(&self,
+            record: ProducerRecord<Self::Key, Self::Value>)
+            -> tokio_kafka::Result<ProducerRecord<Self::Key, Self::Value>> {
+        debug!("sending {:?}", record);
+
+        Ok(record)
+    }
+
+    fn ack(&self, result: &tokio_kafka::Result<RecordMetadata>) {
+        debug!("acked {:?}", result);
+    }
+}
+
 fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
     where I: AsyncRead
 {
@@ -194,6 +213,7 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .without_key_serializer()
         .with_value_serializer(BytesSerializer::default())
         .with_default_partitioner()
+        .with_interceptor(LogInterceptor {})
         .build()?;
 
     let client = producer.client();

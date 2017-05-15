@@ -1,3 +1,7 @@
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::borrow::Borrow;
+use std::hash::Hash;
 use std::ops::Deref;
 use std::time::Instant;
 
@@ -10,7 +14,7 @@ use errors::{Error, ErrorKind, Result};
 use compression::Compression;
 use protocol::{ApiVersion, KafkaCode, MessageSet, MessageSetBuilder, Offset, PartitionId,
                Timestamp};
-use producer::RecordMetadata;
+use producer::{ProducerInterceptor, ProducerInterceptors, RecordMetadata};
 
 #[derive(Debug)]
 pub struct Thunk {
@@ -22,12 +26,13 @@ pub struct Thunk {
 }
 
 impl Thunk {
-    pub fn done(self,
-                topic_name: &str,
-                partition: PartitionId,
-                base_offset: Offset,
-                error_code: KafkaCode)
-                -> ::std::result::Result<(), Result<RecordMetadata>> {
+    pub fn done<K: Hash, V>(self,
+                            interceptors: Option<Rc<RefCell<ProducerInterceptors<K, V>>>>,
+                            topic_name: &str,
+                            partition: PartitionId,
+                            base_offset: Offset,
+                            error_code: KafkaCode)
+                            -> ::std::result::Result<(), Result<RecordMetadata>> {
         let result = if error_code == KafkaCode::None {
             Ok(RecordMetadata {
                    topic_name: topic_name.to_owned(),
@@ -40,6 +45,12 @@ impl Thunk {
         } else {
             Err(ErrorKind::KafkaError(error_code).into())
         };
+
+        if let Some(interceptors) = interceptors {
+            let interceptors: &RefCell<ProducerInterceptors<K, V>> = interceptors.borrow();
+
+            interceptors.borrow().ack(&result);
+        }
 
         self.sender.send(result)
     }

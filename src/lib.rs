@@ -66,13 +66,14 @@ pub mod consts {
                        DEFAULT_MAX_REQUEST_SIZE};
 }
 
-pub use errors::{Error, ErrorKind};
+pub use errors::{Error, ErrorKind, Result};
 pub use compression::Compression;
 pub use protocol::{FetchOffset, PartitionId, RequiredAcks, ToMilliseconds};
 pub use network::TopicPartition;
 pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, KafkaVersion,
                  Metadata, PartitionOffset, StaticBoxFuture};
 pub use producer::{BytesSerializer, DefaultPartitioner, KafkaProducer, NoopSerializer,
-                   Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerRecord,
-                   RawSerializer, Serializer, StrEncodingSerializer};
+                   Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
+                   ProducerRecord, RawSerializer, RecordMetadata, Serializer,
+                   StrEncodingSerializer};
 pub use consumer::KafkaConsumer;

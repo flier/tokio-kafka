@@ -6,6 +6,7 @@ mod accumulator;
 mod sender;
 mod producer;
 mod serialization;
+mod interceptor;
 mod builder;
 
 pub use self::record::{ProducerRecord, RecordMetadata};
@@ -18,4 +19,5 @@ pub use self::sender::{SendBatch, Sender};
 pub use self::producer::{Flush, KafkaProducer, Producer, SendRecord};
 pub use self::serialization::{BytesSerializer, NoopSerializer, RawSerializer, Serializer,
                               StrEncodingSerializer};
+pub use self::interceptor::{ProducerInterceptor, ProducerInterceptors};
 pub use self::builder::ProducerBuilder;
