@@ -1,3 +1,4 @@
+use std::mem;
 use std::borrow::Cow;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
@@ -5,9 +6,9 @@ use bytes::{BufMut, ByteOrder, BytesMut};
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder,
-               Offset, PARTITION_ID_SIZE, ParseTag, PartitionId, Record, RequestHeader,
-               RequiredAck, ResponseHeader, STR_LEN_SIZE, Timestamp, WriteExt,
+use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, Encodable, ErrorCode, MessageSet,
+               MessageSetEncoder, Offset, PARTITION_ID_SIZE, ParseTag, PartitionId, Record,
+               RequestHeader, RequiredAck, ResponseHeader, STR_LEN_SIZE, Timestamp, WriteExt,
                parse_response_header, parse_string};
 
 const REQUIRED_ACKS_SIZE: usize = 2;
@@ -44,7 +45,8 @@ impl<'a> Record for ProduceRequest<'a> {
                     .partitions
                     .iter()
                     .fold(ARRAY_LEN_SIZE, |size, partition| {
-                        size + PARTITION_ID_SIZE + partition.message_set.size(api_version)
+                        size + PARTITION_ID_SIZE + BYTES_LEN_SIZE +
+                        partition.message_set.size(api_version)
                     })
             })
     }
@@ -52,7 +54,7 @@ impl<'a> Record for ProduceRequest<'a> {
 
 impl<'a> Encodable for ProduceRequest<'a> {
     fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        let encoder = MessageSetEncoder::new(self.header.api_version);
+        let encoder = MessageSetEncoder::new(self.header.api_version, None);
 
         self.header.encode::<T>(dst)?;
 
@@ -62,7 +64,16 @@ impl<'a> Encodable for ProduceRequest<'a> {
             buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
             buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
                 buf.put_i32::<T>(partition.partition);
-                encoder.encode::<T>(&partition.message_set, buf)
+
+                let size_off = buf.len();
+                buf.put_i32::<T>(0);
+
+                encoder.encode::<T>(&partition.message_set, buf)?;
+
+                let message_set_size = buf.len() - size_off - mem::size_of::<i32>();
+                T::write_i32(&mut buf[size_off..], message_set_size as i32);
+
+                Ok(())
             })
         })
     }

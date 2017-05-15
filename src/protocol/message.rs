@@ -10,7 +10,7 @@ use time;
 use crc::crc32;
 
 use errors::{ErrorKind, Result};
-use compression::{self, Compression};
+use compression::Compression;
 use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, OFFSET_SIZE, Offset, ParseTag, Record,
                TIMESTAMP_SIZE, Timestamp, WriteExt, parse_opt_bytes};
 
@@ -49,7 +49,6 @@ impl Deref for MessageSet {
 
 impl Record for MessageSet {
     fn size(&self, api_version: ApiVersion) -> usize {
-        BYTES_LEN_SIZE +
         self.messages
             .iter()
             .fold(ARRAY_LEN_SIZE, // The size, in bytes, of the message set that follows.
@@ -120,11 +119,15 @@ impl Default for MessageTimestamp {
 
 pub struct MessageSetEncoder {
     api_version: ApiVersion,
+    compression: Option<Compression>,
 }
 
 impl MessageSetEncoder {
-    pub fn new(api_version: ApiVersion) -> Self {
-        MessageSetEncoder { api_version: api_version }
+    pub fn new(api_version: ApiVersion, compression: Option<Compression>) -> Self {
+        MessageSetEncoder {
+            api_version: api_version,
+            compression: compression,
+        }
     }
 
     pub fn encode<T: ByteOrder>(&self, message_set: &MessageSet, buf: &mut BytesMut) -> Result<()> {
@@ -132,11 +135,8 @@ impl MessageSetEncoder {
 
         buf.reserve(message_set.size(self.api_version));
 
-        let size_off = buf.len();
-        buf.put_i32::<T>(0);
-
         for message in &message_set.messages {
-            let offset = if message.compression == Compression::None {
+            let offset = if self.compression.unwrap_or(message.compression) == Compression::None {
                 message.offset
             } else {
                 offset = offset.wrapping_add(1);
@@ -145,10 +145,6 @@ impl MessageSetEncoder {
 
             self.encode_message::<T>(message, offset, buf)?;
         }
-
-        let message_set_size = buf.len() - size_off - mem::size_of::<i32>();
-
-        T::write_i32(&mut buf[size_off..], message_set_size as i32);
 
         Ok(())
     }
@@ -165,7 +161,8 @@ impl MessageSetEncoder {
         buf.put_i32::<T>(0);
         let data_off = buf.len();
         buf.put_i8(self.api_version as i8);
-        buf.put_i8((message.compression as i8 & COMPRESSION_CODEC_MASK) |
+        buf.put_i8((self.compression.unwrap_or(message.compression) as i8 &
+                    COMPRESSION_CODEC_MASK) |
                    if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
                        TIMESTAMP_TYPE_MASK
                    } else {
@@ -315,16 +312,17 @@ impl MessageSetBuilder {
     }
 
     #[cfg(any(feature = "gzip", feature = "snappy", feature = "lz4"))]
-    fn wrap<T: ByteOrder>(&self, compress: fn(&[u8]) -> Result<Vec<u8>>) -> Result<MessageSet> {
-        let mut buf = BytesMut::with_capacity(self.message_set.size(self.api_version));
-        let encoder = MessageSetEncoder::new(self.api_version);
+    fn wrap<T: ByteOrder>(&self, compression: Compression) -> Result<MessageSet> {
+        let mut buf = BytesMut::with_capacity((self.message_set.size(self.api_version) * 6 / 5)
+                                                  .next_power_of_two());
+        let encoder = MessageSetEncoder::new(self.api_version, Some(Compression::None));
         encoder.encode::<T>(&self.message_set, &mut buf)?;
-        let compressed = compress(&buf)?;
+        let compressed = compression.compress(&buf)?;
         Ok(MessageSet {
                messages: vec![Message{
                             offset: 0,
                             timestamp: Some(MessageTimestamp::default()),
-                            compression:Compression::None,
+                            compression:compression,
                             key: None,
                             value: Some(Bytes::from(compressed)),
                         }],
@@ -334,11 +332,11 @@ impl MessageSetBuilder {
     pub fn build<T: ByteOrder>(self) -> Result<MessageSet> {
         match self.compression {
             #[cfg(feature = "gzip")]
-            Compression::GZIP => self.wrap::<T>(compression::gzip::compress),
+            Compression::GZIP => self.wrap::<T>(Compression::GZIP),
             #[cfg(feature = "snappy")]
-            Compression::Snappy => self.wrap::<T>(compression::snappy::compress),
+            Compression::Snappy => self.wrap::<T>(Compression::Snappy),
             #[cfg(feature = "lz4")]
-            Compression::LZ4 => self.wrap::<T>(compression::lz4::compress),
+            Compression::LZ4 => self.wrap::<T>(Compression::LZ4),
             Compression::None => Ok(self.message_set),
         }
     }
