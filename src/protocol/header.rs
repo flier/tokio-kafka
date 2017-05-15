@@ -4,7 +4,13 @@ use bytes::{BufMut, ByteOrder, BytesMut};
 use nom::be_i32;
 
 use errors::Result;
-use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, ParseTag, WriteExt};
+use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, ParseTag, Record, STR_LEN_SIZE,
+               WriteExt};
+
+const API_KEY_SIZE: usize = 2;
+const API_VERSION_SIZE: usize = 2;
+const CORRELATION_ID_SIZE: usize = 4;
+const HEADER_OVERHEAD: usize = API_KEY_SIZE + API_VERSION_SIZE + CORRELATION_ID_SIZE;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestHeader<'a> {
@@ -14,12 +20,18 @@ pub struct RequestHeader<'a> {
     pub client_id: Option<Cow<'a, str>>,
 }
 
+impl<'a> Record for RequestHeader<'a> {
+    fn size(&self, _api_version: ApiVersion) -> usize {
+        HEADER_OVERHEAD + STR_LEN_SIZE + self.client_id.as_ref().map_or(0, |s| s.len())
+    }
+}
+
 impl<'a> Encodable for RequestHeader<'a> {
-    fn encode<T: ByteOrder>(self, buf: &mut BytesMut) -> Result<()> {
+    fn encode<T: ByteOrder>(&self, buf: &mut BytesMut) -> Result<()> {
         buf.put_i16::<T>(self.api_key);
         buf.put_i16::<T>(self.api_version);
         buf.put_i32::<T>(self.correlation_id);
-        buf.put_str::<T, _>(self.client_id)
+        buf.put_str::<T, _>(self.client_id.as_ref())
     }
 }
 
@@ -57,11 +69,11 @@ mod tests {
 
         hdr.encode::<BigEndian>(&mut buf).unwrap();
 
+        assert_eq!(hdr.size(hdr.api_version), buf.len());
+
         assert_eq!(&buf[..],
-                   &[0, 1,            // api_key
-                               0, 2,            // api_version
-                               0, 0, 0, 123,    // correlation_id
-                               0, 4, 116, 101, 115, 116]);
+                   &[0, 1 /* api_key */, 0, 2 /* api_version */, 0, 0, 0,
+                     123 /* correlation_id */, 0, 4, 116, 101, 115, 116]);
 
         let bytes = &[0, 0, 0, 123];
         let res = parse_response_header(bytes);

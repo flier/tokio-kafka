@@ -8,7 +8,7 @@ mod client;
 
 pub use self::version::KafkaVersion;
 pub use self::config::{ClientConfig, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
-                       DEFAULT_REQUEST_TIMEOUT_MILLS, ToMilliseconds};
+                       DEFAULT_REQUEST_TIMEOUT_MILLS};
 pub use self::cluster::{Broker, BrokerRef, Cluster, PartitionInfo};
 pub use self::metadata::{Metadata, TopicPartitions};
 pub use self::metrics::Metrics;

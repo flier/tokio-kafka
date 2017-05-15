@@ -5,10 +5,16 @@ use bytes::{BufMut, ByteOrder, BytesMut};
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ApiVersion, Encodable, ErrorCode, MessageSet, Offset, ParseTag, PartitionId,
-               ReplicaId, RequestHeader, ResponseHeader, WriteExt, parse_message_set,
+use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, MessageSet, OFFSET_SIZE, Offset,
+               PARTITION_ID_SIZE, ParseTag, PartitionId, REPLICA_ID_SIZE, Record, ReplicaId,
+               RequestHeader, ResponseHeader, STR_LEN_SIZE, WriteExt, parse_message_set,
                parse_response_header, parse_string};
 
+const MAX_WAIT_TIME: usize = 4;
+const MIN_BYTES_SIZE: usize = 4;
+const REQUEST_OVERHEAD: usize = REPLICA_ID_SIZE + MAX_WAIT_TIME + MIN_BYTES_SIZE;
+const FETCH_OFFSET_SIZE: usize = OFFSET_SIZE;
+const MAX_BYTES_SIZE: usize = 4;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchRequest<'a> {
@@ -39,22 +45,39 @@ pub struct FetchPartition {
     pub max_bytes: i32,
 }
 
+impl<'a> Record for FetchRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version) + REQUEST_OVERHEAD +
+        self.topics
+            .iter()
+            .fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len() +
+                topic
+                    .partitions
+                    .iter()
+                    .fold(ARRAY_LEN_SIZE,
+                          |size, _| size + PARTITION_ID_SIZE + FETCH_OFFSET_SIZE + MAX_BYTES_SIZE)
+            })
+    }
+}
+
 impl<'a> Encodable for FetchRequest<'a> {
-    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
         self.header.encode::<T>(dst)?;
 
         dst.put_i32::<T>(self.replica_id);
         dst.put_i32::<T>(self.max_wait_time);
         dst.put_i32::<T>(self.min_bytes);
-        dst.put_array::<T, _, _>(self.topics, |buf, topic| {
-            buf.put_str::<T, _>(Some(topic.topic_name))?;
-            buf.put_array::<T, _, _>(topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition);
-                buf.put_i64::<T>(partition.fetch_offset);
-                buf.put_i32::<T>(partition.max_bytes);
-                Ok(())
-            })
-        })
+        dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
+                buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
+                buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
+                    buf.put_i32::<T>(partition.partition);
+                    buf.put_i64::<T>(partition.fetch_offset);
+                    buf.put_i32::<T>(partition.max_bytes);
+                    Ok(())
+                })
+            })?;
+        Ok(())
     }
 }
 
@@ -185,6 +208,8 @@ mod tests {
         let mut buf = BytesMut::with_capacity(128);
 
         request.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(request.size(request.header.api_version), buf.len());
 
         assert_eq!(&buf[..], &data[..]);
     }

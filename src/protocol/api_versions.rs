@@ -5,7 +5,7 @@ use bytes::{ByteOrder, BytesMut};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ApiKey, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, RequestHeader,
+use protocol::{ApiKey, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader,
                ResponseHeader, parse_response_header};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -13,8 +13,14 @@ pub struct ApiVersionsRequest<'a> {
     pub header: RequestHeader<'a>,
 }
 
+impl<'a> Record for ApiVersionsRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version)
+    }
+}
+
 impl<'a> Encodable for ApiVersionsRequest<'a> {
-    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
         self.header.encode::<T>(dst)
     }
 }
@@ -146,6 +152,8 @@ mod tests {
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
     }

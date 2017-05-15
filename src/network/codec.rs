@@ -7,7 +7,7 @@ use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
 
 use tokio_io::codec::{Decoder, Encoder};
 
-use protocol::{ApiKeys, ApiVersion, CorrelationId, Encodable, RequestHeader};
+use protocol::{ApiKeys, ApiVersion, CorrelationId, Encodable, Record, RequestHeader};
 use network::{KafkaRequest, KafkaResponse};
 
 #[derive(Debug)]
@@ -40,6 +40,12 @@ impl<'a> Encoder for KafkaCodec<'a> {
                  correlation_id,
                  ..
              } = request.header();
+
+        let record_size = request.size(api_version);
+
+        if dst.remaining_mut() < record_size {
+            dst.reserve(record_size);
+        }
 
         request
             .encode::<BigEndian>(dst)

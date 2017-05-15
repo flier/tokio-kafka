@@ -12,9 +12,9 @@ use tokio_core::reactor::Handle;
 use tokio_retry::Retry;
 
 use errors::Error;
-use protocol::ApiKeys;
+use protocol::{ApiKeys, ToMilliseconds};
 use network::TopicPartition;
-use client::{Cluster, KafkaClient, Metadata, StaticBoxFuture, ToMilliseconds};
+use client::{Cluster, KafkaClient, Metadata, StaticBoxFuture};
 use producer::{Accumulator, Partitioner, ProducerBuilder, ProducerConfig, ProducerRecord,
                RecordAccumulator, RecordMetadata, Sender, Serializer};
 

@@ -2,7 +2,10 @@
 
 use std::mem;
 use std::fmt;
+use std::time::Duration;
 use std::str::FromStr;
+
+use time::Timespec;
 
 use errors::{Error, ErrorKind, Result};
 
@@ -27,9 +30,10 @@ pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncode
                         MessageTimestamp, parse_message_set};
 pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
                          TopicMetadata, parse_metadata_response};
-pub use self::parser::{Encodable, PARSE_TAGS, ParseTag, WriteExt, display_parse_error,
-                       parse_bytes, parse_opt_bytes, parse_opt_str, parse_opt_string, parse_str,
-                       parse_string};
+pub use self::parser::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, PARSE_TAGS,
+                       PARTITION_ID_SIZE, ParseTag, REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE,
+                       WriteExt, display_parse_error, parse_bytes, parse_opt_bytes, parse_opt_str,
+                       parse_opt_string, parse_str, parse_string};
 pub use self::produce::{ProducePartition, ProduceRequest, ProduceResponse, ProduceTopic,
                         parse_produce_response};
 
@@ -308,5 +312,25 @@ impl From<ErrorCode> for KafkaCode {
 impl fmt::Display for KafkaCode {
     fn fmt(&self, w: &mut fmt::Formatter) -> fmt::Result {
         write!(w, "{:?}", self)
+    }
+}
+
+pub trait Record {
+    fn size(&self, api_version: ApiVersion) -> usize;
+}
+
+pub trait ToMilliseconds {
+    fn as_millis(&self) -> u64;
+}
+
+impl ToMilliseconds for Duration {
+    fn as_millis(&self) -> u64 {
+        self.as_secs() * 1000 + self.subsec_nanos() as u64 / 1000_000
+    }
+}
+
+impl ToMilliseconds for Timespec {
+    fn as_millis(&self) -> u64 {
+        self.sec as u64 * 1000 + self.nsec as u64 / 1000_000
     }
 }

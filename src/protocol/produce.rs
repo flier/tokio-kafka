@@ -5,15 +5,19 @@ use bytes::{BufMut, ByteOrder, BytesMut};
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder, Offset, ParseTag,
-               PartitionId, RequestHeader, RequiredAck, ResponseHeader, Timestamp, WriteExt,
+use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder,
+               Offset, PARTITION_ID_SIZE, ParseTag, PartitionId, Record, RequestHeader,
+               RequiredAck, ResponseHeader, STR_LEN_SIZE, Timestamp, WriteExt,
                parse_response_header, parse_string};
+
+const REQUIRED_ACKS_SIZE: usize = 2;
+const ACK_TIMEOUT_SIZE: usize = 4;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequest<'a> {
     pub header: RequestHeader<'a>,
     pub required_acks: RequiredAck,
-    pub timeout: i32,
+    pub ack_timeout: i32,
     pub topics: Vec<ProduceTopic<'a>>,
 }
 
@@ -29,17 +33,34 @@ pub struct ProducePartition<'a> {
     pub message_set: Cow<'a, MessageSet>,
 }
 
+impl<'a> Record for ProduceRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version) + REQUIRED_ACKS_SIZE + ACK_TIMEOUT_SIZE +
+        self.topics
+            .iter()
+            .fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len() +
+                topic
+                    .partitions
+                    .iter()
+                    .fold(ARRAY_LEN_SIZE, |size, partition| {
+                        size + PARTITION_ID_SIZE + partition.message_set.size(api_version)
+                    })
+            })
+    }
+}
+
 impl<'a> Encodable for ProduceRequest<'a> {
-    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
         let encoder = MessageSetEncoder::new(self.header.api_version);
 
         self.header.encode::<T>(dst)?;
 
         dst.put_i16::<T>(self.required_acks);
-        dst.put_i32::<T>(self.timeout);
-        dst.put_array::<T, _, _>(self.topics, |buf, topic| {
-            buf.put_str::<T, _>(Some(topic.topic_name))?;
-            buf.put_array::<T, _, _>(topic.partitions, |buf, partition| {
+        dst.put_i32::<T>(self.ack_timeout);
+        dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
+            buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
+            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
                 buf.put_i32::<T>(partition.partition);
                 encoder.encode::<T>(&partition.message_set, buf)
             })
@@ -132,7 +153,7 @@ mod tests {
                 0, 0, 0, 123,                       // correlation_id
                 0, 6, 99, 108, 105, 101, 110, 116,  // client_id
             255, 255,                               // required_acks
-            0, 0, 0, 123,                           // timeout
+            0, 0, 0, 123,                           // ack_timeout
                 // topics: [ProduceTopicData]
                 0, 0, 0, 1,
                     // ProduceTopicData
@@ -194,7 +215,7 @@ mod tests {
                 client_id: Some("client".into()),
             },
             required_acks: RequiredAcks::All as RequiredAck,
-            timeout: 123,
+            ack_timeout: 123,
             topics: vec![ProduceTopic {
                 topic_name: "topic".into(),
                 partitions: vec![ProducePartition {
@@ -215,6 +236,8 @@ mod tests {
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
     }

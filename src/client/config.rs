@@ -1,8 +1,6 @@
 use std::time::Duration;
 use std::net::SocketAddr;
 
-use time::Timespec;
-
 use tokio_timer::{Timer, wheel};
 
 use client::KafkaVersion;
@@ -86,22 +84,6 @@ impl ClientConfig {
             .num_slots((self.request_timeout / DEFAULT_TIMER_TICK_MILLS).next_power_of_two() as
                        usize)
             .build()
-    }
-}
-
-pub trait ToMilliseconds {
-    fn as_millis(&self) -> u64;
-}
-
-impl ToMilliseconds for Duration {
-    fn as_millis(&self) -> u64 {
-        self.as_secs() * 1000 + self.subsec_nanos() as u64 / 1000_000
-    }
-}
-
-impl ToMilliseconds for Timespec {
-    fn as_millis(&self) -> u64 {
-        self.sec as u64 * 1000 + self.nsec as u64 / 1000_000
     }
 }
 

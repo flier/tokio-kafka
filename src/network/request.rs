@@ -8,7 +8,7 @@ use errors::Result;
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, Encodable,
                FetchOffset, FetchRequest, ListOffsetRequest, ListPartitionOffset, ListTopicOffset,
                MessageSet, MetadataRequest, PartitionId, ProducePartition, ProduceRequest,
-               ProduceTopic, RequestHeader, RequiredAck, RequiredAcks};
+               ProduceTopic, Record, RequestHeader, RequiredAck, RequiredAcks, ToMilliseconds};
 
 /// A topic name and partition number
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -41,7 +41,7 @@ impl<'a> KafkaRequest<'a> {
                            correlation_id: CorrelationId,
                            client_id: Option<Cow<'a, str>>,
                            required_acks: RequiredAcks,
-                           timeout: Duration,
+                           ack_timeout: Duration,
                            tp: &TopicPartition<'a>,
                            records: Vec<Cow<'a, MessageSet>>)
                            -> KafkaRequest<'a> {
@@ -53,7 +53,7 @@ impl<'a> KafkaRequest<'a> {
                 client_id: client_id,
             },
             required_acks: required_acks as RequiredAck,
-            timeout: timeout.as_secs() as i32 * 1000 + timeout.subsec_nanos() as i32 / 1000_000,
+            ack_timeout: ack_timeout.as_millis() as i32,
             topics: records
                 .into_iter()
                 .map(move |message_set| {
@@ -148,14 +148,26 @@ impl<'a> KafkaRequest<'a> {
     }
 }
 
+impl<'a> Record for KafkaRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        match *self {
+            KafkaRequest::Produce(ref req) => req.size(api_version),
+            KafkaRequest::Fetch(ref req) => req.size(api_version),
+            KafkaRequest::ListOffsets(ref req) => req.size(api_version),
+            KafkaRequest::Metadata(ref req) => req.size(api_version),
+            KafkaRequest::ApiVersions(ref req) => req.size(api_version),
+        }
+    }
+}
+
 impl<'a> Encodable for KafkaRequest<'a> {
-    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
-        match self {
-            KafkaRequest::Produce(req) => req.encode::<T>(dst),
-            KafkaRequest::Fetch(req) => req.encode::<T>(dst),
-            KafkaRequest::ListOffsets(req) => req.encode::<T>(dst),
-            KafkaRequest::Metadata(req) => req.encode::<T>(dst),
-            KafkaRequest::ApiVersions(req) => req.encode::<T>(dst),
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+        match *self {
+            KafkaRequest::Produce(ref req) => req.encode::<T>(dst),
+            KafkaRequest::Fetch(ref req) => req.encode::<T>(dst),
+            KafkaRequest::ListOffsets(ref req) => req.encode::<T>(dst),
+            KafkaRequest::Metadata(ref req) => req.encode::<T>(dst),
+            KafkaRequest::ApiVersions(ref req) => req.encode::<T>(dst),
         }
     }
 }

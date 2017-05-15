@@ -6,9 +6,12 @@ use time::Timespec;
 use nom::{be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ApiVersion, Encodable, ErrorCode, Offset, ParseTag, PartitionId, ReplicaId,
-               RequestHeader, ResponseHeader, Timestamp, WriteExt, parse_response_header,
-               parse_string};
+use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, Offset, PARTITION_ID_SIZE,
+               ParseTag, PartitionId, REPLICA_ID_SIZE, Record, ReplicaId, RequestHeader,
+               ResponseHeader, STR_LEN_SIZE, TIMESTAMP_SIZE, Timestamp, WriteExt,
+               parse_response_header, parse_string};
+
+const MAX_NUMBER_OF_OFFSETS_SIZE: usize = 4;
 
 pub const LATEST_TIMESTAMP: Timestamp = -1;
 pub const EARLIEST_TIMESTAMP: Timestamp = -2;
@@ -67,16 +70,38 @@ pub struct ListPartitionOffset {
     pub max_number_of_offsets: i32,
 }
 
+impl<'a> Record for ListOffsetRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version) + REPLICA_ID_SIZE +
+        self.topics
+            .iter()
+            .fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len() +
+                topic
+                    .partitions
+                    .iter()
+                    .fold(ARRAY_LEN_SIZE, |size, _| {
+                        size + PARTITION_ID_SIZE + TIMESTAMP_SIZE +
+                        if api_version == 0 {
+                            MAX_NUMBER_OF_OFFSETS_SIZE
+                        } else {
+                            0
+                        }
+                    })
+            })
+    }
+}
+
 impl<'a> Encodable for ListOffsetRequest<'a> {
-    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
         let api_version = self.header.api_version;
 
         self.header.encode::<T>(dst)?;
 
         dst.put_i32::<T>(self.replica_id);
-        dst.put_array::<T, _, _>(self.topics, |buf, topic| {
-            buf.put_str::<T, _>(Some(topic.topic_name))?;
-            buf.put_array::<T, _, _>(topic.partitions, |buf, partition| {
+        dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
+            buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
+            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
                 buf.put_i32::<T>(partition.partition);
                 buf.put_i64::<T>(partition.timestamp);
                 if api_version == 0 {

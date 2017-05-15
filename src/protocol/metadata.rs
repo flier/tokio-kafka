@@ -5,8 +5,9 @@ use bytes::{ByteOrder, BytesMut};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{Encodable, ErrorCode, NodeId, ParseTag, PartitionId, RequestHeader, ResponseHeader,
-               WriteExt, parse_response_header, parse_string};
+use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, NodeId, ParseTag, PartitionId,
+               Record, RequestHeader, ResponseHeader, STR_LEN_SIZE, WriteExt,
+               parse_response_header, parse_string};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest<'a> {
@@ -14,12 +15,24 @@ pub struct MetadataRequest<'a> {
     pub topic_names: Vec<Cow<'a, str>>,
 }
 
+impl<'a> Record for MetadataRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version) +
+        self.topic_names
+            .iter()
+            .fold(ARRAY_LEN_SIZE,
+                  |size, topic_name| size + STR_LEN_SIZE + topic_name.len())
+    }
+}
+
 impl<'a> Encodable for MetadataRequest<'a> {
-    fn encode<T: ByteOrder>(self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
         self.header.encode::<T>(dst)?;
 
-        dst.put_array::<T, _, _>(self.topic_names,
-                                 |buf, topic_name| buf.put_str::<T, _>(Some(topic_name)))
+        dst.put_array::<T, _, _>(&self.topic_names,
+                                  |buf, topic_name| buf.put_str::<T, _>(Some(topic_name.as_ref())))?;
+
+        Ok(())
     }
 }
 
@@ -200,6 +213,8 @@ mod tests {
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
 
         assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
     }

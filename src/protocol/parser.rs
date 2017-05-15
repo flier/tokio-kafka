@@ -8,8 +8,16 @@ use nom::{self, IResult, be_i16, be_i32, error_to_u32, prepare_errors, print_off
 
 use errors::{ErrorKind, Result};
 
+pub const STR_LEN_SIZE: usize = 2;
+pub const BYTES_LEN_SIZE: usize = 4;
+pub const ARRAY_LEN_SIZE: usize = 4;
+pub const REPLICA_ID_SIZE: usize = 4;
+pub const PARTITION_ID_SIZE: usize = 4;
+pub const TIMESTAMP_SIZE: usize = 8;
+pub const OFFSET_SIZE: usize = 8;
+
 pub trait Encodable {
-    fn encode<T: ByteOrder>(self, buf: &mut BytesMut) -> Result<()>;
+    fn encode<T: ByteOrder>(&self, buf: &mut BytesMut) -> Result<()>;
 }
 
 pub trait WriteExt: BufMut + Sized {
@@ -21,13 +29,13 @@ pub trait WriteExt: BufMut + Sized {
             Some(v) if !v.as_ref().is_empty() => {
                 self.put_i16::<T>(v.as_ref().len() as i16);
                 self.put_slice(v.as_ref().as_bytes());
-                Ok(())
             }
             _ => {
                 self.put_i16::<T>(-1);
-                Ok(())
             }
         }
+
+        Ok(())
     }
 
     fn put_bytes<T: ByteOrder, D: AsRef<[u8]>>(&mut self, d: Option<D>) -> Result<()> {
@@ -38,30 +46,30 @@ pub trait WriteExt: BufMut + Sized {
             Some(v) if !v.as_ref().is_empty() => {
                 self.put_i32::<T>(v.as_ref().len() as i32);
                 self.put_slice(v.as_ref());
-                Ok(())
             }
             _ => {
                 self.put_i32::<T>(-1);
-                Ok(())
             }
         }
+
+        Ok(())
     }
 
-    fn put_array<T, E, F>(&mut self, items: Vec<E>, mut callback: F) -> Result<()>
+    fn put_array<T, E, F>(&mut self, items: &[E], mut callback: F) -> Result<()>
         where T: ByteOrder,
-              F: FnMut(&mut Self, E) -> Result<()>
+              F: FnMut(&mut Self, &E) -> Result<()>
     {
         if items.len() > i32::max_value() as usize {
             bail!(ErrorKind::EncodeError("array exceeds the maximum size."))
-        } else {
-            self.put_i32::<T>(items.len() as i32);
-
-            for item in items {
-                callback(self, item)?;
-            }
-
-            Ok(())
         }
+
+        self.put_i32::<T>(items.len() as i32);
+
+        for item in items {
+            callback(self, item)?;
+        }
+
+        Ok(())
     }
 }
 

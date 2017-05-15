@@ -6,8 +6,8 @@ use tokio_core::reactor::Handle;
 
 use errors::{ErrorKind, Result};
 use compression::Compression;
-use protocol::RequiredAcks;
-use client::{KafkaClient, ToMilliseconds};
+use protocol::{RequiredAcks, ToMilliseconds};
+use client::KafkaClient;
 use producer::{DefaultPartitioner, KafkaProducer, NoopSerializer, ProducerConfig};
 
 pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner> {
