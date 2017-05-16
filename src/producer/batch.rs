@@ -1,6 +1,5 @@
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::borrow::Borrow;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::time::Instant;
@@ -47,9 +46,7 @@ impl Thunk {
         };
 
         if let Some(interceptors) = interceptors {
-            let interceptors: &RefCell<ProducerInterceptors<K, V>> = interceptors.borrow();
-
-            interceptors.borrow().ack(&result);
+            (*interceptors).borrow().ack(&result);
         }
 
         self.sender.send(result)

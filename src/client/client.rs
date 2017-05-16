@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::cell::RefCell;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -10,9 +10,9 @@ use std::time::Duration;
 
 use futures::{Async, Poll};
 use futures::future::{self, Future};
-use tokio_core::reactor::Handle;
+use tokio_core::reactor::{Handle, Timeout};
 use tokio_service::Service;
-use tokio_middleware::{Log, Timeout};
+use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 
 use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
@@ -74,9 +74,13 @@ impl State {
 }
 
 pub struct KafkaClient<'a> {
+    inner: Rc<Inner<'a>>,
+}
+
+struct Inner<'a> {
     config: ClientConfig,
     handle: Handle,
-    service: Log<Timeout<KafkaService<'a>>>,
+    service: LogMiddleware<TimeoutMiddleware<KafkaService<'a>>>,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
 }
@@ -85,13 +89,7 @@ impl<'a> Deref for KafkaClient<'a> {
     type Target = ClientConfig;
 
     fn deref(&self) -> &Self::Target {
-        &self.config
-    }
-}
-
-impl<'a> DerefMut for KafkaClient<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.config
+        &self.inner.config
     }
 }
 
@@ -112,19 +110,21 @@ impl<'a> KafkaClient<'a>
         } else {
             None
         };
-        let service = Log::new(Timeout::new(KafkaService::new(handle.clone(),
+        let service = LogMiddleware::new(TimeoutMiddleware::new(KafkaService::new(handle.clone(),
                                                               config.max_connection_idle(),
                                                               metrics.clone()),
                                             config.timer(),
                                             config.request_timeout()));
 
-        let mut client = KafkaClient {
-            config: config,
-            handle: handle.clone(),
-            service: service,
-            metrics: metrics,
-            state: Rc::new(RefCell::new(State::default())),
-        };
+        let inner = Rc::new(Inner {
+                                config: config,
+                                handle: handle.clone(),
+                                service: service,
+                                metrics: metrics,
+                                state: Rc::new(RefCell::new(State::default())),
+                            });
+
+        let mut client = KafkaClient { inner: inner };
 
         let load_metadata = client
             .load_metadata()
@@ -141,19 +141,23 @@ impl<'a> KafkaClient<'a>
     }
 
     pub fn handle(&self) -> &Handle {
-        &self.handle
+        &self.inner.handle
     }
 
     pub fn metrics(&self) -> Option<Rc<Metrics>> {
-        self.metrics.clone()
+        self.inner.metrics.clone()
     }
 
     pub fn metadata(&self) -> Rc<Metadata> {
-        self.state.borrow().metadata()
+        self.inner.state.borrow().metadata()
     }
+}
 
+impl<'a> Inner<'a>
+    where Self: 'static
+{
     fn next_correlation_id(&self) -> CorrelationId {
-        self.state.borrow_mut().next_correlation_id()
+        (*self.state).borrow_mut().next_correlation_id()
     }
 
     fn client_id(&self) -> Option<Cow<'a, str>> {
@@ -290,23 +294,28 @@ impl<'a> Client<'a> for KafkaClient<'a>
                        records: Vec<Cow<'a, MessageSet>>)
                        -> ProduceRecords {
         let request = KafkaRequest::produce_records(0, // api_version,
-                                                    self.next_correlation_id(),
-                                                    self.client_id(),
+                                                    self.inner.next_correlation_id(),
+                                                    self.inner.client_id(),
                                                     required_acks,
                                                     timeout,
                                                     &tp,
                                                     records);
-        let addr = self.metadata()
+        let addr = self.inner
+            .state
+            .borrow()
+            .metadata()
             .leader_for(&tp)
-            .map_or_else(|| *self.config.hosts.iter().next().unwrap(), |broker| {
-                broker
-                    .addr()
-                    .to_socket_addrs()
-                    .unwrap()
-                    .next()
-                    .unwrap()
-            });
-        let response = self.service
+            .map_or_else(|| *self.inner.config.hosts.iter().next().unwrap(),
+                         |broker| {
+                             broker
+                                 .addr()
+                                 .to_socket_addrs()
+                                 .unwrap()
+                                 .next()
+                                 .unwrap()
+                         });
+        let response = self.inner
+            .service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
                           let produce = res.topics
@@ -332,18 +341,19 @@ impl<'a> Client<'a> for KafkaClient<'a>
     }
 
     fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets {
-        let topics = self.topics_by_broker(topic_names);
+        let topics = self.inner.topics_by_broker(topic_names);
 
         let responses = {
             let mut responses = Vec::new();
 
             for ((addr, api_version), topics) in topics {
                 let request = KafkaRequest::list_offsets(api_version,
-                                                         self.next_correlation_id(),
-                                                         self.client_id(),
+                                                         self.inner.next_correlation_id(),
+                                                         self.inner.client_id(),
                                                          topics,
                                                          offset);
-                let response = self.service
+                let response = self.inner
+                    .service
                     .call((addr, request))
                     .and_then(|res| {
                         if let KafkaResponse::ListOffsets(res) = res {
@@ -408,7 +418,33 @@ impl<'a> Client<'a> for KafkaClient<'a>
     fn load_metadata(&mut self) -> LoadMetadata {
         debug!("loading metadata...");
 
-        LoadMetadata::new(self.fetch_metadata::<&str>(&[]), self.state.clone())
+        if self.inner.config.metadata_max_age > 0 {
+            let handle = self.inner.handle.clone();
+
+            let timeout = Timeout::new(self.inner.config.metadata_max_age(), &handle);
+
+            match timeout {
+                Ok(timeout) => {
+                    let inner = self.inner.clone();
+                    let future = timeout
+                        .map_err(Error::from)
+                        .and_then(move |_| {
+                                      LoadMetadata::new(inner.fetch_metadata::<&str>(&[]),
+                                                        inner.state.clone())
+                                  })
+                        .map(|_| ())
+                        .map_err(|_| ());
+
+                    handle.spawn(future);
+                }
+                Err(err) => {
+                    warn!("fail to create timeout, {}", err);
+                }
+            }
+        }
+
+        LoadMetadata::new(self.inner.fetch_metadata::<&str>(&[]),
+                          self.inner.state.clone())
     }
 }
 
@@ -435,7 +471,7 @@ impl Future for LoadMetadata
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.fetch_metadata.poll() {
             Ok(Async::Ready(metadata)) => {
-                self.state
+                (*self.state)
                     .borrow_mut()
                     .update_metadata(metadata.clone());
 
@@ -472,7 +508,7 @@ impl Future for LoadApiVersions
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.fetch_api_versions.poll() {
             Ok(Async::Ready(api_versions)) => {
-                self.state
+                (*self.state)
                     .borrow_mut()
                     .update_api_versions(&api_versions);
 

@@ -80,9 +80,7 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
     }
 
     pub fn as_client(&self) -> Ref<KafkaClient<'a>> {
-        let client: &RefCell<KafkaClient> = self.client.borrow();
-
-        client.borrow()
+        (*self.client).borrow()
     }
 
     pub fn from_client(client: KafkaClient<'a>) -> ProducerBuilder<'a, K, V, P>

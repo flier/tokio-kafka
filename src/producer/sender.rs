@@ -59,9 +59,7 @@ impl<'a, K, V> Sender<'a, K, V>
         let thunks = self.thunks.clone();
         let interceptors = self.interceptors.clone();
 
-        let client: &RefCell<KafkaClient<'a>> = self.client.borrow();
-
-        let send_batch = client
+        let send_batch = (*self.client)
             .borrow()
             .produce_records(acks,
                              ack_timeout,
@@ -77,25 +75,23 @@ impl<'a, K, V> Sender<'a, K, V>
                         partitions
                             .iter()
                             .find(|&&(partition_id, _, _)| partition_id == partition)
-                            .map(|&(_, error_code, offset)| {
-                                let thunks: &RefCell<Option<Vec<Thunk>>> = thunks.borrow();
-
-                                if let Some(thunks) = thunks.borrow_mut().take() {
-                                    for thunk in thunks {
-                                        match thunk.done(interceptors.clone(),
-                                                         &topic_name,
-                                                         partition,
-                                                         offset,
-                                                         error_code.into()) {
-                                            Ok(()) => {}
-                                            Err(metadata) => {
-                                                warn!("fail to send record metadata, {:?}",
-                                                      metadata)
-                                            }
-                                        }
-                                    }
-                                }
-                            });
+                            .map(|&(_, error_code, offset)| if let Some(thunks) = (*thunks)
+                                        .borrow_mut()
+                                        .take() {
+                                     for thunk in thunks {
+                                         match thunk.done(interceptors.clone(),
+                                                          &topic_name,
+                                                          partition,
+                                                          offset,
+                                                          error_code.into()) {
+                                             Ok(()) => {}
+                                             Err(metadata) => {
+                                                 warn!("fail to send record metadata, {:?}",
+                                                       metadata)
+                                             }
+                                         }
+                                     }
+                                 });
                     });
             });
 
