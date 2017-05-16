@@ -15,9 +15,9 @@ use errors::Error;
 use protocol::{ApiKeys, ToMilliseconds};
 use network::TopicPartition;
 use client::{Cluster, KafkaClient, Metadata, StaticBoxFuture};
-use producer::{Accumulator, Partitioner, ProducerBuilder, ProducerConfig, ProducerInterceptor,
-               ProducerInterceptors, ProducerRecord, RecordAccumulator, RecordMetadata, Sender,
-               Serializer};
+use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
+               ProducerInterceptor, ProducerInterceptors, ProducerRecord, RecordAccumulator,
+               RecordMetadata, Sender, Serializer};
 
 pub trait Producer<'a> {
     type Key: Hash;
@@ -44,7 +44,7 @@ pub struct KafkaProducer<'a, K, V, P>
     key_serializer: K,
     value_serializer: V,
     partitioner: P,
-    interceptors: Option<Rc<RefCell<ProducerInterceptors<K::Item, V::Item>>>>,
+    interceptors: Interceptors<K::Item, V::Item>,
 }
 
 impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
@@ -57,7 +57,7 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
                key_serializer: K,
                value_serializer: V,
                partitioner: P,
-               interceptors: Option<Rc<RefCell<ProducerInterceptors<K::Item, V::Item>>>>)
+               interceptors: Interceptors<K::Item, V::Item>)
                -> Self {
         let accumulator =
             RecordAccumulator::new(config.batch_size, config.compression, config.linger());

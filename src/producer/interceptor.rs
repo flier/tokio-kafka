@@ -1,9 +1,13 @@
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 
 use errors::Result;
 
 use producer::{ProducerRecord, RecordMetadata};
+
+pub type Interceptors<K, V> = Option<Rc<RefCell<ProducerInterceptors<K, V>>>>;
 
 /// A plugin interface that allows you to intercept (and possibly mutate)
 /// the records received by the producer before they are published to the Kafka cluster.

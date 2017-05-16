@@ -19,5 +19,5 @@ pub use self::sender::{SendBatch, Sender};
 pub use self::producer::{Flush, KafkaProducer, Producer, SendRecord};
 pub use self::serialization::{BytesSerializer, NoopSerializer, RawSerializer, Serializer,
                               StrEncodingSerializer};
-pub use self::interceptor::{ProducerInterceptor, ProducerInterceptors};
+pub use self::interceptor::{Interceptors, ProducerInterceptor, ProducerInterceptors};
 pub use self::builder::ProducerBuilder;

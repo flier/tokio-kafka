@@ -10,7 +10,7 @@ use errors::{Error, Result};
 use protocol::{MessageSet, RequiredAcks};
 use network::TopicPartition;
 use client::{Client, KafkaClient, StaticBoxFuture};
-use producer::{ProducerBatch, ProducerInterceptors, Thunk};
+use producer::{Interceptors, ProducerBatch, Thunk};
 
 pub struct Sender<'a, K, V> {
     inner: Rc<RefCell<SenderInner<'a, K, V>>>,
@@ -18,7 +18,7 @@ pub struct Sender<'a, K, V> {
 
 struct SenderInner<'a, K, V> {
     client: Rc<RefCell<KafkaClient<'a>>>,
-    interceptors: Option<Rc<RefCell<ProducerInterceptors<K, V>>>>,
+    interceptors: Interceptors<K, V>,
     acks: RequiredAcks,
     ack_timeout: Duration,
     tp: TopicPartition<'a>,
@@ -31,7 +31,7 @@ impl<'a, K, V> Sender<'a, K, V>
           Self: 'static
 {
     pub fn new(client: Rc<RefCell<KafkaClient<'a>>>,
-               interceptors: Option<Rc<RefCell<ProducerInterceptors<K, V>>>>,
+               interceptors: Interceptors<K, V>,
                acks: RequiredAcks,
                ack_timeout: Duration,
                tp: TopicPartition<'a>,

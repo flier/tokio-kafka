@@ -11,7 +11,7 @@ use errors::{ErrorKind, Result};
 use compression::Compression;
 use protocol::{RequiredAcks, ToMilliseconds};
 use client::KafkaClient;
-use producer::{DefaultPartitioner, KafkaProducer, NoopSerializer, ProducerConfig,
+use producer::{DefaultPartitioner, Interceptors, KafkaProducer, NoopSerializer, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors, Serializer};
 
 pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner>
@@ -24,7 +24,7 @@ pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner>
     key_serializer: Option<K>,
     value_serializer: Option<V>,
     partitioner: Option<P>,
-    interceptors: Option<Rc<RefCell<ProducerInterceptors<K::Item, V::Item>>>>,
+    interceptors: Interceptors<K::Item, V::Item>,
 }
 
 impl<'a, K, V, P> Deref for ProducerBuilder<'a, K, V, P>
