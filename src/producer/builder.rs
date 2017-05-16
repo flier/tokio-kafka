@@ -212,6 +212,7 @@ impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner>
 
 impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
     where K: Serializer,
+          K::Item: Hash,
           V: Serializer,
           Self: 'static
 {

@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 
 use bytes::Bytes;
 
-use futures::{Async, Poll, Stream, future};
+use futures::{Async, Future, Poll, Stream, future};
 
 use errors::Error;
 use compression::Compression;
@@ -56,10 +56,11 @@ impl<'a> RecordAccumulator<'a> {
         }
     }
 
-    pub fn batches(&self) -> Batches<'a> {
+    pub fn batches(&self, force: bool) -> Batches<'a> {
         Batches {
             batches: self.batches.clone(),
             linger: self.linger,
+            force: force,
         }
     }
 }
@@ -80,7 +81,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
                 Ok(push_recrod) => {
                     trace!("pushed record to latest batch, {:?}", batch);
 
-                    return PushRecord::new(push_recrod);
+                    return PushRecord::new(push_recrod, batch.is_full(), false);
                 }
                 Err(err) => {
                     debug!("fail to push record, {}", err);
@@ -94,14 +95,16 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
             Ok(push_recrod) => {
                 trace!("pushed record to a new batch, {:?}", batch);
 
+                let batch_is_full = batch.is_full();
+
                 batches.push_back(batch);
 
-                PushRecord::new(push_recrod)
+                PushRecord::new(push_recrod, batch_is_full, true)
             }
             Err(err) => {
                 warn!("fail to push record, {}", err);
 
-                PushRecord::new(future::err(err))
+                PushRecord::new(future::err(err), false, true)
             }
         }
     }
@@ -121,11 +124,45 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
     }
 }
 
-pub type PushRecord = StaticBoxFuture<RecordMetadata>;
+pub struct PushRecord {
+    future: StaticBoxFuture<RecordMetadata>,
+    is_full: bool,
+    new_batch: bool,
+}
+
+impl PushRecord {
+    pub fn new<F>(future: F, is_full: bool, new_batch: bool) -> Self
+        where F: Future<Item = RecordMetadata, Error = Error> + 'static
+    {
+        PushRecord {
+            future: StaticBoxFuture::new(future),
+            is_full: is_full,
+            new_batch: new_batch,
+        }
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.is_full
+    }
+
+    pub fn new_batch(&self) -> bool {
+        self.new_batch
+    }
+}
+
+impl Future for PushRecord {
+    type Item = RecordMetadata;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.future.poll()
+    }
+}
 
 pub struct Batches<'a> {
     batches: Rc<RefCell<HashMap<TopicPartition<'a>, VecDeque<ProducerBatch>>>>,
     linger: Duration,
+    force: bool,
 }
 
 impl<'a> Stream for Batches<'a> {
@@ -134,17 +171,15 @@ impl<'a> Stream for Batches<'a> {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         for (tp, batches) in self.batches.borrow_mut().iter_mut() {
-            let ready =
-                batches
-                    .back()
-                    .map_or(false, |batch| {
-                        batch.is_full() || batch.create_time().elapsed() >= self.linger
-                    });
+            let ready = self.force ||
+                        batches
+                            .back()
+                            .map_or(false, |batch| {
+                batch.is_full() || batch.create_time().elapsed() >= self.linger
+            });
 
             if ready {
                 if let Some(batch) = batches.pop_front() {
-                    trace!("batch is ready to send, {:?}", batch);
-
                     return Ok(Async::Ready(Some((tp.clone(), batch))));
                 }
             }

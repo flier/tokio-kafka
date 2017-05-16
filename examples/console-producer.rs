@@ -234,8 +234,6 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
                           })
                 .filter(|line| !line.is_empty())
                 .for_each(|line| {
-                    trace!("sending line: {}", line);
-
                     let produce = producer
                         .send(ProducerRecord::from_value(&config.topic_name, line))
                         .map(|md| {
@@ -251,13 +249,7 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
                                      warn!("fail to produce records, {}", err);
                                  });
 
-                    let flush = producer
-                        .flush(false)
-                        .map_err(|err| {
-                                     warn!("fail to flush records, {}", err);
-                                 });
-
-                    handle.spawn(produce.join(flush).map(|_| ()));
+                    handle.spawn(produce);
 
                     future::ok(())
                 })

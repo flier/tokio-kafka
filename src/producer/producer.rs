@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use time;
 
 use futures::{Future, Stream, future};
-use tokio_core::reactor::Handle;
+use tokio_core::reactor::{Handle, Timeout};
 use tokio_retry::Retry;
 
 use errors::Error;
@@ -28,7 +28,7 @@ pub trait Producer<'a> {
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord;
 
     /// Flush any accumulated records from the producer.
-    fn flush(&mut self, force: bool) -> Flush;
+    fn flush(&mut self) -> Flush;
 }
 
 pub type SendRecord = StaticBoxFuture<RecordMetadata>;
@@ -36,6 +36,7 @@ pub type Flush = StaticBoxFuture;
 
 pub struct KafkaProducer<'a, K, V, P>
     where K: Serializer,
+          K::Item: Hash,
           V: Serializer
 {
     client: Rc<RefCell<KafkaClient<'a>>>,
@@ -49,6 +50,7 @@ pub struct KafkaProducer<'a, K, V, P>
 
 impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
     where K: Serializer,
+          K::Item: Hash,
           V: Serializer,
           Self: 'static
 {
@@ -96,6 +98,41 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
               V: Serializer
     {
         ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
+    }
+
+    /// Flush full or expired batches
+    fn flush_batches(&self, force: bool) -> Flush {
+        let client = self.client.clone();
+        let interceptor = self.interceptors.clone();
+        let handle = self.as_client().handle().clone();
+        let acks = self.config.acks;
+        let ack_timeout = self.config.ack_timeout();
+        let retry_strategy = self.config.retry_strategy();
+
+        Flush::new(self.accumulator
+                       .batches(force)
+                       .for_each(move |(tp, batch)| {
+            let sender = Sender::new(client.clone(),
+                                     interceptor.clone(),
+                                     acks,
+                                     ack_timeout,
+                                     tp,
+                                     batch);
+
+            match sender {
+                Ok(sender) => {
+                    StaticBoxFuture::new(Retry::spawn(handle.clone(),
+                                                      retry_strategy.clone(),
+                                                      move || sender.send_batch())
+                                                 .map_err(Error::from))
+                }
+                Err(err) => {
+                    warn!("fail to create sender, {}", err);
+
+                    StaticBoxFuture::new(future::err(err))
+                }
+            }
+        }))
     }
 }
 
@@ -170,50 +207,42 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
             .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
             .map_or(0, |api_version| api_version.max_version);
 
-        SendRecord::new(self.accumulator
-                            .push_record(tp, timestamp, key, value, api_version))
-    }
+        let push_record = self.accumulator
+            .push_record(tp, timestamp, key, value, api_version);
 
-    fn flush(&mut self, force: bool) -> Flush {
-        if force {
-            trace!("force to flush all batches");
+        if push_record.is_full() {
+            let flush = self.flush_batches(false)
+                .map_err(|err| {
+                             warn!("fail to flush full batch, {}", err);
+                         });
 
-            self.accumulator.flush();
-        } else {
-            trace!("flush full and expired batches");
+            self.as_client().handle().spawn(flush);
         }
 
-        let client = self.client.clone();
-        let interceptor = self.interceptors.clone();
-        let handle = self.as_client().handle().clone();
-        let acks = self.config.acks;
-        let ack_timeout = self.config.ack_timeout();
-        let retry_strategy = self.config.retry_strategy();
+        if push_record.new_batch() {
+            let timeout = Timeout::new(self.config.linger(), self.as_client().handle());
 
-        Flush::new(self.accumulator
-                       .batches()
-                       .for_each(move |(tp, batch)| {
-            let sender = Sender::new(client.clone(),
-                                     interceptor.clone(),
-                                     acks,
-                                     ack_timeout,
-                                     tp,
-                                     batch);
+            match timeout {
+                Ok(timeout) => {
+                    let future = timeout
+                        .map_err(Error::from)
+                        .join(self.flush_batches(false))
+                        .map(|_| ())
+                        .map_err(|_| ());
 
-            match sender {
-                Ok(sender) => {
-                    StaticBoxFuture::new(Retry::spawn(handle.clone(),
-                                                      retry_strategy.clone(),
-                                                      move || sender.send_batch())
-                                                 .map_err(Error::from))
+                    self.as_client().handle().spawn(future);
                 }
                 Err(err) => {
-                    warn!("fail to create sender, {}", err);
-
-                    StaticBoxFuture::new(future::err(err))
+                    warn!("fail to create timeout, {}", err);
                 }
             }
-        }))
+        }
+
+        SendRecord::new(push_record)
+    }
+
+    fn flush(&mut self) -> Flush {
+        self.flush_batches(true)
     }
 }
 
@@ -245,7 +274,7 @@ pub mod mock {
             SendRecord::new(future::ok(RecordMetadata::default()))
         }
 
-        fn flush(&mut self, _force: bool) -> Flush {
+        fn flush(&mut self) -> Flush {
             Flush::new(future::ok(()))
         }
     }
