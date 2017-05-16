@@ -16,8 +16,8 @@ use protocol::{ApiKeys, ToMilliseconds};
 use network::TopicPartition;
 use client::{Cluster, KafkaClient, Metadata, StaticBoxFuture};
 use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
-               ProducerInterceptor, ProducerInterceptors, ProducerRecord, RecordAccumulator,
-               RecordMetadata, Sender, Serializer};
+               ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,
+               RecordAccumulator, RecordMetadata, Sender, Serializer};
 
 pub trait Producer<'a> {
     type Key: Hash;
@@ -104,10 +104,76 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
 
 impl<'a, K, V, P> Inner<'a, K, V, P>
     where K: Serializer,
-          K::Item: Hash,
+          K::Item: Debug + Hash,
           V: Serializer,
+          V::Item: Debug,
+          P: Partitioner,
           Self: 'static
 {
+    fn push_record(&self, mut record: ProducerRecord<K::Item, V::Item>) -> PushRecord {
+        trace!("sending record {:?}", record);
+
+        if let Some(ref interceptors) = self.interceptors {
+            let interceptors: &RefCell<ProducerInterceptors<K::Item, V::Item>> = interceptors
+                .borrow();
+
+            record = match interceptors.borrow().send(record) {
+                Ok(record) => record,
+                Err(err) => return PushRecord::new(future::err(err), false, false),
+            }
+        }
+
+        let ProducerRecord {
+            topic_name,
+            partition,
+            key,
+            value,
+            timestamp,
+        } = record;
+
+        let cluster: Rc<Metadata> = self.client.metadata();
+
+        let partition = self.partitioner
+            .partition(&topic_name,
+                       partition,
+                       key.as_ref(),
+                       value.as_ref(),
+                       cluster.clone())
+            .unwrap_or_default();
+
+        let key = key.and_then(|key| {
+                                   self.key_serializer
+                                       .serialize(&topic_name, key)
+                                       .map_err(|err| warn!("fail to serialize key, {}", err))
+                                       .ok()
+                               });
+
+        let value =
+            value.and_then(|value| {
+                               self.value_serializer
+                                   .serialize(&topic_name, value)
+                                   .map_err(|err| warn!("fail to serialize value, {}", err))
+                                   .ok()
+                           });
+
+        let tp = TopicPartition {
+            topic_name: topic_name.into(),
+            partition: partition,
+        };
+
+        let timestamp =
+            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
+
+        let api_version = cluster
+            .leader_for(&tp)
+            .and_then(|broker| broker.api_versions())
+            .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
+            .map_or(0, |api_version| api_version.max_version);
+
+        self.accumulator
+            .push_record(tp, timestamp, key, value, api_version)
+    }
+
     /// Flush full or expired batches
     fn flush_batches(&self, force: bool) -> Flush {
         let client = self.client.clone();
@@ -155,71 +221,8 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     type Key = K::Item;
     type Value = V::Item;
 
-    fn send(&mut self, mut record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
-        trace!("sending record {:?}", record);
-
-        if let Some(ref interceptors) = self.inner.interceptors {
-            let interceptors: &RefCell<ProducerInterceptors<Self::Key, Self::Value>> =
-                interceptors.borrow();
-
-            record = match interceptors.borrow().send(record) {
-                Ok(record) => record,
-                Err(err) => return SendRecord::new(future::err(err)),
-            }
-        }
-
-        let ProducerRecord {
-            topic_name,
-            partition,
-            key,
-            value,
-            timestamp,
-        } = record;
-
-        let cluster: Rc<Metadata> = self.inner.client.metadata();
-
-        let partition = self.inner
-            .partitioner
-            .partition(&topic_name,
-                       partition,
-                       key.as_ref(),
-                       value.as_ref(),
-                       cluster.clone())
-            .unwrap_or_default();
-
-        let key = key.and_then(|key| {
-                                   self.inner
-                                       .key_serializer
-                                       .serialize(&topic_name, key)
-                                       .map_err(|err| warn!("fail to serialize key, {}", err))
-                                       .ok()
-                               });
-
-        let value = value.and_then(|value| {
-            self.inner
-                .value_serializer
-                .serialize(&topic_name, value)
-                .map_err(|err| warn!("fail to serialize value, {}", err))
-                .ok()
-        });
-
-        let tp = TopicPartition {
-            topic_name: topic_name.into(),
-            partition: partition,
-        };
-
-        let timestamp =
-            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
-
-        let api_version = cluster
-            .leader_for(&tp)
-            .and_then(|broker| broker.api_versions())
-            .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
-            .map_or(0, |api_version| api_version.max_version);
-
-        let push_record = self.inner
-            .accumulator
-            .push_record(tp, timestamp, key, value, api_version);
+    fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
+        let push_record = self.inner.push_record(record);
 
         if push_record.is_full() {
             let flush = self.inner
