@@ -3,7 +3,7 @@
 #![cfg_attr(feature="clippy", feature(plugin))]
 #![cfg_attr(feature="clippy", plugin(clippy))]
 
-#![allow(dead_code)]
+#![allow(module_inception, block_in_if_condition_stmt)]
 
 #[macro_use]
 extern crate log;

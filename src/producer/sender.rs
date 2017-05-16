@@ -1,22 +1,18 @@
 use std::rc::Rc;
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 use std::hash::Hash;
 use std::borrow::{Borrow, Cow};
 use std::time::Duration;
 
-use futures::{Future, Poll};
+use futures::Future;
 
-use errors::{Error, Result};
+use errors::Result;
 use protocol::{MessageSet, RequiredAcks};
 use network::TopicPartition;
 use client::{Client, KafkaClient, StaticBoxFuture};
 use producer::{Interceptors, ProducerBatch, Thunk};
 
 pub struct Sender<'a, K, V> {
-    inner: Rc<RefCell<SenderInner<'a, K, V>>>,
-}
-
-struct SenderInner<'a, K, V> {
     client: Rc<RefCell<KafkaClient<'a>>>,
     interceptors: Interceptors<K, V>,
     acks: RequiredAcks,
@@ -25,6 +21,8 @@ struct SenderInner<'a, K, V> {
     thunks: Rc<RefCell<Option<Vec<Thunk>>>>,
     message_set: MessageSet,
 }
+
+pub type SendBatch = StaticBoxFuture;
 
 impl<'a, K, V> Sender<'a, K, V>
     where K: Hash,
@@ -38,44 +36,19 @@ impl<'a, K, V> Sender<'a, K, V>
                batch: ProducerBatch)
                -> Result<Sender<'a, K, V>> {
         let (thunks, message_set) = batch.build()?;
-        let inner = SenderInner {
-            client: client,
-            interceptors: interceptors,
-            acks: acks,
-            ack_timeout: ack_timeout,
-            tp: tp,
-            thunks: Rc::new(RefCell::new(Some(thunks))),
-            message_set: message_set,
-        };
-        Ok(Sender { inner: Rc::new(RefCell::new(inner)) })
+
+        Ok(Sender {
+               client: client,
+               interceptors: interceptors,
+               acks: acks,
+               ack_timeout: ack_timeout,
+               tp: tp,
+               thunks: Rc::new(RefCell::new(Some(thunks))),
+               message_set: message_set,
+           })
     }
 
-    fn as_inner(&self) -> Ref<SenderInner<'a, K, V>> {
-        let inner: &RefCell<SenderInner<'a, K, V>> = self.inner.borrow();
-
-        inner.borrow()
-    }
-
-    pub fn send_batch(&self) -> SendBatch<'a, K, V> {
-        let inner = self.inner.clone();
-
-        let send_batch = self.as_inner().send_batch();
-
-        SendBatch::new(inner, StaticBoxFuture::new(send_batch))
-    }
-}
-
-impl<'a, K, V> SenderInner<'a, K, V>
-    where K: Hash,
-          Self: 'static
-{
-    pub fn as_client(&self) -> Ref<KafkaClient<'a>> {
-        let client: &RefCell<KafkaClient> = self.client.borrow();
-
-        client.borrow()
-    }
-
-    pub fn send_batch(&self) -> StaticBoxFuture {
+    pub fn send_batch(&self) -> SendBatch {
         trace!("sending batch to {:?}: {:?}", self.tp, self.message_set);
 
         let topic_name: String = String::from(self.tp.topic_name.borrow());
@@ -86,7 +59,9 @@ impl<'a, K, V> SenderInner<'a, K, V>
         let thunks = self.thunks.clone();
         let interceptors = self.interceptors.clone();
 
-        let send_batch = self.as_client()
+        let client: &RefCell<KafkaClient<'a>> = self.client.borrow();
+
+        let send_batch = client
             .borrow()
             .produce_records(acks,
                              ack_timeout,
@@ -124,31 +99,6 @@ impl<'a, K, V> SenderInner<'a, K, V>
                     });
             });
 
-        StaticBoxFuture::new(send_batch)
-    }
-}
-
-pub struct SendBatch<'a, K, V> {
-    inner: Rc<RefCell<SenderInner<'a, K, V>>>,
-    future: StaticBoxFuture,
-}
-
-impl<'a, K, V> SendBatch<'a, K, V> {
-    fn new(inner: Rc<RefCell<SenderInner<'a, K, V>>>,
-           future: StaticBoxFuture)
-           -> SendBatch<'a, K, V> {
-        SendBatch {
-            inner: inner,
-            future: future,
-        }
-    }
-}
-
-impl<'a, K, V> Future for SendBatch<'a, K, V> {
-    type Item = ();
-    type Error = Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        self.future.poll()
+        SendBatch::new(send_batch)
     }
 }
