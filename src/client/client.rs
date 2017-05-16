@@ -37,7 +37,7 @@ pub trait Client<'a>: 'static {
 
     fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
 
-    fn load_metadata(&mut self) -> LoadMetadata;
+    fn load_metadata(&mut self) -> LoadMetadata<'a>;
 }
 
 #[derive(Debug, Default)]
@@ -149,7 +149,7 @@ impl<'a> KafkaClient<'a>
     }
 
     pub fn metadata(&self) -> Rc<Metadata> {
-        self.inner.state.borrow().metadata()
+        (*self.inner.state).borrow().metadata()
     }
 }
 
@@ -162,6 +162,10 @@ impl<'a> Inner<'a>
 
     fn client_id(&self) -> Option<Cow<'a, str>> {
         self.config.client_id.clone().map(Cow::from)
+    }
+
+    pub fn metadata(&self) -> Rc<Metadata> {
+        (*self.state).borrow().metadata()
     }
 
     fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
@@ -247,7 +251,7 @@ impl<'a> Inner<'a>
          -> HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<PartitionId>>>
         where S: AsRef<str>
     {
-        let metadata = self.state.borrow().metadata();
+        let metadata = self.metadata();
 
         let mut topics = HashMap::new();
 
@@ -300,10 +304,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                                     timeout,
                                                     &tp,
                                                     records);
-        let addr = self.inner
-            .state
-            .borrow()
-            .metadata()
+        let addr = self.metadata()
             .leader_for(&tp)
             .map_or_else(|| *self.inner.config.hosts.iter().next().unwrap(),
                          |broker| {
@@ -415,7 +416,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
         FetchOffsets::new(offsets)
     }
 
-    fn load_metadata(&mut self) -> LoadMetadata {
+    fn load_metadata(&mut self) -> LoadMetadata<'a> {
         debug!("loading metadata...");
 
         if self.inner.config.metadata_max_age > 0 {
@@ -428,10 +429,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                     let inner = self.inner.clone();
                     let future = timeout
                         .map_err(Error::from)
-                        .and_then(move |_| {
-                                      LoadMetadata::new(inner.fetch_metadata::<&str>(&[]),
-                                                        inner.state.clone())
-                                  })
+                        .and_then(move |_| LoadMetadata::new(inner.clone()))
                         .map(|_| ())
                         .map_err(|_| ());
 
@@ -443,42 +441,75 @@ impl<'a> Client<'a> for KafkaClient<'a>
             }
         }
 
-        LoadMetadata::new(self.inner.fetch_metadata::<&str>(&[]),
-                          self.inner.state.clone())
+        LoadMetadata::new(self.inner.clone())
     }
 }
 
-pub struct LoadMetadata {
-    fetch_metadata: FetchMetadata,
-    state: Rc<RefCell<State>>,
+pub enum Loading {
+    Metadata(FetchMetadata),
+    ApiVersions(LoadApiVersions),
 }
 
-impl LoadMetadata {
-    fn new(fetch_metadata: FetchMetadata, state: Rc<RefCell<State>>) -> Self {
+pub struct LoadMetadata<'a> {
+    state: Loading,
+    inner: Rc<Inner<'a>>,
+}
+
+impl<'a> LoadMetadata<'a>
+    where Self: 'static
+{
+    fn new(inner: Rc<Inner<'a>>) -> LoadMetadata<'a> {
+        let fetch_metadata = inner.fetch_metadata::<&str>(&[]);
+
         LoadMetadata {
-            fetch_metadata: fetch_metadata,
-            state: state,
+            state: Loading::Metadata(fetch_metadata),
+            inner: inner,
         }
     }
 }
 
-impl Future for LoadMetadata
+impl<'a> Future for LoadMetadata<'a>
     where Self: 'static
 {
     type Item = Rc<Metadata>;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.fetch_metadata.poll() {
-            Ok(Async::Ready(metadata)) => {
-                (*self.state)
-                    .borrow_mut()
-                    .update_metadata(metadata.clone());
+        loop {
+            let state;
 
-                Ok(Async::Ready(metadata))
+            match self.state {
+                Loading::Metadata(ref mut future) => {
+                    match future.poll() {
+                        Ok(Async::Ready(metadata)) => {
+                            let api_version_request = self.inner.config.api_version_request;
+
+                            if api_version_request {
+                                state = Loading::ApiVersions(self.inner.load_api_verions(metadata));
+                            } else {
+                                (*self.inner.state)
+                                    .borrow_mut()
+                                    .update_metadata(metadata.clone());
+
+                                return Ok(Async::Ready(metadata));
+                            }
+                        }
+                        Ok(Async::NotReady) => return Ok(Async::NotReady),
+                        Err(err) => return Err(err),
+                    }
+                }
+                Loading::ApiVersions(ref mut future) => {
+                    match future.poll() {
+                        Ok(Async::Ready(_)) => {
+                            return Ok(Async::Ready(self.inner.metadata().clone()))
+                        }
+                        Ok(Async::NotReady) => return Ok(Async::NotReady),
+                        Err(err) => return Err(err),
+                    }
+                }
             }
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(err) => Err(err),
+
+            self.state = state;
         }
     }
 }
