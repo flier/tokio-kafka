@@ -73,6 +73,7 @@ impl State {
     }
 }
 
+#[derive(Clone)]
 pub struct KafkaClient<'a> {
     inner: Rc<Inner<'a>>,
 }

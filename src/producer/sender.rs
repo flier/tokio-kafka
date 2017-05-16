@@ -13,7 +13,7 @@ use client::{Client, KafkaClient, StaticBoxFuture};
 use producer::{Interceptors, ProducerBatch, Thunk};
 
 pub struct Sender<'a, K, V> {
-    client: Rc<RefCell<KafkaClient<'a>>>,
+    client: Rc<KafkaClient<'a>>,
     interceptors: Interceptors<K, V>,
     acks: RequiredAcks,
     ack_timeout: Duration,
@@ -28,7 +28,7 @@ impl<'a, K, V> Sender<'a, K, V>
     where K: Hash,
           Self: 'static
 {
-    pub fn new(client: Rc<RefCell<KafkaClient<'a>>>,
+    pub fn new(client: Rc<KafkaClient<'a>>,
                interceptors: Interceptors<K, V>,
                acks: RequiredAcks,
                ack_timeout: Duration,
