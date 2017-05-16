@@ -29,7 +29,7 @@ use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
 use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
-use tokio_kafka::{BytesSerializer, Client, Compression, Producer, ProducerBuilder,
+use tokio_kafka::{BytesSerializer, Compression, KafkaVersion, Producer, ProducerBuilder,
                   ProducerInterceptor, ProducerRecord, RecordMetadata, RequiredAcks};
 use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
                           DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
@@ -61,6 +61,7 @@ struct Config {
     idle_timeout: Duration,
     ack_timeout: Duration,
     linger: Duration,
+    broker_version: Option<KafkaVersion>,
 }
 
 impl Config {
@@ -98,6 +99,10 @@ impl Config {
                     "linger",
                     "The producer groups together any records in the linger timeout",
                     "MS");
+        opts.optopt("",
+                    "broker-version",
+                    "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0]",
+                    "VERSION");
 
         let m = opts.parse(&args[1..])?;
 
@@ -133,6 +138,7 @@ impl Config {
                    .map_or(DEFAULT_ACK_TIMEOUT_MILLIS, |s| s.parse().unwrap())),
                linger: Duration::from_millis(m.opt_str("linger")
                    .map_or(DEFAULT_LINGER_MILLIS, |s| s.parse().unwrap())),
+               broker_version: m.opt_str("broker-version").map(|s| s.parse().unwrap()),
            })
     }
 }
@@ -203,7 +209,9 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .iter()
         .flat_map(|s| s.to_socket_addrs().unwrap());
 
-    let mut producer = ProducerBuilder::from_hosts(hosts, core.handle())
+    let handle = core.handle();
+
+    let mut builder = ProducerBuilder::from_hosts(hosts, handle.clone())
         .with_max_connection_idle(config.idle_timeout)
         .with_required_acks(config.required_acks)
         .with_compression(config.compression)
@@ -213,48 +221,44 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .without_key_serializer()
         .with_value_serializer(BytesSerializer::default())
         .with_default_partitioner()
-        .with_interceptor(LogInterceptor {})
-        .build()?;
+        .with_interceptor(LogInterceptor {});
 
-    let client = producer.client();
-    let handle = core.handle();
+    builder = if let Some(version) = config.broker_version {
+        builder.with_broker_version_fallback(version)
+    } else {
+        builder.with_api_version_request()
+    };
 
-    let work = client
-        .borrow_mut()
-        .load_metadata()
-        .map_err(Error::from)
-        .and_then(|_| {
-            FramedRead::new(io, DelimCodec(Newline))
-                .and_then(|line| {
-                              String::from_utf8(line)
-                                  .map(|line| line.trim().to_owned())
-                                  .map_err(|err| {
-                                               io::Error::new(io::ErrorKind::InvalidData, err)
-                                           })
-                          })
-                .filter(|line| !line.is_empty())
-                .for_each(|line| {
-                    let produce = producer
-                        .send(ProducerRecord::from_value(&config.topic_name, line))
-                        .map(|md| {
-                            trace!("sent to {} #{} @{}, ts={}, key_size={}, value_size={}",
-                                   md.topic_name,
-                                   md.partition,
-                                   md.offset,
-                                   md.timestamp,
-                                   md.serialized_key_size,
-                                   md.serialized_value_size);
-                        })
-                        .map_err(|err| {
-                                     warn!("fail to produce records, {}", err);
-                                 });
+    let mut producer = builder.build()?;
 
-                    handle.spawn(produce);
-
-                    future::ok(())
+    let work = FramedRead::new(io, DelimCodec(Newline))
+        .and_then(|line| {
+                      String::from_utf8(line)
+                          .map(|line| line.trim().to_owned())
+                          .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+                  })
+        .filter(|line| !line.is_empty())
+        .for_each(|line| {
+            let produce = producer
+                .send(ProducerRecord::from_value(&config.topic_name, line))
+                .map(|md| {
+                    trace!("sent to {} #{} @{}, ts={}, key_size={}, value_size={}",
+                           md.topic_name,
+                           md.partition,
+                           md.offset,
+                           md.timestamp,
+                           md.serialized_key_size,
+                           md.serialized_value_size);
                 })
-                .map_err(Error::from)
-        });
+                .map_err(|err| {
+                             warn!("fail to produce records, {}", err);
+                         });
+
+            handle.spawn(produce);
+
+            future::ok(())
+        })
+        .map_err(Error::from);
 
     core.run(work)
 }

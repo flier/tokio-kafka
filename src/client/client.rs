@@ -64,7 +64,7 @@ impl State {
     }
 
     pub fn update_api_versions(&mut self,
-                               api_versions: HashMap<BrokerRef, UsableApiVersions>)
+                               api_versions: &HashMap<BrokerRef, UsableApiVersions>)
                                -> Rc<Metadata> {
         debug!("updating API versions, {:?}", api_versions);
 
@@ -105,6 +105,8 @@ impl<'a> KafkaClient<'a>
     }
 
     pub fn from_config(config: ClientConfig, handle: Handle) -> KafkaClient<'a> {
+        trace!("create client from config: {:?}", config);
+
         let metrics = if config.metrics {
             Some(Rc::new(Metrics::new().expect("fail to register metrics")))
         } else {
@@ -116,13 +118,26 @@ impl<'a> KafkaClient<'a>
                                             config.timer(),
                                             config.request_timeout()));
 
-        KafkaClient {
+        let mut client = KafkaClient {
             config: config,
-            handle: handle,
+            handle: handle.clone(),
             service: service,
             metrics: metrics,
             state: Rc::new(RefCell::new(State::default())),
-        }
+        };
+
+        let load_metadata = client
+            .load_metadata()
+            .map(|metadata| {
+                     trace!("auto loaded metadata, {:?}", metadata);
+                 })
+            .map_err(|err| {
+                         warn!("fail to load metadata, {}", err);
+                     });
+
+        handle.spawn(load_metadata);
+
+        client
     }
 
     pub fn handle(&self) -> &Handle {
@@ -201,8 +216,9 @@ impl<'a> KafkaClient<'a>
         FetchApiVersions::new(response)
     }
 
-    fn load_api_verions(&self) -> LoadApiVersions {
-        let metadata = self.state.borrow().metadata();
+    fn load_api_verions(&self, metadata: Rc<Metadata>) -> LoadApiVersions {
+        trace!("load API versions from brokers, {:?}", metadata.brokers());
+
         let responses = {
             let mut responses = Vec::new();
 
@@ -450,17 +466,17 @@ impl LoadApiVersions {
 impl Future for LoadApiVersions
     where Self: 'static
 {
-    type Item = Rc<Metadata>;
+    type Item = HashMap<BrokerRef, UsableApiVersions>;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.fetch_api_versions.poll() {
             Ok(Async::Ready(api_versions)) => {
-                let metadata = self.state
+                self.state
                     .borrow_mut()
-                    .update_api_versions(api_versions);
+                    .update_api_versions(&api_versions);
 
-                Ok(Async::Ready(metadata))
+                Ok(Async::Ready(api_versions))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(err) => Err(err),

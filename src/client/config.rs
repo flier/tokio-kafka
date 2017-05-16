@@ -8,6 +8,7 @@ use client::KafkaVersion;
 pub const DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS: u64 = 5000;
 pub const DEFAULT_REQUEST_TIMEOUT_MILLS: u64 = 30_000;
 pub const DEFAULT_TIMER_TICK_MILLS: u64 = 100;
+pub const DEFAULT_METADATA_MAX_AGE_MILLS: u64 = 5 * 60 * 1000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientConfig {
@@ -42,6 +43,12 @@ pub struct ClientConfig {
     #[serde(rename = "broker.version.fallback")]
     pub broker_version_fallback: KafkaVersion,
 
+    /// The period of time in milliseconds after which we force a refresh of metadata
+    /// even if we haven't seen any partition leadership changes to proactively discover any new brokers or partitions.
+    #[serde(rename = "metadata.max.age.ms")]
+    pub metadata_max_age: u64,
+
+    /// Record metrics for client operations
     pub metrics: bool,
 }
 
@@ -54,6 +61,7 @@ impl Default for ClientConfig {
             request_timeout: DEFAULT_REQUEST_TIMEOUT_MILLS,
             api_version_request: false,
             broker_version_fallback: KafkaVersion::default(),
+            metadata_max_age: DEFAULT_METADATA_MAX_AGE_MILLS,
             metrics: false,
         }
     }
@@ -76,6 +84,10 @@ impl ClientConfig {
 
     pub fn request_timeout(&self) -> Duration {
         Duration::from_millis(self.request_timeout)
+    }
+
+    pub fn metadata_max_age(&self) -> Duration {
+        Duration::from_millis(self.metadata_max_age)
     }
 
     pub fn timer(&self) -> Timer {
@@ -109,6 +121,7 @@ mod tests {
   "request.timeout.ms": 30000,
   "api.version.request": false,
   "broker.version.fallback": "0.9.0",
+  "metadata.max.age.ms": 300000,
   "metrics": false
 }"#;
 

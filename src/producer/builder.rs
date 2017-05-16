@@ -10,7 +10,7 @@ use tokio_core::reactor::Handle;
 use errors::{ErrorKind, Result};
 use compression::Compression;
 use protocol::{RequiredAcks, ToMilliseconds};
-use client::KafkaClient;
+use client::{KafkaClient, KafkaVersion};
 use producer::{DefaultPartitioner, Interceptors, KafkaProducer, NoopSerializer, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors, Serializer};
 
@@ -114,6 +114,16 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
 
     pub fn with_max_connection_idle(mut self, max_connection_idle: Duration) -> Self {
         self.config.max_connection_idle = max_connection_idle.as_millis();
+        self
+    }
+
+    pub fn with_api_version_request(mut self) -> Self {
+        self.config.client.api_version_request = true;
+        self
+    }
+
+    pub fn with_broker_version_fallback(mut self, version: KafkaVersion) -> Self {
+        self.config.client.broker_version_fallback = version;
         self
     }
 

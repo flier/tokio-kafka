@@ -132,6 +132,7 @@ mod tests {
     "request.timeout.ms": 30000,
     "api.version.request": false,
     "broker.version.fallback": "0.9.0",
+    "metadata.max.age.ms": 300000,
     "metrics": false
   },
   "acks": "one",
