@@ -59,6 +59,17 @@ impl Metadata {
             group_coordinators: self.group_coordinators.clone(),
         }
     }
+
+    pub fn with_fallback_api_versions(&self, api_versions: &UsableApiVersions) -> Self {
+        Metadata {
+            brokers: self.brokers
+                .iter()
+                .map(|broker| broker.with_api_versions(Some(api_versions.clone())))
+                .collect(),
+            topic_partitions: self.topic_partitions.clone(),
+            group_coordinators: self.group_coordinators.clone(),
+        }
+    }
 }
 
 impl Default for Metadata {

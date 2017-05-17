@@ -348,7 +348,7 @@ impl<'a> Inner<'a>
         FetchApiVersions::new(response)
     }
 
-    fn load_api_verions(&self, metadata: Rc<Metadata>) -> LoadApiVersions {
+    fn load_api_versions(&self, metadata: Rc<Metadata>) -> LoadApiVersions {
         trace!("load API versions from brokers, {:?}", metadata.brokers());
 
         let responses = {
@@ -486,13 +486,24 @@ impl<'a> Future for LoadMetadata<'a>
                             let api_version_request = self.inner.config.api_version_request;
 
                             if api_version_request {
-                                state = Loading::ApiVersions(self.inner.load_api_verions(metadata));
+                                state = Loading::ApiVersions(self.inner
+                                                                 .load_api_versions(metadata));
                             } else {
+                                let fallback_api_versions = self.inner
+                                    .config
+                                    .broker_version_fallback
+                                    .api_versions();
+                                let metadata = Rc::new(metadata.with_fallback_api_versions(fallback_api_versions));
+
+                                trace!("use fallback API versions from {:?}, {:?}",
+                                       self.inner.config.broker_version_fallback,
+                                       fallback_api_versions);
+
                                 (*self.inner.state)
                                     .borrow_mut()
-                                    .update_metadata(metadata.clone());
+                                    .update_metadata(metadata);
 
-                                return Ok(Async::Ready(metadata));
+                                return Ok(Async::Ready(self.inner.metadata()));
                             }
                         }
                         Ok(Async::NotReady) => return Ok(Async::NotReady),

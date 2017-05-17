@@ -7,6 +7,7 @@ use serde::ser::{Serialize, Serializer};
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 
 use errors::{Error, ErrorKind, Result};
+use protocol::{ApiKeys, UsableApiVersion, UsableApiVersions};
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -30,6 +31,15 @@ impl KafkaVersion {
 
     pub fn value(&self) -> u16 {
         unsafe { mem::transmute(*self) }
+    }
+
+    pub fn api_versions(&self) -> &UsableApiVersions {
+        match *self {
+            KafkaVersion::KAFKA_0_8_0 => &*KAFKA_0_8_0_VERSIONS,
+            KafkaVersion::KAFKA_0_8_1 => &*KAFKA_0_8_1_VERSIONS,
+            KafkaVersion::KAFKA_0_8_2 => &*KAFKA_0_8_2_VERSIONS,
+            KafkaVersion::KAFKA_0_9_0 => &*KAFKA_0_9_0_VERSIONS,
+        }
     }
 }
 
@@ -95,4 +105,63 @@ impl<'de> Deserialize<'de> for KafkaVersion {
 
         deserializer.deserialize_i32(KafkaVersionVistor)
     }
+}
+
+lazy_static! {
+    static ref KAFKA_0_8_0_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+        UsableApiVersion { api_key: ApiKeys::Produce,               min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Fetch,                 min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::ListOffsets,           min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Metadata,              min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::LeaderAndIsr,          min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::StopReplica,           min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::UpdateMetadata,        min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::ControlledShutdown,    min_version: 0, max_version: 0, },
+    ]);
+    static ref KAFKA_0_8_1_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+        UsableApiVersion { api_key: ApiKeys::Produce,               min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Fetch,                 min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::ListOffsets,           min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Metadata,              min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::LeaderAndIsr,          min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::StopReplica,           min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::UpdateMetadata,        min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::ControlledShutdown,    min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::OffsetCommit,          min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::OffsetFetch,           min_version: 0, max_version: 0, },
+    ]);
+    static ref KAFKA_0_8_2_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+        UsableApiVersion { api_key: ApiKeys::Produce,               min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Fetch,                 min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::ListOffsets,           min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Metadata,              min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::LeaderAndIsr,          min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::StopReplica,           min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::UpdateMetadata,        min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::ControlledShutdown,    min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::OffsetCommit,          min_version: 0, max_version: 1, },
+        UsableApiVersion { api_key: ApiKeys::OffsetFetch,           min_version: 0, max_version: 1, },
+        UsableApiVersion { api_key: ApiKeys::GroupCoordinator,      min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::JoinGroup,             min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Heartbeat,             min_version: 0, max_version: 0, },
+    ]);
+    static ref  KAFKA_0_9_0_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+        UsableApiVersion { api_key: ApiKeys::Produce,               min_version: 0, max_version: 1, },
+        UsableApiVersion { api_key: ApiKeys::Fetch,                 min_version: 0, max_version: 1, },
+        UsableApiVersion { api_key: ApiKeys::ListOffsets,           min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Metadata,              min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::LeaderAndIsr,          min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::StopReplica,           min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::UpdateMetadata,        min_version: 0, max_version: 1, },
+        UsableApiVersion { api_key: ApiKeys::ControlledShutdown,    min_version: 0, max_version: 1, },
+        UsableApiVersion { api_key: ApiKeys::OffsetCommit,          min_version: 0, max_version: 2, },
+        UsableApiVersion { api_key: ApiKeys::OffsetFetch,           min_version: 0, max_version: 1, },
+        UsableApiVersion { api_key: ApiKeys::GroupCoordinator,      min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::JoinGroup,             min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::Heartbeat,             min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::LeaveGroup,            min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::SyncGroup,             min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::DescribeGroups,        min_version: 0, max_version: 0, },
+        UsableApiVersion { api_key: ApiKeys::ListGroups,            min_version: 0, max_version: 0, },
+    ]);
 }

@@ -61,6 +61,7 @@ struct Config {
     idle_timeout: Duration,
     ack_timeout: Duration,
     linger: Duration,
+    api_version_request: bool,
     broker_version: Option<KafkaVersion>,
 }
 
@@ -101,7 +102,7 @@ impl Config {
                     "MS");
         opts.optopt("",
                     "broker-version",
-                    "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0]",
+                    "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
                     "VERSION");
 
         let m = opts.parse(&args[1..])?;
@@ -118,6 +119,12 @@ impl Config {
             .map_or_else(|| vec![DEFAULT_BROKER.to_owned()],
                          |s| s.split(',').map(|s| s.trim().to_owned()).collect());
 
+        let (api_version_request, broker_version) = m.opt_str("broker-version")
+            .map_or((false, None), |s| if s == "auto" {
+                (true, None)
+            } else {
+                (false, Some(s.parse().unwrap()))
+            });
 
         Ok(Config {
                brokers: brokers,
@@ -138,7 +145,8 @@ impl Config {
                    .map_or(DEFAULT_ACK_TIMEOUT_MILLIS, |s| s.parse().unwrap())),
                linger: Duration::from_millis(m.opt_str("linger")
                    .map_or(DEFAULT_LINGER_MILLIS, |s| s.parse().unwrap())),
-               broker_version: m.opt_str("broker-version").map(|s| s.parse().unwrap()),
+               api_version_request:api_version_request,
+               broker_version: broker_version,
            })
     }
 }
@@ -223,11 +231,12 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
         .with_default_partitioner()
         .with_interceptor(LogInterceptor {});
 
-    builder = if let Some(version) = config.broker_version {
-        builder.with_broker_version_fallback(version)
-    } else {
-        builder.with_api_version_request()
-    };
+    if config.api_version_request {
+        builder = builder.with_api_version_request()
+    }
+    if let Some(version) = config.broker_version {
+        builder = builder.with_broker_version_fallback(version)
+    }
 
     let mut producer = builder.build()?;
 

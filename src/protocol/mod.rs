@@ -49,7 +49,7 @@ pub type ReplicaId = i32;
 pub type RequiredAck = i16;
 
 /// The following are the numeric codes that the `ApiKey` in the request can take for each of the below request types.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(i16)]
 pub enum ApiKeys {
     Produce = 0,
@@ -62,6 +62,7 @@ pub enum ApiKeys {
     ControlledShutdown = 7,
     OffsetCommit = 8,
     OffsetFetch = 9,
+    // ConsumerMetadata = 10,
     GroupCoordinator = 10,
     JoinGroup = 11,
     Heartbeat = 12,

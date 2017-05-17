@@ -5,7 +5,7 @@ use bytes::{ByteOrder, BytesMut};
 use nom::{be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ApiKey, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader,
+use protocol::{ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader,
                ResponseHeader, parse_response_header};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,7 +38,7 @@ pub struct ApiVersionsResponse {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsableApiVersion {
     /// API key.
-    pub api_key: ApiKey,
+    pub api_key: ApiKeys,
     /// Minimum supported version.
     pub min_version: ApiVersion,
     /// Maximum supported version.
@@ -62,7 +62,7 @@ impl UsableApiVersions {
     }
 
     pub fn find(&self, api_key: ApiKeys) -> Option<&UsableApiVersion> {
-        self.0.iter().find(|v| v.api_key == api_key as ApiKey)
+        self.0.iter().find(|v| v.api_key == api_key)
     }
 }
 
@@ -88,7 +88,7 @@ named!(parse_api_version<UsableApiVersion>,
          >> min_version: be_i16
          >> max_version: be_i16
          >> (UsableApiVersion {
-                api_key: api_key,
+                api_key: ApiKeys::from(api_key),
                 min_version: min_version,
                 max_version: max_version,
             })
@@ -131,7 +131,7 @@ mod tests {
             header: ResponseHeader { correlation_id: 123 },
             error_code: 0,
             api_versions: vec![UsableApiVersion {
-                api_key: 1,
+                api_key: ApiKeys::Fetch,
                 min_version: 2,
                 max_version: 3,
             }],
