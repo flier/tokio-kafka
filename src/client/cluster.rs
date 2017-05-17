@@ -92,7 +92,7 @@ impl Broker {
             .and_then(|api_versions| {
                           api_versions
                               .find(api_key)
-                              .map(|ref api_version| api_version.max_version)
+                              .map(|api_version| api_version.max_version)
                       })
     }
 

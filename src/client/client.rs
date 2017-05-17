@@ -51,17 +51,17 @@ struct Inner<'a> {
 #[derive(Default)]
 struct State {
     correlation_id: CorrelationId,
-    metadata: MetadataStatus,
+    metadata_status: MetadataStatus,
 }
 
 enum MetadataStatus {
-    Loading(Rc<RefCell<Vec<oneshot::Sender<Rc<Metadata>>>>>),
+    Loading(RefCell<Vec<oneshot::Sender<Rc<Metadata>>>>),
     Loaded(Rc<Metadata>),
 }
 
 impl Default for MetadataStatus {
     fn default() -> Self {
-        MetadataStatus::Loading(Rc::new(RefCell::new(Vec::new())))
+        MetadataStatus::Loading(RefCell::new(Vec::new()))
     }
 }
 
@@ -453,22 +453,26 @@ impl State {
     pub fn metadata(&self) -> GetMetadata {
         let (sender, receiver) = oneshot::channel();
 
-        match self.metadata {
-            MetadataStatus::Loading(ref senders) => (*senders).borrow_mut().push(sender),
+        match self.metadata_status {
+            MetadataStatus::Loading(ref senders) => senders.borrow_mut().push(sender),
             MetadataStatus::Loaded(ref metadata) => drop(sender.send(metadata.clone())),
         }
 
         GetMetadata::new(receiver.map_err(|_| ErrorKind::Canceled("load metadata canceled").into()))
     }
 
-    pub fn set_metadata(&mut self, metadata: Rc<Metadata>) {
-        let status = mem::replace(&mut self.metadata, MetadataStatus::Loaded(metadata.clone()));
+    pub fn refresh_metadata(&mut self) {
+        if let MetadataStatus::Loaded(_) = self.metadata_status {
+            self.metadata_status = MetadataStatus::Loading(Default::default());
+        }
+    }
+
+    pub fn update_metadata(&mut self, metadata: Rc<Metadata>) {
+        let status = mem::replace(&mut self.metadata_status,
+                                  MetadataStatus::Loaded(metadata.clone()));
 
         if let MetadataStatus::Loading(senders) = status {
-            for sender in Rc::try_unwrap(senders)
-                    .unwrap()
-                    .into_inner()
-                    .into_iter() {
+            for sender in senders.into_inner() {
                 drop(sender.send(metadata.clone()));
             }
         }
@@ -498,6 +502,8 @@ impl<'a> LoadMetadata<'a>
 {
     fn new(inner: Rc<Inner<'a>>) -> LoadMetadata<'a> {
         let fetch_metadata = inner.fetch_metadata::<&str>(&[]);
+
+        (*inner.state).borrow_mut().refresh_metadata();
 
         LoadMetadata {
             state: Loading::Metadata(fetch_metadata),
@@ -556,7 +562,7 @@ impl<'a> Future for LoadMetadata<'a>
                 Loading::Finished(ref metadata) => {
                     (*self.inner.state)
                         .borrow_mut()
-                        .set_metadata(metadata.clone());
+                        .update_metadata(metadata.clone());
 
                     return Ok(Async::Ready(metadata.clone()));
                 }

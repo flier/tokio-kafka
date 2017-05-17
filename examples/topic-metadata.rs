@@ -102,12 +102,12 @@ fn main() {
 
     let mut core = Core::new().unwrap();
 
-    let mut client = KafkaClient::from_hosts(config.brokers.clone().into_iter(), core.handle());
+    let client = KafkaClient::from_hosts(config.brokers.clone().into_iter(), core.handle());
 
     let topics = config.topics.clone();
 
     let work = client
-        .load_metadata()
+        .metadata()
         .and_then(move |metadata| {
             let topics = topics.unwrap_or_else(|| {
                                                    metadata
