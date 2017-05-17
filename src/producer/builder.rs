@@ -64,14 +64,18 @@ impl<'a, K, V, P> Default for ProducerBuilder<'a, K, V, P>
     }
 }
 
+pub fn from_hosts<'a, K, V, P, I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, P>
+    where K: Serializer,
+          V: Serializer,
+          I: Iterator<Item = SocketAddr>
+{
+    ProducerBuilder::from_hosts(hosts, handle)
+}
+
 impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
     where K: Serializer,
           V: Serializer
 {
-    pub fn new() -> Self {
-        ProducerBuilder::default()
-    }
-
     pub fn from_client(client: KafkaClient<'a>) -> Self {
         ProducerBuilder {
             client: Some(client),
@@ -108,12 +112,17 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
           V: Serializer
 {
     pub fn with_client_id(mut self, client_id: String) -> Self {
-        self.config.client_id = Some(client_id);
+        self.config.client.client_id = Some(client_id);
         self
     }
 
     pub fn with_max_connection_idle(mut self, max_connection_idle: Duration) -> Self {
-        self.config.max_connection_idle = max_connection_idle.as_millis();
+        self.config.client.max_connection_idle = max_connection_idle.as_millis();
+        self
+    }
+
+    pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
+        self.config.client.request_timeout = request_timeout.as_millis();
         self
     }
 
@@ -124,6 +133,16 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
 
     pub fn with_broker_version_fallback(mut self, version: KafkaVersion) -> Self {
         self.config.client.broker_version_fallback = version;
+        self
+    }
+
+    pub fn with_metadata_max_age(mut self, metadata_max_age: Duration) -> Self {
+        self.config.client.metadata_max_age = metadata_max_age.as_millis();
+        self
+    }
+
+    pub fn with_metrics(mut self) -> Self {
+        self.config.client.metrics = true;
         self
     }
 
@@ -229,10 +248,10 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
     pub fn build(self) -> Result<KafkaProducer<'a, K, V, P>> {
         let client = if let Some(client) = self.client {
             client
-        } else if let Some(handle) = self.handle {
-            KafkaClient::from_config(self.config.client.clone(), handle)
         } else {
-            bail!(ErrorKind::ConfigError("missed client or handle"))
+            KafkaClient::from_config(self.config.client.clone(),
+                                     self.handle
+                                         .ok_or(ErrorKind::ConfigError("missed handle"))?)
         };
 
         Ok(KafkaProducer::new(client,

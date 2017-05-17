@@ -20,7 +20,8 @@ use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
                Offset, PartitionId, RequiredAcks, UsableApiVersions};
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
-use client::{Broker, BrokerRef, ClientConfig, Cluster, KafkaService, Metadata, Metrics};
+use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
+             Metrics};
 
 pub trait Client<'a>: 'static {
     fn produce_records(&self,
@@ -76,10 +77,10 @@ impl<'a> Deref for KafkaClient<'a> {
 impl<'a> KafkaClient<'a>
     where Self: 'static
 {
-    pub fn from_hosts<I>(hosts: I, handle: Handle) -> KafkaClient<'a>
+    pub fn from_hosts<I>(hosts: I, handle: Handle) -> ClientBuilder<'a>
         where I: Iterator<Item = SocketAddr>
     {
-        KafkaClient::from_config(ClientConfig::from_hosts(hosts), handle)
+        ClientBuilder::from_hosts(hosts, handle)
     }
 
     pub fn from_config(config: ClientConfig, handle: Handle) -> KafkaClient<'a> {
