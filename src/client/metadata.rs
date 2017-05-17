@@ -46,7 +46,7 @@ impl Metadata {
             .find(|broker| broker.id() == broker_ref.index())
     }
 
-    pub fn with_api_versions(&self, api_versions: &HashMap<BrokerRef, UsableApiVersions>) -> Self {
+    pub fn with_api_versions(&self, api_versions: HashMap<BrokerRef, UsableApiVersions>) -> Self {
         Metadata {
             brokers: self.brokers
                 .iter()

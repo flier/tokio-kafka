@@ -1,3 +1,4 @@
+use std::mem;
 use std::rc::Rc;
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -10,6 +11,7 @@ use std::time::Duration;
 
 use futures::{Async, Poll};
 use futures::future::{self, Future};
+use futures::unsync::oneshot;
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_service::Service;
 use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
@@ -46,10 +48,21 @@ struct Inner<'a> {
     state: Rc<RefCell<State>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct State {
     correlation_id: CorrelationId,
-    metadata: Rc<Metadata>,
+    metadata: MetadataStatus,
+}
+
+enum MetadataStatus {
+    Loading(Rc<RefCell<Vec<oneshot::Sender<Rc<Metadata>>>>>),
+    Loaded(Rc<Metadata>),
+}
+
+impl Default for MetadataStatus {
+    fn default() -> Self {
+        MetadataStatus::Loading(Rc::new(RefCell::new(Vec::new())))
+    }
 }
 
 impl<'a> Deref for KafkaClient<'a> {
@@ -93,16 +106,14 @@ impl<'a> KafkaClient<'a>
 
         let mut client = KafkaClient { inner: inner };
 
-        let load_metadata = client
-            .load_metadata()
-            .map(|metadata| {
-                     trace!("auto loaded metadata, {:?}", metadata);
-                 })
-            .map_err(|err| {
-                         warn!("fail to load metadata, {}", err);
-                     });
-
-        handle.spawn(load_metadata);
+        handle.spawn(client
+                         .load_metadata()
+                         .map(|metadata| {
+                                  trace!("auto loaded metadata, {:?}", metadata);
+                              })
+                         .map_err(|err| {
+                                      warn!("fail to load metadata, {}", err);
+                                  }));
 
         client
     }
@@ -115,7 +126,7 @@ impl<'a> KafkaClient<'a>
         self.inner.metrics.clone()
     }
 
-    pub fn metadata(&self) -> Rc<Metadata> {
+    pub fn metadata(&self) -> GetMetadata {
         (*self.inner.state).borrow().metadata()
     }
 }
@@ -129,123 +140,27 @@ impl<'a> Client<'a> for KafkaClient<'a>
                        tp: TopicPartition<'a>,
                        records: Vec<Cow<'a, MessageSet>>)
                        -> ProduceRecords {
-        let request = KafkaRequest::produce_records(0, // api_version,
-                                                    self.inner.next_correlation_id(),
-                                                    self.inner.client_id(),
-                                                    required_acks,
-                                                    timeout,
-                                                    &tp,
-                                                    records);
-        let addr = self.metadata()
-            .leader_for(&tp)
-            .map_or_else(|| *self.inner.config.hosts.iter().next().unwrap(),
-                         |broker| {
-                             broker
-                                 .addr()
-                                 .to_socket_addrs()
-                                 .unwrap()
-                                 .next()
-                                 .unwrap()
-                         });
-        let response = self.inner
-            .service
-            .call((addr, request))
-            .and_then(|res| if let KafkaResponse::Produce(res) = res {
-                          let produce = res.topics
-                              .iter()
-                              .map(|topic| {
-                    (topic.topic_name.to_owned(),
-                     topic
-                         .partitions
-                         .iter()
-                         .map(|partition| {
-                                  (partition.partition, partition.error_code, partition.offset)
-                              })
-                         .collect())
-                })
-                              .collect();
-
-                          future::ok(produce)
-                      } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+        let inner = self.inner.clone();
+        let future = self.metadata()
+            .and_then(move |metadata| {
+                          inner.produce_records(metadata, required_acks, timeout, tp, records)
                       });
-
-        ProduceRecords::new(response)
+        ProduceRecords::new(future)
     }
 
     fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets {
-        let topics = self.inner.topics_by_broker(topic_names);
+        let inner = self.inner.clone();
+        let topic_names: Vec<String> = topic_names
+            .iter()
+            .map(|s| s.as_ref().to_owned())
+            .collect();
+        let future = self.metadata()
+            .and_then(move |metadata| {
+                          let topics = inner.topics_by_broker(metadata, &topic_names);
 
-        let responses = {
-            let mut responses = Vec::new();
-
-            for ((addr, api_version), topics) in topics {
-                let request = KafkaRequest::list_offsets(api_version,
-                                                         self.inner.next_correlation_id(),
-                                                         self.inner.client_id(),
-                                                         topics,
-                                                         offset);
-                let response = self.inner
-                    .service
-                    .call((addr, request))
-                    .and_then(|res| {
-                        if let KafkaResponse::ListOffsets(res) = res {
-                            let topics = res.topics
-                                .iter()
-                                .map(|topic| {
-                                    let partitions = topic
-                                        .partitions
-                                        .iter()
-                                        .flat_map(|partition| {
-                                            if partition.error_code ==
-                                               KafkaCode::None as ErrorCode {
-                                                Ok(PartitionOffset {
-                                                       partition: partition.partition,
-                                                       offset: *partition
-                                                                    .offsets
-                                                                    .iter()
-                                                                    .next()
-                                                                    .unwrap(), // TODO
-                                                   })
-                                            } else {
-                                                Err(ErrorKind::KafkaError(partition
-                                                                              .error_code
-                                                                              .into()))
-                                            }
-                                        })
-                                        .collect();
-
-                                    (topic.topic_name.clone(), partitions)
-                                })
-                                .collect::<Vec<(String, Vec<PartitionOffset>)>>();
-
-                            Ok(topics)
-                        } else {
-                            bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                        }
-                    });
-
-                responses.push(response);
-            }
-
-            responses
-        };
-
-        let offsets = future::join_all(responses).map(|responses| {
-            responses
-                .iter()
-                .fold(HashMap::new(), |mut offsets, topics| {
-                    for &(ref topic_name, ref partitions) in topics {
-                        offsets
-                            .entry(topic_name.clone())
-                            .or_insert_with(Vec::new)
-                            .extend(partitions.iter().cloned())
-                    }
-                    offsets
-                })
-        });
-
-        FetchOffsets::new(offsets)
+                          inner.fetch_offsets(topics, offset)
+                      });
+        FetchOffsets::new(future)
     }
 
     fn load_metadata(&mut self) -> LoadMetadata<'a> {
@@ -288,7 +203,7 @@ impl<'a> Inner<'a>
         self.config.client_id.clone().map(Cow::from)
     }
 
-    pub fn metadata(&self) -> Rc<Metadata> {
+    pub fn metadata(&self) -> GetMetadata {
         (*self.state).borrow().metadata()
     }
 
@@ -366,17 +281,65 @@ impl<'a> Inner<'a>
         };
         let responses = future::join_all(responses).map(HashMap::from_iter);
 
-        LoadApiVersions::new(StaticBoxFuture::new(responses), self.state.clone())
+        LoadApiVersions::new(StaticBoxFuture::new(responses))
     }
 
-    fn topics_by_broker<S>
-        (&self,
-         topic_names: &[S])
-         -> HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<PartitionId>>>
+    fn produce_records(&self,
+                       metadata: Rc<Metadata>,
+                       required_acks: RequiredAcks,
+                       timeout: Duration,
+                       tp: TopicPartition<'a>,
+                       records: Vec<Cow<'a, MessageSet>>)
+                       -> ProduceRecords {
+        let (api_version, addr) = metadata
+            .leader_for(&tp)
+            .map_or_else(|| (0, *self.config.hosts.iter().next().unwrap()),
+                         |broker| {
+                (broker.api_version(ApiKeys::Produce).unwrap_or_default(),
+                 broker
+                     .addr()
+                     .to_socket_addrs()
+                     .unwrap()
+                     .next()
+                     .unwrap())
+            });
+
+        let request = KafkaRequest::produce_records(api_version,
+                                                    self.next_correlation_id(),
+                                                    self.client_id(),
+                                                    required_acks,
+                                                    timeout,
+                                                    &tp,
+                                                    records);
+
+        let response = self.service
+            .call((addr, request))
+            .and_then(|res| if let KafkaResponse::Produce(res) = res {
+                          let produce = res.topics
+                              .iter()
+                              .map(|topic| {
+                    (topic.topic_name.to_owned(),
+                     topic
+                         .partitions
+                         .iter()
+                         .map(|partition| {
+                                  (partition.partition, partition.error_code, partition.offset)
+                              })
+                         .collect())
+                })
+                              .collect();
+
+                          future::ok(produce)
+                      } else {
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                      });
+
+        ProduceRecords::new(response)
+    }
+
+    fn topics_by_broker<S>(&self, metadata: Rc<Metadata>, topic_names: &[S]) -> Topics<'a>
         where S: AsRef<str>
     {
-        let metadata = self.metadata();
-
         let mut topics = HashMap::new();
 
         for topic_name in topic_names.iter() {
@@ -390,13 +353,8 @@ impl<'a> Inner<'a>
                             .next()
                             .unwrap(); // TODO
                         let api_version = broker
-                            .api_versions()
-                            .map_or(0, |api_versions| {
-                                api_versions
-                                    .find(ApiKeys::ListOffsets)
-                                    .map(|api_version| api_version.max_version)
-                                    .unwrap_or(0)
-                            });
+                            .api_version(ApiKeys::ListOffsets)
+                            .unwrap_or_default();
                         topics
                             .entry((addr, api_version))
                             .or_insert_with(HashMap::new)
@@ -410,7 +368,81 @@ impl<'a> Inner<'a>
 
         topics
     }
+
+    fn fetch_offsets(&self, topics: Topics<'a>, offset: FetchOffset) -> FetchOffsets {
+        let responses = {
+            let mut responses = Vec::new();
+
+            for ((addr, api_version), topics) in topics {
+                let request = KafkaRequest::list_offsets(api_version,
+                                                         self.next_correlation_id(),
+                                                         self.client_id(),
+                                                         topics,
+                                                         offset);
+                let response = self.service
+                    .call((addr, request))
+                    .and_then(|res| {
+                        if let KafkaResponse::ListOffsets(res) = res {
+                            let topics = res.topics
+                                .iter()
+                                .map(|topic| {
+                                    let partitions = topic
+                                        .partitions
+                                        .iter()
+                                        .flat_map(|partition| {
+                                            if partition.error_code ==
+                                               KafkaCode::None as ErrorCode {
+                                                Ok(PartitionOffset {
+                                                       partition: partition.partition,
+                                                       offset: *partition
+                                                                    .offsets
+                                                                    .iter()
+                                                                    .next()
+                                                                    .unwrap(), // TODO
+                                                   })
+                                            } else {
+                                                Err(ErrorKind::KafkaError(partition
+                                                                              .error_code
+                                                                              .into()))
+                                            }
+                                        })
+                                        .collect();
+
+                                    (topic.topic_name.clone(), partitions)
+                                })
+                                .collect::<Vec<(String, Vec<PartitionOffset>)>>();
+
+                            Ok(topics)
+                        } else {
+                            bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                        }
+                    });
+
+                responses.push(response);
+            }
+
+            responses
+        };
+
+        let offsets = future::join_all(responses).map(|responses| {
+            responses
+                .iter()
+                .fold(HashMap::new(), |mut offsets, topics| {
+                    for &(ref topic_name, ref partitions) in topics {
+                        offsets
+                            .entry(topic_name.clone())
+                            .or_insert_with(Vec::new)
+                            .extend(partitions.iter().cloned())
+                    }
+                    offsets
+                })
+        });
+
+        FetchOffsets::new(offsets)
+    }
 }
+
+type Topics<'a> = HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<PartitionId>>>;
 
 impl State {
     pub fn next_correlation_id(&mut self) -> CorrelationId {
@@ -418,24 +450,28 @@ impl State {
         self.correlation_id - 1
     }
 
-    pub fn metadata(&self) -> Rc<Metadata> {
-        self.metadata.clone()
+    pub fn metadata(&self) -> GetMetadata {
+        let (sender, receiver) = oneshot::channel();
+
+        match self.metadata {
+            MetadataStatus::Loading(ref senders) => (*senders).borrow_mut().push(sender),
+            MetadataStatus::Loaded(ref metadata) => drop(sender.send(metadata.clone())),
+        }
+
+        GetMetadata::new(receiver.map_err(|_| ErrorKind::Canceled("load metadata canceled").into()))
     }
 
-    pub fn update_metadata(&mut self, metadata: Rc<Metadata>) -> Rc<Metadata> {
-        debug!("updating metadata, {:?}", metadata);
+    pub fn set_metadata(&mut self, metadata: Rc<Metadata>) {
+        let status = mem::replace(&mut self.metadata, MetadataStatus::Loaded(metadata.clone()));
 
-        self.metadata = metadata;
-        self.metadata.clone()
-    }
-
-    pub fn update_api_versions(&mut self,
-                               api_versions: &HashMap<BrokerRef, UsableApiVersions>)
-                               -> Rc<Metadata> {
-        debug!("updating API versions, {:?}", api_versions);
-
-        self.metadata = Rc::new(self.metadata.with_api_versions(api_versions));
-        self.metadata.clone()
+        if let MetadataStatus::Loading(senders) = status {
+            for sender in Rc::try_unwrap(senders)
+                    .unwrap()
+                    .into_inner()
+                    .into_iter() {
+                drop(sender.send(metadata.clone()));
+            }
+        }
     }
 }
 
@@ -446,14 +482,15 @@ pub struct PartitionOffset {
     pub offset: Offset,
 }
 
-pub enum Loading {
-    Metadata(FetchMetadata),
-    ApiVersions(LoadApiVersions),
-}
-
 pub struct LoadMetadata<'a> {
     state: Loading,
     inner: Rc<Inner<'a>>,
+}
+
+pub enum Loading {
+    Metadata(FetchMetadata),
+    ApiVersions(Rc<Metadata>, LoadApiVersions),
+    Finished(Rc<Metadata>),
 }
 
 impl<'a> LoadMetadata<'a>
@@ -483,45 +520,45 @@ impl<'a> Future for LoadMetadata<'a>
                 Loading::Metadata(ref mut future) => {
                     match future.poll() {
                         Ok(Async::Ready(metadata)) => {
-                            let api_version_request = self.inner.config.api_version_request;
+                            let inner = self.inner.clone();
 
-                            if api_version_request {
-                                state = Loading::ApiVersions(self.inner
-                                                                 .load_api_versions(metadata));
+                            if inner.config.api_version_request {
+                                state = Loading::ApiVersions(metadata.clone(),
+                                                             inner.load_api_versions(metadata));
                             } else {
-                                let fallback_api_versions = self.inner
-                                    .config
-                                    .broker_version_fallback
-                                    .api_versions();
+                                let fallback_api_versions =
+                                    inner.config.broker_version_fallback.api_versions();
+
                                 let metadata = Rc::new(metadata.with_fallback_api_versions(fallback_api_versions));
 
                                 trace!("use fallback API versions from {:?}, {:?}",
-                                       self.inner.config.broker_version_fallback,
+                                       inner.config.broker_version_fallback,
                                        fallback_api_versions);
 
-                                (*self.inner.state)
-                                    .borrow_mut()
-                                    .update_metadata(metadata);
-
-                                return Ok(Async::Ready(self.inner.metadata()));
+                                state = Loading::Finished(metadata);
                             }
                         }
                         Ok(Async::NotReady) => return Ok(Async::NotReady),
                         Err(err) => return Err(err),
                     }
                 }
-                Loading::ApiVersions(ref mut future) => {
+                Loading::ApiVersions(ref metadata, ref mut future) => {
                     match future.poll() {
                         Ok(Async::Ready(api_versions)) => {
-                            (*self.inner.state)
-                                .borrow_mut()
-                                .update_api_versions(&api_versions);
+                            let metadata = Rc::new(metadata.with_api_versions(api_versions));
 
-                            return Ok(Async::Ready(self.inner.metadata()));
+                            state = Loading::Finished(metadata);
                         }
                         Ok(Async::NotReady) => return Ok(Async::NotReady),
                         Err(err) => return Err(err),
                     }
+                }
+                Loading::Finished(ref metadata) => {
+                    (*self.inner.state)
+                        .borrow_mut()
+                        .set_metadata(metadata.clone());
+
+                    return Ok(Async::Ready(metadata.clone()));
                 }
             }
 
@@ -530,42 +567,6 @@ impl<'a> Future for LoadMetadata<'a>
     }
 }
 
-pub struct LoadApiVersions {
-    fetch_api_versions: StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>,
-    state: Rc<RefCell<State>>,
-}
-
-impl LoadApiVersions {
-    fn new(fetch_api_versions: StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>,
-           state: Rc<RefCell<State>>)
-           -> Self {
-        LoadApiVersions {
-            fetch_api_versions: fetch_api_versions,
-            state: state,
-        }
-    }
-}
-
-impl Future for LoadApiVersions
-    where Self: 'static
-{
-    type Item = HashMap<BrokerRef, UsableApiVersions>;
-    type Error = Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.fetch_api_versions.poll() {
-            Ok(Async::Ready(api_versions)) => {
-                (*self.state)
-                    .borrow_mut()
-                    .update_api_versions(&api_versions);
-
-                Ok(Async::Ready(api_versions))
-            }
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(err) => Err(err),
-        }
-    }
-}
 
 pub struct StaticBoxFuture<F = (), E = Error>(Box<Future<Item = F, Error = E> + 'static>);
 
@@ -586,7 +587,9 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
     }
 }
 
+pub type GetMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
+pub type LoadApiVersions = StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>;

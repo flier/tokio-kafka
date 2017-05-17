@@ -114,39 +114,51 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     type Value = V::Item;
 
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
-        let push_record = self.inner.push_record(record);
+        let inner = self.inner.clone();
 
-        if push_record.is_full() {
-            let flush = self.inner
-                .flush_batches(false)
-                .map_err(|err| {
-                             warn!("fail to flush full batch, {}", err);
-                         });
+        let future = self.inner
+            .client
+            .metadata()
+            .and_then(move |metadata| {
+                let push_record = inner.push_record(metadata, record);
 
-            self.inner.client.handle().spawn(flush);
-        }
+                if push_record.is_full() {
+                    let flush = inner
+                        .flush_batches(false)
+                        .map_err(|err| {
+                                     warn!("fail to flush full batch, {}", err);
+                                 });
 
-        if push_record.new_batch() {
-            let timeout = Timeout::new(self.inner.config.linger(), self.inner.client.handle());
-
-            match timeout {
-                Ok(timeout) => {
-                    let inner = self.inner.clone();
-                    let future = timeout
-                        .map_err(Error::from)
-                        .and_then(move |_| inner.flush_batches(false))
-                        .map(|_| ())
-                        .map_err(|_| ());
-
-                    self.inner.client.handle().spawn(future);
+                    inner.client.handle().spawn(flush);
                 }
-                Err(err) => {
-                    warn!("fail to create timeout, {}", err);
-                }
-            }
-        }
 
-        SendRecord::new(push_record)
+                if push_record.new_batch() {
+                    let timeout = Timeout::new(inner.config.linger(), inner.client.handle());
+
+                    match timeout {
+                        Ok(timeout) => {
+                            let future = {
+                                let inner = inner.clone();
+
+                                timeout
+                                    .map_err(Error::from)
+                                    .and_then(move |_| inner.flush_batches(false))
+                                    .map(|_| ())
+                                    .map_err(|_| ())
+                            };
+
+                            inner.clone().client.handle().spawn(future);
+                        }
+                        Err(err) => {
+                            warn!("fail to create timeout, {}", err);
+                        }
+                    }
+                }
+
+                push_record
+            });
+
+        SendRecord::new(future)
     }
 
     fn flush(&mut self) -> Flush {
@@ -162,7 +174,10 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
           P: Partitioner,
           Self: 'static
 {
-    fn push_record(&self, mut record: ProducerRecord<K::Item, V::Item>) -> PushRecord {
+    fn push_record(&self,
+                   metadata: Rc<Metadata>,
+                   mut record: ProducerRecord<K::Item, V::Item>)
+                   -> PushRecord {
         trace!("sending record {:?}", record);
 
         if let Some(ref interceptors) = self.interceptors {
@@ -183,14 +198,12 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
             timestamp,
         } = record;
 
-        let cluster: Rc<Metadata> = self.client.metadata();
-
         let partition = self.partitioner
             .partition(&topic_name,
                        partition,
                        key.as_ref(),
                        value.as_ref(),
-                       cluster.clone())
+                       metadata.clone())
             .unwrap_or_default();
 
         let key = key.and_then(|key| {
@@ -216,7 +229,7 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
         let timestamp =
             timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
-        let api_version = cluster
+        let api_version = metadata
             .leader_for(&tp)
             .and_then(|broker| broker.api_versions())
             .and_then(|api_versions| api_versions.find(ApiKeys::Produce))

@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use protocol::{NodeId, PartitionId, UsableApiVersions};
+use protocol::{ApiKeys, ApiVersion, NodeId, PartitionId, UsableApiVersions};
 use network::TopicPartition;
 
 /// A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
@@ -84,6 +84,16 @@ impl Broker {
 
     pub fn api_versions(&self) -> Option<&UsableApiVersions> {
         self.api_versions.as_ref()
+    }
+
+    pub fn api_version(&self, api_key: ApiKeys) -> Option<ApiVersion> {
+        self.api_versions
+            .as_ref()
+            .and_then(|api_versions| {
+                          api_versions
+                              .find(api_key)
+                              .map(|ref api_version| api_version.max_version)
+                      })
     }
 
     pub fn with_api_versions(&self, api_versions: Option<UsableApiVersions>) -> Self {
