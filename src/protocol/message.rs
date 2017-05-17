@@ -317,7 +317,7 @@ impl MessageSetBuilder {
                                                   .next_power_of_two());
         let encoder = MessageSetEncoder::new(self.api_version, Some(Compression::None));
         encoder.encode::<T>(&self.message_set, &mut buf)?;
-        let compressed = compression.compress(&buf)?;
+        let compressed = compression.compress(self.api_version, &buf)?;
         Ok(MessageSet {
                messages: vec![Message{
                             offset: 0,
