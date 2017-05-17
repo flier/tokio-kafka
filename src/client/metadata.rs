@@ -15,7 +15,6 @@ pub struct Metadata {
     //
     // Note: loading of additional topic metadata must preserve
     // already present brokers in this vector at their position.
-    // See `KafkaState::update_metadata`
     brokers: Vec<Broker>,
 
     // ~ a mapping of topic to information about its partitions

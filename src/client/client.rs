@@ -512,8 +512,12 @@ impl<'a> Future for LoadMetadata<'a>
                 }
                 Loading::ApiVersions(ref mut future) => {
                     match future.poll() {
-                        Ok(Async::Ready(_)) => {
-                            return Ok(Async::Ready(self.inner.metadata().clone()))
+                        Ok(Async::Ready(api_versions)) => {
+                            (*self.inner.state)
+                                .borrow_mut()
+                                .update_api_versions(&api_versions);
+
+                            return Ok(Async::Ready(self.inner.metadata()));
                         }
                         Ok(Async::NotReady) => return Ok(Async::NotReady),
                         Err(err) => return Err(err),

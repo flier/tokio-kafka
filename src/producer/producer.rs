@@ -222,6 +222,8 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
             .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
             .map_or(0, |api_version| api_version.max_version);
 
+        trace!("use API version {} for {:?}", api_version, tp);
+
         self.accumulator
             .push_record(tp, timestamp, key, value, api_version)
     }
