@@ -102,6 +102,58 @@ impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
     }
 }
 
+impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
+    where K: Serializer,
+          K::Item: Debug + Hash,
+          V: Serializer,
+          V::Item: Debug,
+          P: Partitioner,
+          Self: 'static
+{
+    type Key = K::Item;
+    type Value = V::Item;
+
+    fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
+        let push_record = self.inner.push_record(record);
+
+        if push_record.is_full() {
+            let flush = self.inner
+                .flush_batches(false)
+                .map_err(|err| {
+                             warn!("fail to flush full batch, {}", err);
+                         });
+
+            self.inner.client.handle().spawn(flush);
+        }
+
+        if push_record.new_batch() {
+            let timeout = Timeout::new(self.inner.config.linger(), self.inner.client.handle());
+
+            match timeout {
+                Ok(timeout) => {
+                    let inner = self.inner.clone();
+                    let future = timeout
+                        .map_err(Error::from)
+                        .and_then(move |_| inner.flush_batches(false))
+                        .map(|_| ())
+                        .map_err(|_| ());
+
+                    self.inner.client.handle().spawn(future);
+                }
+                Err(err) => {
+                    warn!("fail to create timeout, {}", err);
+                }
+            }
+        }
+
+        SendRecord::new(push_record)
+    }
+
+    fn flush(&mut self) -> Flush {
+        self.inner.flush_batches(true)
+    }
+}
+
 impl<'a, K, V, P> Inner<'a, K, V, P>
     where K: Serializer,
           K::Item: Debug + Hash,
@@ -207,58 +259,6 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
                 }
             }
         }))
-    }
-}
-
-impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Debug + Hash,
-          V: Serializer,
-          V::Item: Debug,
-          P: Partitioner,
-          Self: 'static
-{
-    type Key = K::Item;
-    type Value = V::Item;
-
-    fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
-        let push_record = self.inner.push_record(record);
-
-        if push_record.is_full() {
-            let flush = self.inner
-                .flush_batches(false)
-                .map_err(|err| {
-                             warn!("fail to flush full batch, {}", err);
-                         });
-
-            self.inner.client.handle().spawn(flush);
-        }
-
-        if push_record.new_batch() {
-            let timeout = Timeout::new(self.inner.config.linger(), self.inner.client.handle());
-
-            match timeout {
-                Ok(timeout) => {
-                    let inner = self.inner.clone();
-                    let future = timeout
-                        .map_err(Error::from)
-                        .and_then(move |_| inner.flush_batches(false))
-                        .map(|_| ())
-                        .map_err(|_| ());
-
-                    self.inner.client.handle().spawn(future);
-                }
-                Err(err) => {
-                    warn!("fail to create timeout, {}", err);
-                }
-            }
-        }
-
-        SendRecord::new(push_record)
-    }
-
-    fn flush(&mut self) -> Flush {
-        self.inner.flush_batches(true)
     }
 }
 

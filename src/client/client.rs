@@ -20,13 +20,6 @@ use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, Kafka
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use client::{Broker, BrokerRef, ClientConfig, Cluster, KafkaService, Metadata, Metrics};
 
-/// A retrieved offset for a particular partition in the context of an already known topic.
-#[derive(Clone, Debug)]
-pub struct PartitionOffset {
-    pub partition: PartitionId,
-    pub offset: Offset,
-}
-
 pub trait Client<'a>: 'static {
     fn produce_records(&self,
                        acks: RequiredAcks,
@@ -40,39 +33,6 @@ pub trait Client<'a>: 'static {
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
 }
 
-#[derive(Debug, Default)]
-struct State {
-    correlation_id: CorrelationId,
-    metadata: Rc<Metadata>,
-}
-
-impl State {
-    pub fn next_correlation_id(&mut self) -> CorrelationId {
-        self.correlation_id = self.correlation_id.wrapping_add(1);
-        self.correlation_id - 1
-    }
-
-    pub fn metadata(&self) -> Rc<Metadata> {
-        self.metadata.clone()
-    }
-
-    pub fn update_metadata(&mut self, metadata: Rc<Metadata>) -> Rc<Metadata> {
-        debug!("updating metadata, {:?}", metadata);
-
-        self.metadata = metadata;
-        self.metadata.clone()
-    }
-
-    pub fn update_api_versions(&mut self,
-                               api_versions: &HashMap<BrokerRef, UsableApiVersions>)
-                               -> Rc<Metadata> {
-        debug!("updating API versions, {:?}", api_versions);
-
-        self.metadata = Rc::new(self.metadata.with_api_versions(api_versions));
-        self.metadata.clone()
-    }
-}
-
 #[derive(Clone)]
 pub struct KafkaClient<'a> {
     inner: Rc<Inner<'a>>,
@@ -84,6 +44,12 @@ struct Inner<'a> {
     service: LogMiddleware<TimeoutMiddleware<KafkaService<'a>>>,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
+}
+
+#[derive(Debug, Default)]
+struct State {
+    correlation_id: CorrelationId,
+    metadata: Rc<Metadata>,
 }
 
 impl<'a> Deref for KafkaClient<'a> {
@@ -151,141 +117,6 @@ impl<'a> KafkaClient<'a>
 
     pub fn metadata(&self) -> Rc<Metadata> {
         (*self.inner.state).borrow().metadata()
-    }
-}
-
-impl<'a> Inner<'a>
-    where Self: 'static
-{
-    fn next_correlation_id(&self) -> CorrelationId {
-        (*self.state).borrow_mut().next_correlation_id()
-    }
-
-    fn client_id(&self) -> Option<Cow<'a, str>> {
-        self.config.client_id.clone().map(Cow::from)
-    }
-
-    pub fn metadata(&self) -> Rc<Metadata> {
-        (*self.state).borrow().metadata()
-    }
-
-    fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
-        where S: AsRef<str> + Debug
-    {
-        debug!("fetch metadata for toipcs: {:?}", topic_names);
-
-        let responses = {
-            let mut responses = Vec::new();
-
-            for addr in &self.config.hosts {
-                let request = KafkaRequest::fetch_metadata(0, // api_version
-                                                           self.next_correlation_id(),
-                                                           self.client_id(),
-                                                           topic_names);
-
-                let response = self.service
-                    .call((*addr, request))
-                    .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                                  future::ok(Rc::new(Metadata::from(res)))
-                              } else {
-                                  future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                              });
-
-                responses.push(response);
-            }
-
-            responses
-        };
-
-        FetchMetadata::new(future::select_ok(responses).map(|(metadata, _)| metadata))
-    }
-
-    fn fetch_api_versions(&self, broker: &Broker) -> FetchApiVersions {
-        debug!("fetch API versions for broker: {:?}", broker);
-
-        let addr = broker
-            .addr()
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap(); // TODO
-
-        let request = KafkaRequest::fetch_api_versions(0, // api_version,
-                                                       self.next_correlation_id(),
-                                                       self.client_id());
-
-        let response = self.service
-            .call((addr, request))
-            .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
-                          future::ok(UsableApiVersions::new(res.api_versions))
-                      } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
-
-        FetchApiVersions::new(response)
-    }
-
-    fn load_api_verions(&self, metadata: Rc<Metadata>) -> LoadApiVersions {
-        trace!("load API versions from brokers, {:?}", metadata.brokers());
-
-        let responses = {
-            let mut responses = Vec::new();
-
-            for broker in metadata.brokers() {
-                let broker_ref = broker.as_ref();
-                let response = self.fetch_api_versions(broker)
-                    .map(move |api_versions| (broker_ref, api_versions));
-
-                responses.push(response);
-            }
-
-            responses
-        };
-        let responses = future::join_all(responses).map(HashMap::from_iter);
-
-        LoadApiVersions::new(StaticBoxFuture::new(responses), self.state.clone())
-    }
-
-    fn topics_by_broker<S>
-        (&self,
-         topic_names: &[S])
-         -> HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<PartitionId>>>
-        where S: AsRef<str>
-    {
-        let metadata = self.metadata();
-
-        let mut topics = HashMap::new();
-
-        for topic_name in topic_names.iter() {
-            if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
-                for topic_partition in partitions {
-                    if let Some(broker) = metadata.leader_for(&topic_partition) {
-                        let addr = broker
-                            .addr()
-                            .to_socket_addrs()
-                            .unwrap()
-                            .next()
-                            .unwrap(); // TODO
-                        let api_version = broker
-                            .api_versions()
-                            .map_or(0, |api_versions| {
-                                api_versions
-                                    .find(ApiKeys::ListOffsets)
-                                    .map(|api_version| api_version.max_version)
-                                    .unwrap_or(0)
-                            });
-                        topics
-                            .entry((addr, api_version))
-                            .or_insert_with(HashMap::new)
-                            .entry(topic_name.as_ref().to_owned().into())
-                            .or_insert_with(Vec::new)
-                            .push(topic_partition.partition);
-                    }
-                }
-            }
-        }
-
-        topics
     }
 }
 
@@ -444,6 +275,175 @@ impl<'a> Client<'a> for KafkaClient<'a>
 
         LoadMetadata::new(self.inner.clone())
     }
+}
+
+impl<'a> Inner<'a>
+    where Self: 'static
+{
+    fn next_correlation_id(&self) -> CorrelationId {
+        (*self.state).borrow_mut().next_correlation_id()
+    }
+
+    fn client_id(&self) -> Option<Cow<'a, str>> {
+        self.config.client_id.clone().map(Cow::from)
+    }
+
+    pub fn metadata(&self) -> Rc<Metadata> {
+        (*self.state).borrow().metadata()
+    }
+
+    fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
+        where S: AsRef<str> + Debug
+    {
+        debug!("fetch metadata for toipcs: {:?}", topic_names);
+
+        let responses = {
+            let mut responses = Vec::new();
+
+            for addr in &self.config.hosts {
+                let request = KafkaRequest::fetch_metadata(0, // api_version
+                                                           self.next_correlation_id(),
+                                                           self.client_id(),
+                                                           topic_names);
+
+                let response = self.service
+                    .call((*addr, request))
+                    .and_then(|res| if let KafkaResponse::Metadata(res) = res {
+                                  future::ok(Rc::new(Metadata::from(res)))
+                              } else {
+                                  future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                              });
+
+                responses.push(response);
+            }
+
+            responses
+        };
+
+        FetchMetadata::new(future::select_ok(responses).map(|(metadata, _)| metadata))
+    }
+
+    fn fetch_api_versions(&self, broker: &Broker) -> FetchApiVersions {
+        debug!("fetch API versions for broker: {:?}", broker);
+
+        let addr = broker
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
+
+        let request = KafkaRequest::fetch_api_versions(0, // api_version,
+                                                       self.next_correlation_id(),
+                                                       self.client_id());
+
+        let response = self.service
+            .call((addr, request))
+            .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
+                          future::ok(UsableApiVersions::new(res.api_versions))
+                      } else {
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                      });
+
+        FetchApiVersions::new(response)
+    }
+
+    fn load_api_verions(&self, metadata: Rc<Metadata>) -> LoadApiVersions {
+        trace!("load API versions from brokers, {:?}", metadata.brokers());
+
+        let responses = {
+            let mut responses = Vec::new();
+
+            for broker in metadata.brokers() {
+                let broker_ref = broker.as_ref();
+                let response = self.fetch_api_versions(broker)
+                    .map(move |api_versions| (broker_ref, api_versions));
+
+                responses.push(response);
+            }
+
+            responses
+        };
+        let responses = future::join_all(responses).map(HashMap::from_iter);
+
+        LoadApiVersions::new(StaticBoxFuture::new(responses), self.state.clone())
+    }
+
+    fn topics_by_broker<S>
+        (&self,
+         topic_names: &[S])
+         -> HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<PartitionId>>>
+        where S: AsRef<str>
+    {
+        let metadata = self.metadata();
+
+        let mut topics = HashMap::new();
+
+        for topic_name in topic_names.iter() {
+            if let Some(partitions) = metadata.partitions_for_topic(topic_name.as_ref()) {
+                for topic_partition in partitions {
+                    if let Some(broker) = metadata.leader_for(&topic_partition) {
+                        let addr = broker
+                            .addr()
+                            .to_socket_addrs()
+                            .unwrap()
+                            .next()
+                            .unwrap(); // TODO
+                        let api_version = broker
+                            .api_versions()
+                            .map_or(0, |api_versions| {
+                                api_versions
+                                    .find(ApiKeys::ListOffsets)
+                                    .map(|api_version| api_version.max_version)
+                                    .unwrap_or(0)
+                            });
+                        topics
+                            .entry((addr, api_version))
+                            .or_insert_with(HashMap::new)
+                            .entry(topic_name.as_ref().to_owned().into())
+                            .or_insert_with(Vec::new)
+                            .push(topic_partition.partition);
+                    }
+                }
+            }
+        }
+
+        topics
+    }
+}
+
+impl State {
+    pub fn next_correlation_id(&mut self) -> CorrelationId {
+        self.correlation_id = self.correlation_id.wrapping_add(1);
+        self.correlation_id - 1
+    }
+
+    pub fn metadata(&self) -> Rc<Metadata> {
+        self.metadata.clone()
+    }
+
+    pub fn update_metadata(&mut self, metadata: Rc<Metadata>) -> Rc<Metadata> {
+        debug!("updating metadata, {:?}", metadata);
+
+        self.metadata = metadata;
+        self.metadata.clone()
+    }
+
+    pub fn update_api_versions(&mut self,
+                               api_versions: &HashMap<BrokerRef, UsableApiVersions>)
+                               -> Rc<Metadata> {
+        debug!("updating API versions, {:?}", api_versions);
+
+        self.metadata = Rc::new(self.metadata.with_api_versions(api_versions));
+        self.metadata.clone()
+    }
+}
+
+/// A retrieved offset for a particular partition in the context of an already known topic.
+#[derive(Clone, Debug)]
+pub struct PartitionOffset {
+    pub partition: PartitionId,
+    pub offset: Offset,
 }
 
 pub enum Loading {
