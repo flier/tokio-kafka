@@ -43,9 +43,10 @@ pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse,
 pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse, parse_offset_fetch_response};
 pub use self::group::{GroupCoordinatorRequest, GroupCoordinatorResponse, HeartbeatRequest,
                       HeartbeatResponse, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest,
-                      LeaveGroupResponse, parse_group_corordinator_response,
-                      parse_heartbeat_response, parse_join_group_response,
-                      parse_leave_group_response};
+                      LeaveGroupResponse, SyncGroupRequest, SyncGroupResponse,
+                      parse_group_corordinator_response, parse_heartbeat_response,
+                      parse_join_group_response, parse_leave_group_response,
+                      parse_sync_group_response};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
                              UsableApiVersions, parse_api_versions_response};
 

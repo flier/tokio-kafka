@@ -72,6 +72,8 @@ pub enum ParseTag {
 
     LeaveGroupResponse = 11300,
 
+    SyncGroupResponse = 11400,
+
     ApiVersionsResponse = 11800,
     ApiVersion = 11801,
 }

@@ -115,6 +115,36 @@ pub struct LeaveGroupResponse {
     pub error_code: ErrorCode,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SyncGroupRequest<'a> {
+    pub header: RequestHeader<'a>,
+    /// The unique group id.
+    pub group_id: Cow<'a, str>,
+    /// The generation of the group.
+    pub group_generation_id: i32,
+    /// The member id assigned by the group coordinator.
+    pub member_id: Cow<'a, str>,
+
+    pub members: Vec<SyncGroupMember<'a>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SyncGroupMember<'a> {
+    /// The member id assigned by the group coordinator.
+    pub member_id: Cow<'a, str>,
+
+    pub member_assignment: Cow<'a, [u8]>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SyncGroupResponse {
+    pub header: ResponseHeader,
+    /// Error code.
+    pub error_code: ErrorCode,
+
+    pub member_assignment: Bytes,
+}
+
 impl<'a> Record for GroupCoordinatorRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
@@ -224,6 +254,44 @@ impl<'a> Encodable for LeaveGroupRequest<'a> {
     }
 }
 
+impl<'a> Record for SyncGroupRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version) +
+        {
+            STR_LEN_SIZE + self.group_id.len()
+        } + GROUP_GENERATION_ID_SIZE +
+        {
+            STR_LEN_SIZE + self.member_id.len()
+        } +
+        self.members
+            .iter()
+            .fold(ARRAY_LEN_SIZE, |size, member| {
+                size +
+                {
+                    STR_LEN_SIZE + member.member_id.len()
+                } +
+                {
+                    BYTES_LEN_SIZE + member.member_assignment.len()
+                }
+            })
+    }
+}
+
+impl<'a> Encodable for SyncGroupRequest<'a> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+        self.header.encode::<T>(dst)?;
+
+        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
+        dst.put_i32::<T>(self.group_generation_id);
+        dst.put_str::<T, _>(Some(self.member_id.as_ref()))?;
+
+        dst.put_array::<T, _, _>(&self.members, |buf, member| {
+            buf.put_str::<T, _>(Some(member.member_id.as_ref()))?;
+            buf.put_bytes::<T, _>(Some(member.member_assignment.as_ref()))
+        })
+    }
+}
+
 named!(pub parse_group_corordinator_response<GroupCoordinatorResponse>,
     parse_tag!(ParseTag::GroupCoordinatorResponse,
         do_parse!(
@@ -300,6 +368,21 @@ named!(pub parse_leave_group_response<LeaveGroupResponse>,
          >> (LeaveGroupResponse {
                 header: header,
                 error_code: error_code,
+            })
+        )
+    )
+);
+
+named!(pub parse_sync_group_response<SyncGroupResponse>,
+    parse_tag!(ParseTag::SyncGroupResponse,
+        do_parse!(
+            header: parse_response_header
+         >> error_code: be_i16
+         >> member_assignment: parse_bytes
+         >> (SyncGroupResponse {
+                header: header,
+                error_code: error_code,
+                member_assignment: member_assignment,
             })
         )
     )
@@ -605,7 +688,7 @@ mod tests {
             // ResponseHeader
             0, 0, 0, 123,   // correlation_id
 
-            0, 1,                                   // error_code
+            0, 1,           // error_code
         ];
 
         let res = LeaveGroupResponse {
@@ -614,6 +697,74 @@ mod tests {
         };
 
         assert_eq!(parse_leave_group_response(data.as_slice()),
+                   IResult::Done(&[][..], res));
+    }
+
+    #[test]
+    fn test_sync_group_request() {
+        let req = SyncGroupRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::SyncGroup as ApiKey,
+                api_version: 0,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+            group_id: "consumer".into(),
+            group_generation_id: 456,
+            member_id: "member".into(),
+            members: vec![SyncGroupMember {
+                member_id: "member".into(),
+                member_assignment: Cow::Borrowed(b"assignment"),
+            }],
+        };
+
+        let data = vec![
+            // ApiVersionsRequest
+                // RequestHeader
+                0, 14,                                      // api_key
+                0, 0,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
+
+            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+            0, 0, 1, 200,                                           // group_generation_id
+            0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
+
+            // members[SyncGroupMember]
+            0, 0, 0, 1,
+                // SyncGroupMember
+                0, 6, b'm', b'e', b'm', b'b', b'e', b'r',           // member_id
+                0, 0, 0, 10, b'a', b's', b's', b'i', b'g', b'n', b'm', b'e', b'n', b't',
+                                                                    // member_assignment
+        ];
+
+        let mut buf = BytesMut::with_capacity(128);
+
+        req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
+
+        assert_eq!(&buf[..], &data[..]);
+    }
+
+    #[test]
+    fn test_parse_sync_group_response() {
+        let data = vec![
+            // ResponseHeader
+            0, 0, 0, 123,   // correlation_id
+
+            0, 1,           // error_code
+            0, 0, 0, 10, b'a', b's', b's', b'i', b'g', b'n', b'm', b'e', b'n', b't',
+                            // member_assignment
+        ];
+
+        let res = SyncGroupResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            error_code: 1,
+            member_assignment: Bytes::from(&b"assignment"[..]),
+        };
+
+        assert_eq!(parse_sync_group_response(data.as_slice()),
                    IResult::Done(&[][..], res));
     }
 }

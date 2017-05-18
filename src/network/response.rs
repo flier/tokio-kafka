@@ -7,11 +7,12 @@ use nom::{self, ErrorKind, IResult, Needed};
 use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, FetchResponse, GroupCoordinatorResponse,
                HeartbeatResponse, JoinGroupResponse, LeaveGroupResponse, ListOffsetResponse,
                MetadataResponse, OffsetCommitResponse, OffsetFetchResponse, ParseTag,
-               ProduceResponse, display_parse_error, parse_api_versions_response,
-               parse_fetch_response, parse_group_corordinator_response, parse_heartbeat_response,
+               ProduceResponse, SyncGroupResponse, display_parse_error,
+               parse_api_versions_response, parse_fetch_response,
+               parse_group_corordinator_response, parse_heartbeat_response,
                parse_join_group_response, parse_leave_group_response, parse_list_offset_response,
                parse_metadata_response, parse_offset_commit_response, parse_offset_fetch_response,
-               parse_produce_response};
+               parse_produce_response, parse_sync_group_response};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
@@ -25,6 +26,7 @@ pub enum KafkaResponse {
     JoinGroup(JoinGroupResponse),
     Heartbeat(HeartbeatResponse),
     LeaveGroup(LeaveGroupResponse),
+    SyncGroup(SyncGroupResponse),
     ApiVersions(ApiVersionsResponse),
 }
 
@@ -41,6 +43,7 @@ impl KafkaResponse {
             KafkaResponse::JoinGroup(_) => ApiKeys::JoinGroup,
             KafkaResponse::Heartbeat(_) => ApiKeys::Heartbeat,
             KafkaResponse::LeaveGroup(_) => ApiKeys::LeaveGroup,
+            KafkaResponse::SyncGroup(_) => ApiKeys::SyncGroup,
             KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
         }
     }
@@ -77,6 +80,7 @@ impl KafkaResponse {
             ApiKeys::JoinGroup => parse_join_group_response(buf).map(KafkaResponse::JoinGroup),
             ApiKeys::Heartbeat => parse_heartbeat_response(buf).map(KafkaResponse::Heartbeat),
             ApiKeys::LeaveGroup => parse_leave_group_response(buf).map(KafkaResponse::LeaveGroup),
+            ApiKeys::SyncGroup => parse_sync_group_response(buf).map(KafkaResponse::SyncGroup),
             ApiKeys::ApiVersions => {
                 parse_api_versions_response(buf).map(KafkaResponse::ApiVersions)
             }
