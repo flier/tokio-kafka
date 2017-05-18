@@ -9,8 +9,9 @@ use time::Timespec;
 
 use errors::{Error, ErrorKind, Result};
 
+mod encode;
 #[macro_use]
-mod parser;
+mod parse;
 mod header;
 mod message;
 mod produce;
@@ -22,10 +23,10 @@ mod offset_fetch;
 mod group;
 mod api_versions;
 
-pub use self::parser::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, PARSE_TAGS,
-                       PARTITION_ID_SIZE, ParseTag, REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE,
-                       WriteExt, display_parse_error, parse_bytes, parse_opt_bytes, parse_opt_str,
-                       parse_opt_string, parse_str, parse_string};
+pub use self::encode::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, PARTITION_ID_SIZE,
+                       REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE, WriteExt};
+pub use self::parse::{PARSE_TAGS, ParseTag, display_parse_error, parse_bytes, parse_opt_bytes,
+                      parse_opt_str, parse_opt_string, parse_str, parse_string};
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
 pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
                         MessageTimestamp, parse_message_set};
