@@ -19,7 +19,8 @@ use getopts::Options;
 use futures::Future;
 use futures::future;
 use tokio_core::reactor::Core;
-use tokio_kafka::{Client, Cluster, FetchOffset, KafkaClient, Metadata, PartitionOffset};
+use tokio_kafka::{Client, Cluster, FetchOffset, KafkaClient, KafkaVersion, Metadata,
+                  PartitionOffset};
 
 const DEFAULT_BROKER: &'static str = "127.0.0.1:9092";
 
@@ -34,6 +35,8 @@ error_chain!{
 
 struct Config {
     brokers: Vec<SocketAddr>,
+    api_version_request: bool,
+    broker_version: Option<KafkaVersion>,
     topics: Option<Vec<String>>,
     show_header: bool,
     show_host: bool,
@@ -56,6 +59,10 @@ impl Config {
                     "brokers",
                     "Bootstrap broker(s) (host[:port], comma separated)",
                     "HOSTS");
+        opts.optopt("",
+                    "broker-version",
+                    "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
+                    "VERSION");
         opts.optopt("t", "topics", "Specify topics (comma separated)", "NAMES");
         opts.optflag("", "no-header", "Don't print headers");
         opts.optflag("", "no-host", "Don't print host:port of leaders");
@@ -77,6 +84,14 @@ impl Config {
             .map_or_else(|| vec![DEFAULT_BROKER.to_owned()],
                          |s| s.split(',').map(|s| s.trim().to_owned()).collect());
 
+        let (api_version_request, broker_version) = matches
+            .opt_str("broker-version")
+            .map_or((false, None), |s| if s == "auto" {
+                (true, None)
+            } else {
+                (false, Some(s.parse().unwrap()))
+            });
+
         let topics = matches
             .opt_str("t")
             .map(|s| s.split(',').map(|s| s.trim().to_owned()).collect());
@@ -86,6 +101,8 @@ impl Config {
                    .iter()
                    .flat_map(|s| s.to_socket_addrs().unwrap())
                    .collect(),
+               api_version_request: api_version_request,
+               broker_version: broker_version,
                topics: topics,
                show_header: !matches.opt_present("no-header"),
                show_host: !matches.opt_present("no-host"),
@@ -102,7 +119,16 @@ fn main() {
 
     let mut core = Core::new().unwrap();
 
-    let client = KafkaClient::from_hosts(config.brokers.clone().into_iter(), core.handle());
+    let mut builder = KafkaClient::from_hosts(config.brokers.clone().into_iter(), core.handle());
+
+    if config.api_version_request {
+        builder = builder.with_api_version_request()
+    }
+    if let Some(version) = config.broker_version {
+        builder = builder.with_broker_version_fallback(version)
+    }
+
+    let client = builder.build().unwrap();
 
     let topics = config.topics.clone();
 

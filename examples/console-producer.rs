@@ -53,6 +53,8 @@ unsafe impl Sync for Error {}
 #[derive(Clone, Debug)]
 struct Config {
     brokers: Vec<String>,
+    api_version_request: bool,
+    broker_version: Option<KafkaVersion>,
     topic_name: String,
     input_file: Option<String>,
     batch_size: usize,
@@ -61,8 +63,6 @@ struct Config {
     idle_timeout: Duration,
     ack_timeout: Duration,
     linger: Duration,
-    api_version_request: bool,
-    broker_version: Option<KafkaVersion>,
 }
 
 impl Config {
@@ -80,6 +80,10 @@ impl Config {
                     "brokers",
                     "Bootstrap broker(s) (host[:port], comma separated)",
                     "HOSTS");
+        opts.optopt("",
+                    "broker-version",
+                    "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
+                    "VERSION");
         opts.optopt("t", "topic", "Specify target topic", "NAME");
         opts.optopt("i", "input", "Specify input file", "FILE");
         opts.optopt("n", "batch-size", "Send N message in one batch.", "N");
@@ -100,10 +104,6 @@ impl Config {
                     "linger",
                     "The producer groups together any records in the linger timeout",
                     "MS");
-        opts.optopt("",
-                    "broker-version",
-                    "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
-                    "VERSION");
 
         let m = opts.parse(&args[1..])?;
 
@@ -128,6 +128,8 @@ impl Config {
 
         Ok(Config {
                brokers: brokers,
+               api_version_request: api_version_request,
+               broker_version: broker_version,
                topic_name: m.opt_str("topic")
                    .unwrap_or_else(|| DEFAULT_TOPIC.to_owned()),
                input_file: m.opt_str("input"),
@@ -145,8 +147,6 @@ impl Config {
                    .map_or(DEFAULT_ACK_TIMEOUT_MILLIS, |s| s.parse().unwrap())),
                linger: Duration::from_millis(m.opt_str("linger")
                    .map_or(DEFAULT_LINGER_MILLIS, |s| s.parse().unwrap())),
-               api_version_request:api_version_request,
-               broker_version: broker_version,
            })
     }
 }
