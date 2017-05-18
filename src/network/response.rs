@@ -5,12 +5,12 @@ use log::LogLevel::Debug;
 use nom::{self, ErrorKind, IResult, Needed};
 
 use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, FetchResponse, GroupCoordinatorResponse,
-               JoinGroupResponse, ListOffsetResponse, MetadataResponse, OffsetCommitResponse,
-               OffsetFetchResponse, ParseTag, ProduceResponse, display_parse_error,
-               parse_api_versions_response, parse_fetch_response,
-               parse_group_corordinator_response, parse_join_group_response,
-               parse_list_offset_response, parse_metadata_response, parse_offset_commit_response,
-               parse_offset_fetch_response, parse_produce_response};
+               HeartbeatResponse, JoinGroupResponse, ListOffsetResponse, MetadataResponse,
+               OffsetCommitResponse, OffsetFetchResponse, ParseTag, ProduceResponse,
+               display_parse_error, parse_api_versions_response, parse_fetch_response,
+               parse_group_corordinator_response, parse_heartbeat_response,
+               parse_join_group_response, parse_list_offset_response, parse_metadata_response,
+               parse_offset_commit_response, parse_offset_fetch_response, parse_produce_response};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
@@ -22,6 +22,7 @@ pub enum KafkaResponse {
     OffsetFetch(OffsetFetchResponse),
     GroupCoordinator(GroupCoordinatorResponse),
     JoinGroup(JoinGroupResponse),
+    Heartbeat(HeartbeatResponse),
     ApiVersions(ApiVersionsResponse),
 }
 
@@ -36,6 +37,7 @@ impl KafkaResponse {
             KafkaResponse::OffsetFetch(_) => ApiKeys::OffsetFetch,
             KafkaResponse::GroupCoordinator(_) => ApiKeys::GroupCoordinator,
             KafkaResponse::JoinGroup(_) => ApiKeys::JoinGroup,
+            KafkaResponse::Heartbeat(_) => ApiKeys::Heartbeat,
             KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
         }
     }
@@ -70,6 +72,7 @@ impl KafkaResponse {
                 parse_group_corordinator_response(buf).map(KafkaResponse::GroupCoordinator)
             }
             ApiKeys::JoinGroup => parse_join_group_response(buf).map(KafkaResponse::JoinGroup),
+            ApiKeys::Heartbeat => parse_heartbeat_response(buf).map(KafkaResponse::Heartbeat),
             ApiKeys::ApiVersions => {
                 parse_api_versions_response(buf).map(KafkaResponse::ApiVersions)
             }

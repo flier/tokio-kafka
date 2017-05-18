@@ -11,6 +11,7 @@ use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, Encodable, ErrorCode,
 
 const SESSION_TIMEOUT_SIZE: usize = 4;
 const REBALANCE_TIMEOUT_SIZE: usize = 4;
+const GROUP_GENERATION_ID_SIZE: usize = 4;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupCoordinatorRequest<'a> {
@@ -80,6 +81,24 @@ pub struct JoinGroupMember {
     pub member_metadata: Bytes,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeartbeatRequest<'a> {
+    pub header: RequestHeader<'a>,
+    /// The unique group id.
+    pub group_id: Cow<'a, str>,
+    /// The generation of the group.
+    pub group_generation_id: i32,
+    /// The member id assigned by the group coordinator.
+    pub member_id: Cow<'a, str>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeartbeatResponse {
+    pub header: ResponseHeader,
+    /// Error code.
+    pub error_code: ErrorCode,
+}
+
 impl<'a> Record for GroupCoordinatorRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
@@ -146,6 +165,28 @@ impl<'a> Encodable for JoinGroupRequest<'a> {
     }
 }
 
+impl<'a> Record for HeartbeatRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version) +
+        {
+            STR_LEN_SIZE + self.group_id.len()
+        } + GROUP_GENERATION_ID_SIZE +
+        {
+            STR_LEN_SIZE + self.member_id.len()
+        }
+    }
+}
+
+impl<'a> Encodable for HeartbeatRequest<'a> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+        self.header.encode::<T>(dst)?;
+
+        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
+        dst.put_i32::<T>(self.group_generation_id);
+        dst.put_str::<T, _>(Some(self.member_id.as_ref()))
+    }
+}
+
 named!(pub parse_group_corordinator_response<GroupCoordinatorResponse>,
     parse_tag!(ParseTag::GroupCoordinatorResponse,
         do_parse!(
@@ -201,6 +242,19 @@ named!(parse_group_member<JoinGroupMember>,
     )
 );
 
+named!(pub parse_heartbeat_response<HeartbeatResponse>,
+    parse_tag!(ParseTag::HeartbeatResponse,
+        do_parse!(
+            header: parse_response_header
+         >> error_code: be_i16
+         >> (HeartbeatResponse {
+                header: header,
+                error_code: error_code,
+            })
+        )
+    )
+);
+
 #[cfg(test)]
 mod tests {
     use bytes::BigEndian;
@@ -210,38 +264,6 @@ mod tests {
     use protocol::*;
 
     use super::*;
-
-    lazy_static!{
-        static ref TEST_REQUEST_DATA: Vec<u8> = vec![
-            // ApiVersionsRequest
-                // RequestHeader
-                0, 10,                                      // api_key
-                0, 0,                                       // api_version
-                0, 0, 0, 123,                               // correlation_id
-                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
-
-            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
-        ];
-
-        static ref TEST_RESPONSE_DATA: Vec<u8> = vec![
-            // ResponseHeader
-            0, 0, 0, 123,   // correlation_id
-
-            0, 1,                                   // error_code
-            0, 0, 0, 2,                             // coordinator_id
-            0, 9, b'l', b'o', b'c', b'a', b'l', b'h', b'o', b's', b't',
-                                                    // coordinator_host
-            0, 0, 0, 3,                             // coordinator_port
-        ];
-
-        static ref TEST_RESPONSE: GroupCoordinatorResponse = GroupCoordinatorResponse {
-            header: ResponseHeader { correlation_id: 123 },
-            error_code: 1,
-            coordinator_id: 2,
-            coordinator_host: "localhost".to_owned(),
-            coordinator_port: 3,
-        };
-    }
 
     #[test]
     fn test_group_coordinator_request() {
@@ -255,19 +277,49 @@ mod tests {
             group_id: "consumer".into(),
         };
 
+        let data = vec![
+            // ApiVersionsRequest
+                // RequestHeader
+                0, 10,                                      // api_key
+                0, 0,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
+
+            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+        ];
+
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
-        assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
+        assert_eq!(&buf[..], &data[..]);
     }
 
     #[test]
     fn test_parse_group_corordinator_response() {
-        assert_eq!(parse_group_corordinator_response(TEST_RESPONSE_DATA.as_slice()),
-                   IResult::Done(&[][..], TEST_RESPONSE.clone()));
+        let data = vec![
+            // ResponseHeader
+            0, 0, 0, 123,   // correlation_id
+
+            0, 1,                                   // error_code
+            0, 0, 0, 2,                             // coordinator_id
+            0, 9, b'l', b'o', b'c', b'a', b'l', b'h', b'o', b's', b't',
+                                                    // coordinator_host
+            0, 0, 0, 3,                             // coordinator_port
+        ];
+
+        let res = GroupCoordinatorResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            error_code: 1,
+            coordinator_id: 2,
+            coordinator_host: "localhost".to_owned(),
+            coordinator_port: 3,
+        };
+
+        assert_eq!(parse_group_corordinator_response(data.as_slice()),
+                   IResult::Done(&[][..], res));
     }
 
     #[test]
@@ -408,4 +460,59 @@ mod tests {
 
         assert_eq!(res, IResult::Done(&[][..], response));
     }
+
+    #[test]
+    fn test_encode_heartbeat_request() {
+        let req = HeartbeatRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Heartbeat as ApiKey,
+                api_version: 0,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+            group_id: "consumer".into(),
+            group_generation_id: 456,
+            member_id: "member".into(),
+        };
+
+        let data = vec![
+            // ApiVersionsRequest
+                // RequestHeader
+                0, 12,                                      // api_key
+                0, 0,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
+
+            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+            0, 0, 1, 200,                                           // group_generation_id
+            0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
+        ];
+
+        let mut buf = BytesMut::with_capacity(128);
+
+        req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
+
+        assert_eq!(&buf[..], &data[..]);
+    }
+
+    #[test]
+    fn test_parse_heartbeat_response() {
+        let data = vec![
+            // ResponseHeader
+            0, 0, 0, 123,   // correlation_id
+
+            0, 1,                                   // error_code
+        ];
+
+        let res = HeartbeatResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            error_code: 1,
+        };
+
+        assert_eq!(parse_heartbeat_response(data.as_slice()),
+                   IResult::Done(&[][..], res));
+    }
+
 }
