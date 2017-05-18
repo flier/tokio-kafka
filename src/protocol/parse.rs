@@ -70,6 +70,8 @@ pub enum ParseTag {
 
     HeartbeatResponse = 11200,
 
+    LeaveGroupResponse = 11300,
+
     ApiVersionsResponse = 11800,
     ApiVersion = 11801,
 }

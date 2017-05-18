@@ -7,10 +7,10 @@ use bytes::{ByteOrder, BytesMut};
 use errors::Result;
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, Encodable,
                FetchOffset, FetchRequest, GroupCoordinatorRequest, HeartbeatRequest,
-               JoinGroupRequest, ListOffsetRequest, ListPartitionOffset, ListTopicOffset,
-               MessageSet, MetadataRequest, OffsetCommitRequest, OffsetFetchRequest, PartitionId,
-               ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
-               RequiredAck, RequiredAcks, ToMilliseconds};
+               JoinGroupRequest, LeaveGroupRequest, ListOffsetRequest, ListPartitionOffset,
+               ListTopicOffset, MessageSet, MetadataRequest, OffsetCommitRequest,
+               OffsetFetchRequest, PartitionId, ProducePartitionData, ProduceRequest,
+               ProduceTopicData, Record, RequestHeader, RequiredAck, RequiredAcks, ToMilliseconds};
 
 /// A topic name and partition number
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -30,6 +30,7 @@ pub enum KafkaRequest<'a> {
     GroupCoordinator(GroupCoordinatorRequest<'a>),
     JoinGroup(JoinGroupRequest<'a>),
     Heartbeat(HeartbeatRequest<'a>),
+    LeaveGroup(LeaveGroupRequest<'a>),
     ApiVersions(ApiVersionsRequest<'a>),
 }
 
@@ -45,6 +46,7 @@ impl<'a> KafkaRequest<'a> {
             KafkaRequest::GroupCoordinator(ref req) => &req.header,
             KafkaRequest::JoinGroup(ref req) => &req.header,
             KafkaRequest::Heartbeat(ref req) => &req.header,
+            KafkaRequest::LeaveGroup(ref req) => &req.header,
             KafkaRequest::ApiVersions(ref req) => &req.header,
         }
     }
@@ -172,6 +174,7 @@ impl<'a> Record for KafkaRequest<'a> {
             KafkaRequest::GroupCoordinator(ref req) => req.size(api_version),
             KafkaRequest::JoinGroup(ref req) => req.size(api_version),
             KafkaRequest::Heartbeat(ref req) => req.size(api_version),
+            KafkaRequest::LeaveGroup(ref req) => req.size(api_version),
             KafkaRequest::ApiVersions(ref req) => req.size(api_version),
         }
     }
@@ -189,6 +192,7 @@ impl<'a> Encodable for KafkaRequest<'a> {
             KafkaRequest::GroupCoordinator(ref req) => req.encode::<T>(dst),
             KafkaRequest::JoinGroup(ref req) => req.encode::<T>(dst),
             KafkaRequest::Heartbeat(ref req) => req.encode::<T>(dst),
+            KafkaRequest::LeaveGroup(ref req) => req.encode::<T>(dst),
             KafkaRequest::ApiVersions(ref req) => req.encode::<T>(dst),
         }
     }

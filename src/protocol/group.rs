@@ -99,6 +99,22 @@ pub struct HeartbeatResponse {
     pub error_code: ErrorCode,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct LeaveGroupRequest<'a> {
+    pub header: RequestHeader<'a>,
+    /// The unique group id.
+    pub group_id: Cow<'a, str>,
+    /// The member id assigned by the group coordinator.
+    pub member_id: Cow<'a, str>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LeaveGroupResponse {
+    pub header: ResponseHeader,
+    /// Error code.
+    pub error_code: ErrorCode,
+}
+
 impl<'a> Record for GroupCoordinatorRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
@@ -187,6 +203,27 @@ impl<'a> Encodable for HeartbeatRequest<'a> {
     }
 }
 
+impl<'a> Record for LeaveGroupRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version) +
+        {
+            STR_LEN_SIZE + self.group_id.len()
+        } +
+        {
+            STR_LEN_SIZE + self.member_id.len()
+        }
+    }
+}
+
+impl<'a> Encodable for LeaveGroupRequest<'a> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+        self.header.encode::<T>(dst)?;
+
+        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
+        dst.put_str::<T, _>(Some(self.member_id.as_ref()))
+    }
+}
+
 named!(pub parse_group_corordinator_response<GroupCoordinatorResponse>,
     parse_tag!(ParseTag::GroupCoordinatorResponse,
         do_parse!(
@@ -248,6 +285,19 @@ named!(pub parse_heartbeat_response<HeartbeatResponse>,
             header: parse_response_header
          >> error_code: be_i16
          >> (HeartbeatResponse {
+                header: header,
+                error_code: error_code,
+            })
+        )
+    )
+);
+
+named!(pub parse_leave_group_response<LeaveGroupResponse>,
+    parse_tag!(ParseTag::LeaveGroupResponse,
+        do_parse!(
+            header: parse_response_header
+         >> error_code: be_i16
+         >> (LeaveGroupResponse {
                 header: header,
                 error_code: error_code,
             })
@@ -515,4 +565,55 @@ mod tests {
                    IResult::Done(&[][..], res));
     }
 
+    #[test]
+    fn test_encode_leave_group_request() {
+        let req = LeaveGroupRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::LeaveGroup as ApiKey,
+                api_version: 0,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+            group_id: "consumer".into(),
+            member_id: "member".into(),
+        };
+
+        let data = vec![
+            // ApiVersionsRequest
+                // RequestHeader
+                0, 13,                                      // api_key
+                0, 0,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
+
+            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+            0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
+        ];
+
+        let mut buf = BytesMut::with_capacity(128);
+
+        req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
+
+        assert_eq!(&buf[..], &data[..]);
+    }
+
+    #[test]
+    fn test_parse_leave_group_response() {
+        let data = vec![
+            // ResponseHeader
+            0, 0, 0, 123,   // correlation_id
+
+            0, 1,                                   // error_code
+        ];
+
+        let res = LeaveGroupResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            error_code: 1,
+        };
+
+        assert_eq!(parse_leave_group_response(data.as_slice()),
+                   IResult::Done(&[][..], res));
+    }
 }
