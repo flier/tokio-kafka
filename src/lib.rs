@@ -77,4 +77,4 @@ pub use producer::{BytesSerializer, DefaultPartitioner, KafkaProducer, NoopSeria
                    Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
                    ProducerRecord, RawSerializer, RecordMetadata, Serializer,
                    StrEncodingSerializer};
-pub use consumer::KafkaConsumer;
+pub use consumer::{Consumer, KafkaConsumer};
