@@ -61,9 +61,139 @@ impl<K, V> ProducerRecord<K, V>
         }
     }
 
+    pub fn from_topic_record<S: AsRef<str>>(topic_name: S, record: TopicRecord<K, V>) -> Self {
+        ProducerRecord {
+            topic_name: topic_name.as_ref().to_owned(),
+            partition: record.partition,
+            key: record.key,
+            value: record.value,
+            timestamp: record.timestamp,
+        }
+    }
+
+    pub fn from_partition_record<S: AsRef<str>>(topic_name: S,
+                                                partition_id: PartitionId,
+                                                record: PartitionRecord<K, V>)
+                                                -> Self {
+        ProducerRecord {
+            topic_name: topic_name.as_ref().to_owned(),
+            partition: Some(partition_id),
+            key: record.key,
+            value: record.value,
+            timestamp: record.timestamp,
+        }
+    }
+
     pub fn with_partition(mut self, partition: PartitionId) -> Self {
         self.partition = Some(partition);
         self
+    }
+
+    pub fn with_timestamp(mut self, timestamp: Timestamp) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+}
+
+pub struct TopicRecord<K, V> {
+    /// The partition to which the record will be sent (or `None` if no partition was specified)
+    pub partition: Option<PartitionId>,
+    /// The key (or `None` if no key is specified)
+    pub key: Option<K>,
+    /// The value
+    pub value: Option<V>,
+    /// The timestamp
+    pub timestamp: Option<Timestamp>,
+}
+
+impl<K> TopicRecord<K, ()>
+    where K: Hash
+{
+    pub fn from_key(key: K) -> Self {
+        TopicRecord {
+            partition: None,
+            key: Some(key),
+            value: None,
+            timestamp: None,
+        }
+    }
+}
+
+impl<V> TopicRecord<(), V> {
+    pub fn from_value(value: V) -> Self {
+        TopicRecord {
+            partition: None,
+            key: None,
+            value: Some(value),
+            timestamp: None,
+        }
+    }
+}
+
+impl<K, V> TopicRecord<K, V>
+    where K: Hash
+{
+    pub fn from_key_value(key: K, value: V) -> Self {
+        TopicRecord {
+            partition: None,
+            key: Some(key),
+            value: Some(value),
+            timestamp: None,
+        }
+    }
+
+    pub fn with_partition(mut self, partition: PartitionId) -> Self {
+        self.partition = Some(partition);
+        self
+    }
+
+    pub fn with_timestamp(mut self, timestamp: Timestamp) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+}
+
+
+pub struct PartitionRecord<K, V> {
+    /// The key (or `None` if no key is specified)
+    pub key: Option<K>,
+    /// The value
+    pub value: Option<V>,
+    /// The timestamp
+    pub timestamp: Option<Timestamp>,
+}
+
+impl<K> PartitionRecord<K, ()>
+    where K: Hash
+{
+    pub fn from_key(key: K) -> Self {
+        PartitionRecord {
+            key: Some(key),
+            value: None,
+            timestamp: None,
+        }
+    }
+}
+
+impl<V> PartitionRecord<(), V> {
+    pub fn from_value(value: V) -> Self {
+        PartitionRecord {
+            key: None,
+            value: Some(value),
+            timestamp: None,
+        }
+    }
+}
+
+impl<K, V> PartitionRecord<K, V>
+    where K: Hash
+{
+    pub fn from_key_value(key: K, value: V) -> Self {
+        PartitionRecord {
+            key: Some(key),
+            value: Some(value),
+            timestamp: None,
+        }
     }
 
     pub fn with_timestamp(mut self, timestamp: Timestamp) -> Self {

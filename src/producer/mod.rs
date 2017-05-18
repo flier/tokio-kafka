@@ -9,14 +9,14 @@ mod serialization;
 mod interceptor;
 mod builder;
 
-pub use self::record::{ProducerRecord, RecordMetadata};
+pub use self::record::{PartitionRecord, ProducerRecord, RecordMetadata, TopicRecord};
 pub use self::partitioner::{DefaultPartitioner, Partitioner};
 pub use self::config::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
                        DEFAULT_MAX_REQUEST_SIZE, ProducerConfig};
 pub use self::batch::{ProducerBatch, Thunk};
 pub use self::accumulator::{Accumulator, PushRecord, RecordAccumulator};
 pub use self::sender::{SendBatch, Sender};
-pub use self::producer::{Flush, KafkaProducer, Producer, SendRecord};
+pub use self::producer::{Flush, KafkaProducer, Partition, Producer, SendRecord, Topic};
 pub use self::serialization::{BytesSerializer, NoopSerializer, RawSerializer, Serializer,
                               StrEncodingSerializer};
 pub use self::interceptor::{Interceptors, ProducerInterceptor, ProducerInterceptors};

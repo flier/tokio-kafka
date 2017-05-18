@@ -1,27 +1,29 @@
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
 
 use time;
 
-use futures::{Future, Stream, future};
+use futures::{Async, AsyncSink, Future, Poll, Sink, StartSend, Stream, future};
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_retry::Retry;
 
 use errors::Error;
-use protocol::{ApiKeys, ToMilliseconds};
+use protocol::{ApiKeys, PartitionId, ToMilliseconds};
 use network::TopicPartition;
 use client::{Cluster, KafkaClient, Metadata, StaticBoxFuture};
-use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
-               ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,
-               RecordAccumulator, RecordMetadata, Sender, Serializer};
+use producer::{Accumulator, Interceptors, PartitionRecord, Partitioner, ProducerBuilder,
+               ProducerConfig, ProducerInterceptor, ProducerInterceptors, ProducerRecord,
+               PushRecord, RecordAccumulator, RecordMetadata, Sender, Serializer, TopicRecord};
 
 pub trait Producer<'a> {
     type Key: Hash;
     type Value;
+    type Topic: Sink<SinkItem = TopicRecord<Self::Key, Self::Value>, SinkError = Error>;
+    type Partition: Sink<SinkItem = PartitionRecord<Self::Key, Self::Value>, SinkError = Error>;
 
     /// Send the given record asynchronously and
     /// return a future which will eventually contain the response information.
@@ -29,6 +31,10 @@ pub trait Producer<'a> {
 
     /// Flush any accumulated records from the producer.
     fn flush(&mut self) -> Flush;
+
+    fn topic(&self, topic_name: &str) -> Self::Topic;
+
+    fn partition(&self, topic_name: &str, partition_id: PartitionId) -> Self::Partition;
 }
 
 pub type SendRecord = StaticBoxFuture<RecordMetadata>;
@@ -112,6 +118,8 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
 {
     type Key = K::Item;
     type Value = V::Item;
+    type Topic = Topic<'a, K, V, P>;
+    type Partition = Partition<'a, K, V, P>;
 
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
         let inner = self.inner.clone();
@@ -163,6 +171,23 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
 
     fn flush(&mut self) -> Flush {
         self.inner.flush_batches(true)
+    }
+
+    fn topic(&self, topic_name: &str) -> Self::Topic {
+        Topic {
+            producer: KafkaProducer { inner: self.inner.clone() },
+            topic_name: topic_name.to_owned().into(),
+            flushing: None,
+        }
+    }
+
+    fn partition(&self, topic_name: &str, partition_id: PartitionId) -> Self::Partition {
+        Partition {
+            producer: KafkaProducer { inner: self.inner.clone() },
+            topic_name: topic_name.to_owned().into(),
+            partition_id: partition_id,
+            flushing: None,
+        }
     }
 }
 
@@ -277,36 +302,99 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
     }
 }
 
-#[cfg(test)]
-pub mod mock {
-    use std::hash::Hash;
+pub struct Topic<'a, K, V, P>
+    where K: Serializer,
+          K::Item: Debug + Hash,
+          V: Serializer,
+          V::Item: Debug,
+          P: Partitioner
+{
+    producer: KafkaProducer<'a, K, V, P>,
+    topic_name: Cow<'a, str>,
+    flushing: Option<Flush>,
+}
 
-    use futures::future;
+impl<'a, K, V, P> Sink for Topic<'a, K, V, P>
+    where K: Serializer,
+          K::Item: Debug + Hash,
+          V: Serializer,
+          V::Item: Debug,
+          P: Partitioner,
+          Self: 'static
+{
+    type SinkItem = TopicRecord<K::Item, V::Item>;
+    type SinkError = Error;
 
-    use producer::{Flush, Producer, ProducerRecord, RecordMetadata, SendRecord};
+    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        let record = ProducerRecord::from_topic_record(self.topic_name.as_ref(), item);
+        drop(Producer::send(&mut self.producer, record));
 
-    #[derive(Debug, Default)]
-    pub struct MockProducer<K, V>
-        where K: Hash
-    {
-        pub records: Vec<(Option<K>, Option<V>)>,
+        Ok(AsyncSink::Ready)
     }
 
-    impl<'a, K, V> Producer<'a> for MockProducer<K, V>
-        where K: Hash + Clone,
-              V: Clone
-    {
-        type Key = K;
-        type Value = V;
+    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        let mut flushing = if let Some(flushing) = self.flushing.take() {
+            flushing
+        } else {
+            self.producer.flush()
+        };
 
-        fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
-            self.records.push((record.key, record.value));
+        let polling = flushing.poll();
 
-            SendRecord::new(future::ok(RecordMetadata::default()))
+        if let Ok(Async::NotReady) = polling {
+            self.flushing = Some(flushing);
         }
 
-        fn flush(&mut self) -> Flush {
-            Flush::new(future::ok(()))
+        polling
+    }
+}
+
+pub struct Partition<'a, K, V, P>
+    where K: Serializer,
+          K::Item: Debug + Hash,
+          V: Serializer,
+          V::Item: Debug,
+          P: Partitioner
+{
+    producer: KafkaProducer<'a, K, V, P>,
+    topic_name: Cow<'a, str>,
+    partition_id: PartitionId,
+    flushing: Option<Flush>,
+}
+
+impl<'a, K, V, P> Sink for Partition<'a, K, V, P>
+    where K: Serializer,
+          K::Item: Debug + Hash,
+          V: Serializer,
+          V::Item: Debug,
+          P: Partitioner,
+          Self: 'static
+{
+    type SinkItem = PartitionRecord<K::Item, V::Item>;
+    type SinkError = Error;
+
+    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        let record = ProducerRecord::from_partition_record(self.topic_name.as_ref(),
+                                                           self.partition_id,
+                                                           item);
+        drop(Producer::send(&mut self.producer, record));
+
+        Ok(AsyncSink::Ready)
+    }
+
+    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        let mut flushing = if let Some(flushing) = self.flushing.take() {
+            flushing
+        } else {
+            self.producer.flush()
+        };
+
+        let polling = flushing.poll();
+
+        if let Ok(Async::NotReady) = polling {
+            self.flushing = Some(flushing);
         }
+
+        polling
     }
 }
