@@ -83,7 +83,7 @@ impl Compression {
                                                          lz4::BLOCKSIZE_64KB,
                                                          true,
                                                          false)?;
-                    writer.write(src)?;
+                    writer.write_all(src)?;
                     writer.close()?;
                 }
                 Ok(compressed)
