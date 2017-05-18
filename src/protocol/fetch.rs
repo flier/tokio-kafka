@@ -86,18 +86,18 @@ pub struct FetchResponse {
     pub header: ResponseHeader,
     /// Duration in milliseconds for which the request was throttled due to quota violation.
     pub throttle_time: Option<i32>,
-    pub topics: Vec<TopicData>,
+    pub topics: Vec<FetchTopicData>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TopicData {
+pub struct FetchTopicData {
     /// The name of the topic this response entry is for.
     pub topic_name: String,
-    pub partitions: Vec<PartitionData>,
+    pub partitions: Vec<FetchPartitionData>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct PartitionData {
+pub struct FetchPartitionData {
     /// The id of the partition the fetch is for.
     pub partition: PartitionId,
     pub error_code: ErrorCode,
@@ -121,12 +121,12 @@ named_args!(pub parse_fetch_response(api_version: ApiVersion)<FetchResponse>,
     )
 );
 
-named_args!(parse_fetch_topic_data(api_version: ApiVersion)<TopicData>,
-    parse_tag!(ParseTag::TopicData,
+named_args!(parse_fetch_topic_data(api_version: ApiVersion)<FetchTopicData>,
+    parse_tag!(ParseTag::FetchTopicData,
         do_parse!(
             topic_name: parse_string
          >> partitions: length_count!(be_i32, apply!(parse_fetch_partition_data, api_version))
-         >> (TopicData {
+         >> (FetchTopicData {
                 topic_name: topic_name,
                 partitions: partitions,
             })
@@ -134,14 +134,14 @@ named_args!(parse_fetch_topic_data(api_version: ApiVersion)<TopicData>,
     )
 );
 
-named_args!(parse_fetch_partition_data(api_version: ApiVersion)<PartitionData>,
-    parse_tag!(ParseTag::PartitionData,
+named_args!(parse_fetch_partition_data(api_version: ApiVersion)<FetchPartitionData>,
+    parse_tag!(ParseTag::FetchPartitionData,
         do_parse!(
             partition: be_i32
          >> error_code: be_i16
          >> offset: be_i64
          >> message_set: length_value!(be_i32, apply!(parse_message_set, api_version))
-         >> (PartitionData {
+         >> (FetchPartitionData {
                 partition: partition,
                 error_code: error_code,
                 highwater_mark_offset: offset,
@@ -219,9 +219,9 @@ mod tests {
         let response = FetchResponse {
             header: ResponseHeader { correlation_id: 123 },
             throttle_time: None,
-            topics: vec![TopicData {
+            topics: vec![FetchTopicData {
                 topic_name: "topic".to_owned(),
-                partitions: vec![PartitionData {
+                partitions: vec![FetchPartitionData {
                     partition: 1,
                     error_code: 2,
                     highwater_mark_offset: 3,
@@ -276,9 +276,9 @@ mod tests {
         let response = FetchResponse {
             header: ResponseHeader { correlation_id: 123 },
             throttle_time: Some(1),
-            topics: vec![TopicData {
+            topics: vec![FetchTopicData {
                 topic_name: "topic".to_owned(),
-                partitions: vec![PartitionData {
+                partitions: vec![FetchPartitionData {
                     partition: 1,
                     error_code: 2,
                     highwater_mark_offset: 3,

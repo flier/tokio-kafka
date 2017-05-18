@@ -13,28 +13,31 @@ use errors::{Error, ErrorKind, Result};
 mod parser;
 mod header;
 mod message;
-mod metadata;
 mod produce;
 mod fetch;
 mod list_offset;
+mod metadata;
+mod offset_commit;
 mod group;
 mod api_versions;
 
-pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic,
-                      parse_fetch_response};
-pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
-pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListOffsetResponse,
-                            ListPartitionOffset, ListTopicOffset, parse_list_offset_response};
-pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
-                        MessageTimestamp, parse_message_set};
-pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
-                         TopicMetadata, parse_metadata_response};
 pub use self::parser::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, PARSE_TAGS,
                        PARTITION_ID_SIZE, ParseTag, REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE,
                        WriteExt, display_parse_error, parse_bytes, parse_opt_bytes, parse_opt_str,
                        parse_opt_string, parse_str, parse_string};
-pub use self::produce::{ProducePartition, ProduceRequest, ProduceResponse, ProduceTopic,
+pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
+pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
+                        MessageTimestamp, parse_message_set};
+pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData,
                         parse_produce_response};
+pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic,
+                      parse_fetch_response};
+pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListOffsetResponse,
+                            ListPartitionOffset, ListTopicOffset, parse_list_offset_response};
+pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
+                         TopicMetadata, parse_metadata_response};
+pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse,
+                              parse_offset_commit_response};
 pub use self::group::{GroupCoordinatorRequest, GroupCoordinatorResponse,
                       parse_group_corordinator_response};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
@@ -268,7 +271,7 @@ pub enum KafkaCode {
     RebalanceInProgress = 27,
     /// This error indicates that an offset commit was rejected because of
     /// oversize metadata.
-    InvalidCommitOffsetSize = 28,
+    InvalidOffsetCommitSize = 28,
     /// Returned by the broker when the client is not authorized to access
     /// the requested topic.
     TopicAuthorizationFailed = 29,

@@ -116,18 +116,18 @@ impl<'a> Encodable for ListOffsetRequest<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListOffsetResponse {
     pub header: ResponseHeader,
-    pub topics: Vec<TopicOffset>,
+    pub topics: Vec<ListOffsetTopicStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TopicOffset {
+pub struct ListOffsetTopicStatus {
     /// The name of the topic.
     pub topic_name: String,
-    pub partitions: Vec<PartitionOffset>,
+    pub partitions: Vec<ListOffsetPartitionStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct PartitionOffset {
+pub struct ListOffsetPartitionStatus {
     /// The id of the partition the fetch is for.
     pub partition: PartitionId,
     pub error_code: ErrorCode,
@@ -139,7 +139,7 @@ named_args!(pub parse_list_offset_response(api_version: ApiVersion)<ListOffsetRe
     parse_tag!(ParseTag::ListOffsetResponse,
         do_parse!(
             header: parse_response_header
-         >> topics: length_count!(be_i32, apply!(parse_list_topic_offset, api_version))
+         >> topics: length_count!(be_i32, apply!(parse_list_offset_topic_status, api_version))
          >> (ListOffsetResponse {
                 header: header,
                 topics: topics,
@@ -148,12 +148,12 @@ named_args!(pub parse_list_offset_response(api_version: ApiVersion)<ListOffsetRe
     )
 );
 
-named_args!(parse_list_topic_offset(api_version: ApiVersion)<TopicOffset>,
-    parse_tag!(ParseTag::TopicOffset,
+named_args!(parse_list_offset_topic_status(api_version: ApiVersion)<ListOffsetTopicStatus>,
+    parse_tag!(ParseTag::ListOffsetTopicStatus,
         do_parse!(
             topic_name: parse_string
-         >> partitions: length_count!(be_i32, apply!(parse_list_partition_offset, api_version))
-         >> (TopicOffset {
+         >> partitions: length_count!(be_i32, apply!(parse_list_offset_partition_status, api_version))
+         >> (ListOffsetTopicStatus {
                 topic_name: topic_name,
                 partitions: partitions,
             })
@@ -161,15 +161,15 @@ named_args!(parse_list_topic_offset(api_version: ApiVersion)<TopicOffset>,
     )
 );
 
-named_args!(parse_list_partition_offset(api_version: ApiVersion)<PartitionOffset>,
-    parse_tag!(ParseTag::PartitionOffset,
+named_args!(parse_list_offset_partition_status(api_version: ApiVersion)<ListOffsetPartitionStatus>,
+    parse_tag!(ParseTag::ListOffsetPartitionStatus,
         do_parse!(
             partition: be_i32
          >> error_code: be_i16
          >> offsets: cond!(api_version == 0, length_count!(be_i32, be_i64))
          >> timestamp: cond!(api_version > 0, be_i64)
          >> offset: cond!(api_version > 0, be_i64)
-         >> (PartitionOffset {
+         >> (ListOffsetPartitionStatus {
                 partition: partition,
                 error_code: error_code,
                 timestamp: timestamp,
@@ -209,7 +209,7 @@ mod tests {
         };
 
         let data = vec![
-            // FetchRequest
+            // ListOffsetRequest
                 // RequestHeader
                 0, 2,                               // api_key
                 0, 0,                               // api_version
@@ -231,6 +231,8 @@ mod tests {
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
 
         assert_eq!(&buf[..], &data[..]);
     }
@@ -256,7 +258,7 @@ mod tests {
         };
 
         let data = vec![
-            // FetchRequest
+            // ListOffsetRequest
                 // RequestHeader
                 0, 2,                               // api_key
                 0, 1,                               // api_version
@@ -278,6 +280,8 @@ mod tests {
 
         req.encode::<BigEndian>(&mut buf).unwrap();
 
+        assert_eq!(req.size(req.header.api_version), buf.len());
+
         assert_eq!(&buf[..], &data[..]);
     }
 
@@ -285,9 +289,9 @@ mod tests {
     fn test_parse_list_offset_response_v0() {
         let response = ListOffsetResponse {
             header: ResponseHeader { correlation_id: 123 },
-            topics: vec![TopicOffset {
+            topics: vec![ListOffsetTopicStatus {
                 topic_name: "topic".to_owned(),
-                partitions: vec![PartitionOffset {
+                partitions: vec![ListOffsetPartitionStatus {
                     partition: 1,
                     error_code: 2,
                     timestamp: None,
@@ -299,10 +303,10 @@ mod tests {
         let data = vec![
             // ResponseHeader
             0, 0, 0, 123,   // correlation_id
-            // topics: [TopicData]
+            // topics: [ListOffsetTopicStatus]
             0, 0, 0, 1,
                 0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
-                // partitions: [PartitionData]
+                // partitions: [ListOffsetPartitionStatus]
                 0, 0, 0, 1,
                     0, 0, 0, 1,             // partition
                     0, 2,                   // error_code
@@ -325,9 +329,9 @@ mod tests {
     fn test_parse_list_offset_response_v1() {
         let response = ListOffsetResponse {
             header: ResponseHeader { correlation_id: 123 },
-            topics: vec![TopicOffset {
+            topics: vec![ListOffsetTopicStatus {
                 topic_name: "topic".to_owned(),
-                partitions: vec![PartitionOffset {
+                partitions: vec![ListOffsetPartitionStatus {
                     partition: 1,
                     error_code: 2,
                     timestamp: Some(3),
@@ -339,10 +343,10 @@ mod tests {
         let data = vec![
             // ResponseHeader
             0, 0, 0, 123,   // correlation_id
-            // topics: [TopicData]
+            // topics: [ListOffsetTopicStatus]
             0, 0, 0, 1,
                 0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
-                // partitions: [PartitionData]
+                // partitions: [ListOffsetPartitionStatus]
                 0, 0, 0, 1,
                     0, 0, 0, 1,             // partition
                     0, 2,                   // error_code

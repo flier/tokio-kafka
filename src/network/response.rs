@@ -5,10 +5,11 @@ use log::LogLevel::Debug;
 use nom::{self, ErrorKind, IResult, Needed};
 
 use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, FetchResponse, GroupCoordinatorResponse,
-               ListOffsetResponse, MetadataResponse, ParseTag, ProduceResponse,
-               display_parse_error, parse_api_versions_response, parse_fetch_response,
-               parse_group_corordinator_response, parse_list_offset_response,
-               parse_metadata_response, parse_produce_response};
+               ListOffsetResponse, MetadataResponse, OffsetCommitResponse, ParseTag,
+               ProduceResponse, display_parse_error, parse_api_versions_response,
+               parse_fetch_response, parse_group_corordinator_response,
+               parse_list_offset_response, parse_metadata_response, parse_offset_commit_response,
+               parse_produce_response};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
@@ -16,6 +17,7 @@ pub enum KafkaResponse {
     Fetch(FetchResponse),
     ListOffsets(ListOffsetResponse),
     Metadata(MetadataResponse),
+    OffsetCommit(OffsetCommitResponse),
     GroupCoordinator(GroupCoordinatorResponse),
     ApiVersions(ApiVersionsResponse),
 }
@@ -27,6 +29,7 @@ impl KafkaResponse {
             KafkaResponse::Fetch(_) => ApiKeys::Fetch,
             KafkaResponse::ListOffsets(_) => ApiKeys::ListOffsets,
             KafkaResponse::Metadata(_) => ApiKeys::Metadata,
+            KafkaResponse::OffsetCommit(_) => ApiKeys::OffsetCommit,
             KafkaResponse::GroupCoordinator(_) => ApiKeys::GroupCoordinator,
             KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
         }
@@ -52,6 +55,9 @@ impl KafkaResponse {
                 parse_list_offset_response(buf, api_version).map(KafkaResponse::ListOffsets)
             }
             ApiKeys::Metadata => parse_metadata_response(buf).map(KafkaResponse::Metadata),
+            ApiKeys::OffsetCommit => {
+                parse_offset_commit_response(buf).map(KafkaResponse::OffsetCommit)
+            }
             ApiKeys::GroupCoordinator => {
                 parse_group_corordinator_response(buf).map(KafkaResponse::GroupCoordinator)
             }

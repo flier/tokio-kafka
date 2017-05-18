@@ -7,9 +7,9 @@ use bytes::{ByteOrder, BytesMut};
 use errors::Result;
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, Encodable,
                FetchOffset, FetchRequest, GroupCoordinatorRequest, ListOffsetRequest,
-               ListPartitionOffset, ListTopicOffset, MessageSet, MetadataRequest, PartitionId,
-               ProducePartition, ProduceRequest, ProduceTopic, Record, RequestHeader, RequiredAck,
-               RequiredAcks, ToMilliseconds};
+               ListPartitionOffset, ListTopicOffset, MessageSet, MetadataRequest,
+               OffsetCommitRequest, PartitionId, ProducePartitionData, ProduceRequest,
+               ProduceTopicData, Record, RequestHeader, RequiredAck, RequiredAcks, ToMilliseconds};
 
 /// A topic name and partition number
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -24,6 +24,7 @@ pub enum KafkaRequest<'a> {
     Fetch(FetchRequest<'a>),
     ListOffsets(ListOffsetRequest<'a>),
     Metadata(MetadataRequest<'a>),
+    OffsetCommit(OffsetCommitRequest<'a>),
     GroupCoordinator(GroupCoordinatorRequest<'a>),
     ApiVersions(ApiVersionsRequest<'a>),
 }
@@ -35,6 +36,7 @@ impl<'a> KafkaRequest<'a> {
             KafkaRequest::Fetch(ref req) => &req.header,
             KafkaRequest::ListOffsets(ref req) => &req.header,
             KafkaRequest::Metadata(ref req) => &req.header,
+            KafkaRequest::OffsetCommit(ref req) => &req.header,
             KafkaRequest::GroupCoordinator(ref req) => &req.header,
             KafkaRequest::ApiVersions(ref req) => &req.header,
         }
@@ -60,9 +62,9 @@ impl<'a> KafkaRequest<'a> {
             topics: records
                 .into_iter()
                 .map(move |message_set| {
-                    ProduceTopic {
+                    ProduceTopicData {
                         topic_name: tp.topic_name.to_owned().into(),
-                        partitions: vec![ProducePartition {
+                        partitions: vec![ProducePartitionData {
                                              partition: tp.partition,
                                              message_set: message_set,
                                          }],
@@ -158,6 +160,7 @@ impl<'a> Record for KafkaRequest<'a> {
             KafkaRequest::Fetch(ref req) => req.size(api_version),
             KafkaRequest::ListOffsets(ref req) => req.size(api_version),
             KafkaRequest::Metadata(ref req) => req.size(api_version),
+            KafkaRequest::OffsetCommit(ref req) => req.size(api_version),
             KafkaRequest::GroupCoordinator(ref req) => req.size(api_version),
             KafkaRequest::ApiVersions(ref req) => req.size(api_version),
         }
@@ -171,6 +174,7 @@ impl<'a> Encodable for KafkaRequest<'a> {
             KafkaRequest::Fetch(ref req) => req.encode::<T>(dst),
             KafkaRequest::ListOffsets(ref req) => req.encode::<T>(dst),
             KafkaRequest::Metadata(ref req) => req.encode::<T>(dst),
+            KafkaRequest::OffsetCommit(ref req) => req.encode::<T>(dst),
             KafkaRequest::GroupCoordinator(ref req) => req.encode::<T>(dst),
             KafkaRequest::ApiVersions(ref req) => req.encode::<T>(dst),
         }

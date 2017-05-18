@@ -108,21 +108,25 @@ pub enum ParseTag {
     MessageCrc = 9003,
 
     ProduceResponse = 10000,
-    TopicStatus = 10001,
-    PartitionStatus = 10002,
+    ProduceTopicStatus = 10001,
+    ProducePartitionStatus = 10002,
 
     FetchResponse = 10100,
-    TopicData = 10101,
-    PartitionData = 10102,
+    FetchTopicData = 10101,
+    FetchPartitionData = 10102,
 
     ListOffsetResponse = 10200,
-    TopicOffset = 10201,
-    PartitionOffset = 10202,
+    ListOffsetTopicStatus = 10201,
+    ListOffsetPartitionStatus = 10202,
 
     MetadataResponse = 10300,
     BrokerMetadata = 10301,
     TopicMetadata = 10302,
     PartitionMetadata = 10303,
+
+    OffsetCommitResponse = 10800,
+    OffsetCommitTopicStatus = 10801,
+    OffsetCommitPartitionStatus = 10802,
 
     GroupCoordinatorResponse = 11000,
 
@@ -143,21 +147,25 @@ lazy_static!{
         h.insert(ParseTag::MessageCrc as u32, "MessageCrc");
 
         h.insert(ParseTag::ProduceResponse as u32, "ProduceResponse");
-        h.insert(ParseTag::TopicStatus as u32, "TopicStatus");
-        h.insert(ParseTag::PartitionStatus as u32, "PartitionStatus");
+        h.insert(ParseTag::ProduceTopicStatus as u32, "ProduceTopicStatus");
+        h.insert(ParseTag::ProducePartitionStatus as u32, "ProducePartitionStatus");
 
         h.insert(ParseTag::FetchResponse as u32, "FetchResponse");
-        h.insert(ParseTag::TopicData as u32, "TopicData");
-        h.insert(ParseTag::PartitionData as u32, "PartitionData");
+        h.insert(ParseTag::FetchTopicData as u32, "FetchTopicData");
+        h.insert(ParseTag::FetchPartitionData as u32, "FetchPartitionData");
 
         h.insert(ParseTag::ListOffsetResponse as u32, "OffsetResponse");
-        h.insert(ParseTag::TopicOffset as u32, "TopicOffset");
-        h.insert(ParseTag::PartitionOffset as u32, "PartitionOffset");
+        h.insert(ParseTag::ListOffsetTopicStatus as u32, "ListOffsetTopicStatus");
+        h.insert(ParseTag::ListOffsetPartitionStatus as u32, "ListOffsetPartitionStatus");
 
         h.insert(ParseTag::MetadataResponse as u32, "MetadataResponse");
         h.insert(ParseTag::BrokerMetadata as u32, "BrokerMetadata");
         h.insert(ParseTag::TopicMetadata as u32, "TopicMetadata");
         h.insert(ParseTag::PartitionMetadata as u32, "PartitionMetadata");
+
+        h.insert(ParseTag::OffsetCommitResponse as u32, "OffsetCommitResponse");
+        h.insert(ParseTag::OffsetCommitTopicStatus as u32, "OffsetCommitTopicStatus");
+        h.insert(ParseTag::OffsetCommitPartitionStatus as u32, "OffsetCommitPartitionStatus");
 
         h.insert(ParseTag::ApiVersionsResponse as u32, "ApiVersionsResponse");
         h.insert(ParseTag::ApiVersion as u32, "ApiVersion");

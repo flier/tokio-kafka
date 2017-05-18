@@ -11,15 +11,20 @@ use protocol::{ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupCoordinatorRequest<'a> {
     pub header: RequestHeader<'a>,
+    /// The unique group id.
     pub group_id: Cow<'a, str>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupCoordinatorResponse {
     pub header: ResponseHeader,
+    /// Error code.
     pub error_code: ErrorCode,
+    /// The broker id.
     pub coordinator_id: i32,
+    /// The hostname of the broker.
     pub coordinator_host: String,
+    /// The port on which the broker accepts requests.
     pub coordinator_port: i32,
 }
 
