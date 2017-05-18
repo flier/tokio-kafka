@@ -17,10 +17,9 @@ mod metadata;
 mod produce;
 mod fetch;
 mod list_offset;
+mod group;
 mod api_versions;
 
-pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
-                             UsableApiVersions, parse_api_versions_response};
 pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic,
                       parse_fetch_response};
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
@@ -36,6 +35,10 @@ pub use self::parser::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, P
                        parse_opt_string, parse_str, parse_string};
 pub use self::produce::{ProducePartition, ProduceRequest, ProduceResponse, ProduceTopic,
                         parse_produce_response};
+pub use self::group::{GroupCoordinatorRequest, GroupCoordinatorResponse,
+                      parse_group_corordinator_response};
+pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
+                             UsableApiVersions, parse_api_versions_response};
 
 pub type ApiKey = i16;
 pub type ApiVersion = i16;

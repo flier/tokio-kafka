@@ -124,6 +124,8 @@ pub enum ParseTag {
     TopicMetadata = 10302,
     PartitionMetadata = 10303,
 
+    GroupCoordinatorResponse = 11000,
+
     ApiVersionsResponse = 11800,
     ApiVersion = 11801,
 }
