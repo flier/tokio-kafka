@@ -6,8 +6,9 @@ use nom::{self, ErrorKind, IResult, Needed};
 
 use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, DescribeGroupsResponse, FetchResponse,
                GroupCoordinatorResponse, HeartbeatResponse, JoinGroupResponse, LeaveGroupResponse,
-               ListOffsetResponse, MetadataResponse, OffsetCommitResponse, OffsetFetchResponse,
-               ParseTag, ProduceResponse, SyncGroupResponse, display_parse_error};
+               ListGroupsResponse, ListOffsetResponse, MetadataResponse, OffsetCommitResponse,
+               OffsetFetchResponse, ParseTag, ProduceResponse, SyncGroupResponse,
+               display_parse_error};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
@@ -23,6 +24,7 @@ pub enum KafkaResponse {
     LeaveGroup(LeaveGroupResponse),
     SyncGroup(SyncGroupResponse),
     DescribeGroups(DescribeGroupsResponse),
+    ListGroups(ListGroupsResponse),
     ApiVersions(ApiVersionsResponse),
 }
 
@@ -41,6 +43,7 @@ impl KafkaResponse {
             KafkaResponse::LeaveGroup(_) => ApiKeys::LeaveGroup,
             KafkaResponse::SyncGroup(_) => ApiKeys::SyncGroup,
             KafkaResponse::DescribeGroups(_) => ApiKeys::DescribeGroups,
+            KafkaResponse::ListGroups(_) => ApiKeys::ListGroups,
             KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
         }
     }
@@ -79,6 +82,7 @@ impl KafkaResponse {
             ApiKeys::DescribeGroups => {
                 DescribeGroupsResponse::parse(buf).map(KafkaResponse::DescribeGroups)
             }
+            ApiKeys::ListGroups => ListGroupsResponse::parse(buf).map(KafkaResponse::ListGroups),
             ApiKeys::ApiVersions => ApiVersionsResponse::parse(buf).map(KafkaResponse::ApiVersions),
             _ => IResult::Error(nom::Err::Code(ErrorKind::Custom(ParseTag::ApiKey as u32))),
         };

@@ -41,7 +41,7 @@ pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse};
 pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordinatorRequest,
                       GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse,
                       JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest, LeaveGroupResponse,
-                      SyncGroupRequest, SyncGroupResponse};
+                      ListGroupsRequest, ListGroupsResponse, SyncGroupRequest, SyncGroupResponse};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
                              UsableApiVersions};
 

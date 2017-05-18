@@ -78,6 +78,9 @@ pub enum ParseTag {
     DescribeGroupsGroupStatus = 11501,
     DescribeGroupsMemberStatus = 11502,
 
+    ListGroupsResponse = 11600,
+    ListGroupsGroupStatus = 11601,
+
     ApiVersionsResponse = 11800,
     ApiVersion = 11801,
 }
@@ -118,6 +121,24 @@ lazy_static!{
         h.insert(ParseTag::OffsetFetchResponse as u32, "OffsetFetchResponse");
         h.insert(ParseTag::OffsetFetchTopicStatus as u32, "OffsetFetchTopicStatus");
         h.insert(ParseTag::OffsetFetchPartitionStatus as u32, "OffsetFetchPartitionStatus");
+
+        h.insert(ParseTag::GroupCoordinatorResponse as u32, "GroupCoordinatorResponse");
+
+        h.insert(ParseTag::JoinGroupResponse as u32, "JoinGroupResponse");
+        h.insert(ParseTag::JoinGroupMember as u32, "JoinGroupMember");
+
+        h.insert(ParseTag::HeartbeatResponse as u32, "HeartbeatResponse");
+
+        h.insert(ParseTag::LeaveGroupResponse as u32, "LeaveGroupResponse");
+
+        h.insert(ParseTag::SyncGroupResponse as u32, "SyncGroupResponse");
+
+        h.insert(ParseTag::DescribeGroupsResponse as u32, "DescribeGroupsResponse");
+        h.insert(ParseTag::DescribeGroupsGroupStatus as u32, "DescribeGroupsGroupStatus");
+        h.insert(ParseTag::DescribeGroupsMemberStatus as u32, "DescribeGroupsMemberStatus");
+
+        h.insert(ParseTag::ListGroupsResponse as u32, "ListGroupsResponse");
+        h.insert(ParseTag::ListGroupsGroupStatus as u32, "ListGroupsGroupStatus");
 
         h.insert(ParseTag::ApiVersionsResponse as u32, "ApiVersionsResponse");
         h.insert(ParseTag::ApiVersion as u32, "ApiVersion");

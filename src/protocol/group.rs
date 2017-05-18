@@ -189,6 +189,28 @@ pub struct DescribeGroupsMemberStatus {
     pub member_assignment: Bytes,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListGroupsRequest<'a> {
+    pub header: RequestHeader<'a>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListGroupsResponse {
+    pub header: ResponseHeader,
+    /// Error code.
+    pub error_code: ErrorCode,
+
+    pub groups: Vec<ListGroupsGroupStatus>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListGroupsGroupStatus {
+    /// The unique group id.
+    pub group_id: String,
+    /// The current group protocol type (will be empty if there is no active group)
+    pub protocol_type: String,
+}
+
 impl<'a> Record for GroupCoordinatorRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
@@ -352,6 +374,18 @@ impl<'a> Encodable for DescribeGroupsRequest<'a> {
 
         dst.put_array::<T, _, _>(&self.groups,
                                  |buf, group| buf.put_str::<T, _>(Some(group.as_ref())))
+    }
+}
+
+impl<'a> Record for ListGroupsRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version)
+    }
+}
+
+impl<'a> Encodable for ListGroupsRequest<'a> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+        self.header.encode::<T>(dst)
     }
 }
 
@@ -540,6 +574,40 @@ named!(parse_describe_groups_member_status<DescribeGroupsMemberStatus>,
     )
 );
 
+impl ListGroupsResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_list_groups_response(buf)
+    }
+}
+
+named!(parse_list_groups_response<ListGroupsResponse>,
+    parse_tag!(ParseTag::ListGroupsResponse,
+        do_parse!(
+            header: parse_response_header
+         >> error_code: be_i16
+         >> groups: length_count!(be_i32, parse_list_groups_group_status)
+         >> (ListGroupsResponse {
+                header: header,
+                error_code: error_code,
+                groups: groups,
+            })
+        )
+    )
+);
+
+named!(parse_list_groups_group_status<ListGroupsGroupStatus>,
+    parse_tag!(ParseTag::ListGroupsGroupStatus,
+        do_parse!(
+            group_id: parse_string
+         >> protocol_type: parse_string
+         >> (ListGroupsGroupStatus {
+                group_id: group_id,
+                protocol_type: protocol_type,
+            })
+        )
+    )
+);
+
 #[cfg(test)]
 mod tests {
     use bytes::BigEndian;
@@ -551,7 +619,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_group_coordinator_request() {
+    fn test_encode_group_coordinator_request() {
         let req = GroupCoordinatorRequest {
             header: RequestHeader {
                 api_key: ApiKeys::GroupCoordinator as ApiKey,
@@ -853,7 +921,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_group_request() {
+    fn test_encode_sync_group_request() {
         let req = SyncGroupRequest {
             header: RequestHeader {
                 api_key: ApiKeys::SyncGroup as ApiKey,
@@ -921,7 +989,7 @@ mod tests {
     }
 
     #[test]
-    fn test_describe_groups_request() {
+    fn test_encode_describe_groups_request() {
         let req = DescribeGroupsRequest {
             header: RequestHeader {
                 api_key: ApiKeys::DescribeGroups as ApiKey,
@@ -999,6 +1067,66 @@ mod tests {
         ];
 
         let res = parse_describe_groups_response(&data[..]);
+
+        display_parse_error::<_>(&data[..], res.clone());
+
+        assert_eq!(res, IResult::Done(&[][..], response));
+    }
+
+    #[test]
+    fn test_encode_list_groups_request() {
+        let req = ListGroupsRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::ListGroups as ApiKey,
+                api_version: 0,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+        };
+
+        let data = vec![
+            // ListGroupsRequest
+                // RequestHeader
+                0, 16,                                      // api_key
+                0, 0,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
+        ];
+
+        let mut buf = BytesMut::with_capacity(128);
+
+        req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
+
+        assert_eq!(&buf[..], &data[..]);
+    }
+
+    #[test]
+    fn test_parse_list_groups_response() {
+        let response = ListGroupsResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            error_code: 1,
+            groups: vec![ListGroupsGroupStatus{
+                group_id: "consumer".to_owned(),
+                protocol_type: "type".to_owned(),
+            }],
+        };
+
+        let data = vec![
+            // ResponseHeader
+            0, 0, 0, 123,   // correlation_id
+
+            0, 1,           // error_code
+
+            // groups: [ListGroupsGroupStatus]
+            0, 0, 0, 1,
+                // ListGroupsGroupStatus
+                0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+                0, 4, b't', b'y', b'p', b'e',                           // protocol_type
+        ];
+
+        let res = parse_list_groups_response(&data[..]);
 
         display_parse_error::<_>(&data[..], res.clone());
 

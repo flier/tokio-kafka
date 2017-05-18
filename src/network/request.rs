@@ -8,8 +8,8 @@ use errors::Result;
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId,
                DescribeGroupsRequest, Encodable, FetchOffset, FetchRequest,
                GroupCoordinatorRequest, HeartbeatRequest, JoinGroupRequest, LeaveGroupRequest,
-               ListOffsetRequest, ListPartitionOffset, ListTopicOffset, MessageSet,
-               MetadataRequest, OffsetCommitRequest, OffsetFetchRequest, PartitionId,
+               ListGroupsRequest, ListOffsetRequest, ListPartitionOffset, ListTopicOffset,
+               MessageSet, MetadataRequest, OffsetCommitRequest, OffsetFetchRequest, PartitionId,
                ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
                RequiredAck, RequiredAcks, SyncGroupRequest, ToMilliseconds};
 
@@ -34,6 +34,7 @@ pub enum KafkaRequest<'a> {
     LeaveGroup(LeaveGroupRequest<'a>),
     SyncGroup(SyncGroupRequest<'a>),
     DescribeGroups(DescribeGroupsRequest<'a>),
+    ListGroups(ListGroupsRequest<'a>),
     ApiVersions(ApiVersionsRequest<'a>),
 }
 
@@ -52,6 +53,7 @@ impl<'a> KafkaRequest<'a> {
             KafkaRequest::LeaveGroup(ref req) => &req.header,
             KafkaRequest::SyncGroup(ref req) => &req.header,
             KafkaRequest::DescribeGroups(ref req) => &req.header,
+            KafkaRequest::ListGroups(ref req) => &req.header,
             KafkaRequest::ApiVersions(ref req) => &req.header,
         }
     }
@@ -182,6 +184,7 @@ impl<'a> Record for KafkaRequest<'a> {
             KafkaRequest::LeaveGroup(ref req) => req.size(api_version),
             KafkaRequest::SyncGroup(ref req) => req.size(api_version),
             KafkaRequest::DescribeGroups(ref req) => req.size(api_version),
+            KafkaRequest::ListGroups(ref req) => req.size(api_version),
             KafkaRequest::ApiVersions(ref req) => req.size(api_version),
         }
     }
@@ -202,6 +205,7 @@ impl<'a> Encodable for KafkaRequest<'a> {
             KafkaRequest::LeaveGroup(ref req) => req.encode::<T>(dst),
             KafkaRequest::SyncGroup(ref req) => req.encode::<T>(dst),
             KafkaRequest::DescribeGroups(ref req) => req.encode::<T>(dst),
+            KafkaRequest::ListGroups(ref req) => req.encode::<T>(dst),
             KafkaRequest::ApiVersions(ref req) => req.encode::<T>(dst),
         }
     }
