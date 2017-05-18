@@ -4,10 +4,10 @@ use log::LogLevel::Debug;
 
 use nom::{self, ErrorKind, IResult, Needed};
 
-use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, FetchResponse, GroupCoordinatorResponse,
-               HeartbeatResponse, JoinGroupResponse, LeaveGroupResponse, ListOffsetResponse,
-               MetadataResponse, OffsetCommitResponse, OffsetFetchResponse, ParseTag,
-               ProduceResponse, SyncGroupResponse, display_parse_error};
+use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, DescribeGroupsResponse, FetchResponse,
+               GroupCoordinatorResponse, HeartbeatResponse, JoinGroupResponse, LeaveGroupResponse,
+               ListOffsetResponse, MetadataResponse, OffsetCommitResponse, OffsetFetchResponse,
+               ParseTag, ProduceResponse, SyncGroupResponse, display_parse_error};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
@@ -22,6 +22,7 @@ pub enum KafkaResponse {
     Heartbeat(HeartbeatResponse),
     LeaveGroup(LeaveGroupResponse),
     SyncGroup(SyncGroupResponse),
+    DescribeGroups(DescribeGroupsResponse),
     ApiVersions(ApiVersionsResponse),
 }
 
@@ -39,6 +40,7 @@ impl KafkaResponse {
             KafkaResponse::Heartbeat(_) => ApiKeys::Heartbeat,
             KafkaResponse::LeaveGroup(_) => ApiKeys::LeaveGroup,
             KafkaResponse::SyncGroup(_) => ApiKeys::SyncGroup,
+            KafkaResponse::DescribeGroups(_) => ApiKeys::DescribeGroups,
             KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
         }
     }
@@ -74,6 +76,9 @@ impl KafkaResponse {
             ApiKeys::Heartbeat => HeartbeatResponse::parse(buf).map(KafkaResponse::Heartbeat),
             ApiKeys::LeaveGroup => LeaveGroupResponse::parse(buf).map(KafkaResponse::LeaveGroup),
             ApiKeys::SyncGroup => SyncGroupResponse::parse(buf).map(KafkaResponse::SyncGroup),
+            ApiKeys::DescribeGroups => {
+                DescribeGroupsResponse::parse(buf).map(KafkaResponse::DescribeGroups)
+            }
             ApiKeys::ApiVersions => ApiVersionsResponse::parse(buf).map(KafkaResponse::ApiVersions),
             _ => IResult::Error(nom::Err::Code(ErrorKind::Custom(ParseTag::ApiKey as u32))),
         };

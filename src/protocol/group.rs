@@ -145,6 +145,50 @@ pub struct SyncGroupResponse {
     pub member_assignment: Bytes,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct DescribeGroupsRequest<'a> {
+    pub header: RequestHeader<'a>,
+    /// List of groupIds to request metadata for (an empty groupId array will return empty group metadata).
+    pub groups: Vec<Cow<'a, str>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DescribeGroupsResponse {
+    pub header: ResponseHeader,
+
+    pub groups: Vec<DescribeGroupsGroupStatus>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DescribeGroupsGroupStatus {
+    /// Error code.
+    pub error_code: ErrorCode,
+    /// The unique group id.
+    pub group_id: String,
+    /// The current state of the group (one of: Dead, Stable, AwaitingSync, or PreparingRebalance, or empty if there is no active group)
+    pub state: String,
+    /// The current group protocol type (will be empty if there is no active group)
+    pub protocol_type: String,
+    /// The current group protocol (only provided if the group is Stable)
+    pub protocol: String,
+    /// Current group members (only provided if the group is not Dead)
+    pub members: Vec<DescribeGroupsMemberStatus>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DescribeGroupsMemberStatus {
+    /// The memberId assigned by the coordinator
+    pub member_id: String,
+    /// The client id used in the member's latest join group request
+    pub client_id: String,
+    /// The client host used in the request session corresponding to the member's join group.
+    pub client_host: String,
+    /// The metadata corresponding to the current group protocol in use (will only be present if the group is stable).
+    pub member_metadata: Bytes,
+    /// The current assignment provided by the group leader (will only be present if the group is stable).
+    pub member_assignment: Bytes,
+}
+
 impl<'a> Record for GroupCoordinatorRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
@@ -292,6 +336,25 @@ impl<'a> Encodable for SyncGroupRequest<'a> {
     }
 }
 
+impl<'a> Record for DescribeGroupsRequest<'a> {
+    fn size(&self, api_version: ApiVersion) -> usize {
+        self.header.size(api_version) +
+        self.groups
+            .iter()
+            .fold(ARRAY_LEN_SIZE,
+                  |size, group| size + STR_LEN_SIZE + group.len())
+    }
+}
+
+impl<'a> Encodable for DescribeGroupsRequest<'a> {
+    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+        self.header.encode::<T>(dst)?;
+
+        dst.put_array::<T, _, _>(&self.groups,
+                                 |buf, group| buf.put_str::<T, _>(Some(group.as_ref())))
+    }
+}
+
 impl GroupCoordinatorResponse {
     pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
         parse_group_corordinator_response(buf)
@@ -412,6 +475,65 @@ named!(parse_sync_group_response<SyncGroupResponse>,
          >> (SyncGroupResponse {
                 header: header,
                 error_code: error_code,
+                member_assignment: member_assignment,
+            })
+        )
+    )
+);
+
+impl DescribeGroupsResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_describe_groups_response(buf)
+    }
+}
+
+named!(parse_describe_groups_response<DescribeGroupsResponse>,
+    parse_tag!(ParseTag::DescribeGroupsResponse,
+        do_parse!(
+            header: parse_response_header
+         >> groups: length_count!(be_i32, parse_describe_groups_group_status)
+         >> (DescribeGroupsResponse {
+                header: header,
+                groups: groups,
+            })
+        )
+    )
+);
+
+named!(parse_describe_groups_group_status<DescribeGroupsGroupStatus>,
+    parse_tag!(ParseTag::DescribeGroupsGroupStatus,
+        do_parse!(
+            error_code: be_i16
+         >> group_id: parse_string
+         >> state: parse_string
+         >> protocol_type: parse_string
+         >> protocol: parse_string
+         >> members: length_count!(be_i32, parse_describe_groups_member_status)
+         >> (DescribeGroupsGroupStatus {
+                error_code: error_code,
+                group_id: group_id,
+                state: state,
+                protocol_type: protocol_type,
+                protocol: protocol,
+                members: members,
+            })
+        )
+    )
+);
+
+named!(parse_describe_groups_member_status<DescribeGroupsMemberStatus>,
+    parse_tag!(ParseTag::DescribeGroupsMemberStatus,
+        do_parse!(
+            member_id: parse_string
+         >> client_id: parse_string
+         >> client_host: parse_string
+         >> member_metadata: parse_bytes
+         >> member_assignment: parse_bytes
+         >> (DescribeGroupsMemberStatus {
+                member_id: member_id,
+                client_id: client_id,
+                client_host: client_host,
+                member_metadata: member_metadata,
                 member_assignment: member_assignment,
             })
         )
@@ -797,4 +919,90 @@ mod tests {
         assert_eq!(parse_sync_group_response(data.as_slice()),
                    IResult::Done(&[][..], res));
     }
+
+    #[test]
+    fn test_describe_groups_request() {
+        let req = DescribeGroupsRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::DescribeGroups as ApiKey,
+                api_version: 0,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+            groups: vec!["consumer".into()],
+        };
+
+        let data = vec![
+            // DescribeGroupsRequest
+                // RequestHeader
+                0, 15,                                      // api_key
+                0, 0,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
+
+            // groups[String]
+            0, 0, 0, 1,
+                // String
+                0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+        ];
+
+        let mut buf = BytesMut::with_capacity(128);
+
+        req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
+
+        assert_eq!(&buf[..], &data[..]);
+    }
+
+    #[test]
+    fn test_parse_describe_groups_response() {
+        let response = DescribeGroupsResponse {
+            header: ResponseHeader { correlation_id: 123 },
+            groups: vec![DescribeGroupsGroupStatus{
+                error_code: 1,
+                group_id: "consumer".to_owned(),
+                state: "Stable".to_owned(),
+                protocol_type: "type".to_owned(),
+                protocol: "protocol".to_owned(),
+                members: vec![DescribeGroupsMemberStatus{
+                    member_id: "member".to_owned(),
+                    client_id: "client".to_owned(),
+                    client_host: "localhost".to_owned(),
+                    member_metadata: Bytes::from(&b"metadata"[..]),
+                    member_assignment: Bytes::from(&b"assignment"[..]),
+                }],
+            }],
+        };
+
+        let data = vec![
+            // ResponseHeader
+            0, 0, 0, 123,   // correlation_id
+
+            // groups: [DescribeGroupsGroupStatus]
+            0, 0, 0, 1,
+                // DescribeGroupsGroupStatus
+                0, 1,                                                   // error_code
+                0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+                0, 6, b'S', b't', b'a', b'b', b'l', b'e',               // state
+                0, 4, b't', b'y', b'p', b'e',                           // protocol_type
+                0, 8, b'p', b'r', b'o', b't', b'o', b'c', b'o', b'l',   // protocol
+
+                // members: [DescribeGroupsMemberStatus]
+                0, 0, 0, 1,
+                    // DescribeGroupsMemberStatus
+                    0, 6, b'm', b'e', b'm', b'b', b'e', b'r',                   // member_id
+                    0, 6, b'c', b'l', b'i', b'e', b'n', b't',                   // client_id
+                    0, 9, b'l', b'o', b'c', b'a', b'l', b'h', b'o', b's', b't', // client_host
+                    0, 0, 0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a', // member_metadata
+                    0, 0, 0, 10, b'a', b's', b's', b'i', b'g', b'n', b'm', b'e', b'n', b't', // member_assignment
+        ];
+
+        let res = parse_describe_groups_response(&data[..]);
+
+        display_parse_error::<_>(&data[..], res.clone());
+
+        assert_eq!(res, IResult::Done(&[][..], response));
+    }
+
 }

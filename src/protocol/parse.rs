@@ -74,6 +74,10 @@ pub enum ParseTag {
 
     SyncGroupResponse = 11400,
 
+    DescribeGroupsResponse = 11500,
+    DescribeGroupsGroupStatus = 11501,
+    DescribeGroupsMemberStatus = 11502,
+
     ApiVersionsResponse = 11800,
     ApiVersion = 11801,
 }
