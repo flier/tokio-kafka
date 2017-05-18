@@ -3,7 +3,7 @@ use bytes::{BufMut, ByteOrder, BytesMut};
 
 use time::Timespec;
 
-use nom::{be_i16, be_i32, be_i64};
+use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, Offset, PARTITION_ID_SIZE,
@@ -135,7 +135,13 @@ pub struct ListOffsetPartitionStatus {
     pub offsets: Vec<Offset>,
 }
 
-named_args!(pub parse_list_offset_response(api_version: ApiVersion)<ListOffsetResponse>,
+impl ListOffsetResponse {
+    pub fn parse(buf: &[u8], api_version: ApiVersion) -> IResult<&[u8], Self> {
+        parse_list_offset_response(buf, api_version)
+    }
+}
+
+named_args!(parse_list_offset_response(api_version: ApiVersion)<ListOffsetResponse>,
     parse_tag!(ParseTag::ListOffsetResponse,
         do_parse!(
             header: parse_response_header

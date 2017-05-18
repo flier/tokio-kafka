@@ -30,25 +30,19 @@ pub use self::parse::{PARSE_TAGS, ParseTag, display_parse_error, parse_bytes, pa
 pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
 pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
                         MessageTimestamp, parse_message_set};
-pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData,
-                        parse_produce_response};
-pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic,
-                      parse_fetch_response};
+pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
+pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic};
 pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListOffsetResponse,
-                            ListPartitionOffset, ListTopicOffset, parse_list_offset_response};
+                            ListPartitionOffset, ListTopicOffset};
 pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
-                         TopicMetadata, parse_metadata_response};
-pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse,
-                              parse_offset_commit_response};
-pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse, parse_offset_fetch_response};
+                         TopicMetadata};
+pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse};
+pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse};
 pub use self::group::{GroupCoordinatorRequest, GroupCoordinatorResponse, HeartbeatRequest,
                       HeartbeatResponse, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest,
-                      LeaveGroupResponse, SyncGroupRequest, SyncGroupResponse,
-                      parse_group_corordinator_response, parse_heartbeat_response,
-                      parse_join_group_response, parse_leave_group_response,
-                      parse_sync_group_response};
+                      LeaveGroupResponse, SyncGroupRequest, SyncGroupResponse};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
-                             UsableApiVersions, parse_api_versions_response};
+                             UsableApiVersions};
 
 pub type ApiKey = i16;
 pub type ApiVersion = i16;

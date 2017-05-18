@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use bytes::{ByteOrder, BytesMut};
 
-use nom::{be_i16, be_i32};
+use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
 use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, NodeId, ParseTag, PartitionId,
@@ -66,7 +66,13 @@ pub struct PartitionMetadata {
     pub isr: Vec<NodeId>,
 }
 
-named!(pub parse_metadata_response<MetadataResponse>,
+impl MetadataResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_metadata_response(buf)
+    }
+}
+
+named!(parse_metadata_response<MetadataResponse>,
     parse_tag!(ParseTag::MetadataResponse,
         do_parse!(
             header: parse_response_header

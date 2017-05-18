@@ -7,12 +7,7 @@ use nom::{self, ErrorKind, IResult, Needed};
 use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, FetchResponse, GroupCoordinatorResponse,
                HeartbeatResponse, JoinGroupResponse, LeaveGroupResponse, ListOffsetResponse,
                MetadataResponse, OffsetCommitResponse, OffsetFetchResponse, ParseTag,
-               ProduceResponse, SyncGroupResponse, display_parse_error,
-               parse_api_versions_response, parse_fetch_response,
-               parse_group_corordinator_response, parse_heartbeat_response,
-               parse_join_group_response, parse_leave_group_response, parse_list_offset_response,
-               parse_metadata_response, parse_offset_commit_response, parse_offset_fetch_response,
-               parse_produce_response, parse_sync_group_response};
+               ProduceResponse, SyncGroupResponse, display_parse_error};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {
@@ -61,29 +56,25 @@ impl KafkaResponse {
 
         let res = match api_key {
             ApiKeys::Produce => {
-                parse_produce_response(buf, api_version).map(KafkaResponse::Produce)
+                ProduceResponse::parse(buf, api_version).map(KafkaResponse::Produce)
             }
-            ApiKeys::Fetch => parse_fetch_response(buf, api_version).map(KafkaResponse::Fetch),
+            ApiKeys::Fetch => FetchResponse::parse(buf, api_version).map(KafkaResponse::Fetch),
             ApiKeys::ListOffsets => {
-                parse_list_offset_response(buf, api_version).map(KafkaResponse::ListOffsets)
+                ListOffsetResponse::parse(buf, api_version).map(KafkaResponse::ListOffsets)
             }
-            ApiKeys::Metadata => parse_metadata_response(buf).map(KafkaResponse::Metadata),
+            ApiKeys::Metadata => MetadataResponse::parse(buf).map(KafkaResponse::Metadata),
             ApiKeys::OffsetCommit => {
-                parse_offset_commit_response(buf).map(KafkaResponse::OffsetCommit)
+                OffsetCommitResponse::parse(buf).map(KafkaResponse::OffsetCommit)
             }
-            ApiKeys::OffsetFetch => {
-                parse_offset_fetch_response(buf).map(KafkaResponse::OffsetFetch)
-            }
+            ApiKeys::OffsetFetch => OffsetFetchResponse::parse(buf).map(KafkaResponse::OffsetFetch),
             ApiKeys::GroupCoordinator => {
-                parse_group_corordinator_response(buf).map(KafkaResponse::GroupCoordinator)
+                GroupCoordinatorResponse::parse(buf).map(KafkaResponse::GroupCoordinator)
             }
-            ApiKeys::JoinGroup => parse_join_group_response(buf).map(KafkaResponse::JoinGroup),
-            ApiKeys::Heartbeat => parse_heartbeat_response(buf).map(KafkaResponse::Heartbeat),
-            ApiKeys::LeaveGroup => parse_leave_group_response(buf).map(KafkaResponse::LeaveGroup),
-            ApiKeys::SyncGroup => parse_sync_group_response(buf).map(KafkaResponse::SyncGroup),
-            ApiKeys::ApiVersions => {
-                parse_api_versions_response(buf).map(KafkaResponse::ApiVersions)
-            }
+            ApiKeys::JoinGroup => JoinGroupResponse::parse(buf).map(KafkaResponse::JoinGroup),
+            ApiKeys::Heartbeat => HeartbeatResponse::parse(buf).map(KafkaResponse::Heartbeat),
+            ApiKeys::LeaveGroup => LeaveGroupResponse::parse(buf).map(KafkaResponse::LeaveGroup),
+            ApiKeys::SyncGroup => SyncGroupResponse::parse(buf).map(KafkaResponse::SyncGroup),
+            ApiKeys::ApiVersions => ApiVersionsResponse::parse(buf).map(KafkaResponse::ApiVersions),
             _ => IResult::Error(nom::Err::Code(ErrorKind::Custom(ParseTag::ApiKey as u32))),
         };
 

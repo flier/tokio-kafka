@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 
-use nom::{be_i16, be_i32};
+use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
 use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, Encodable, ErrorCode, ParseTag, Record,
@@ -292,7 +292,13 @@ impl<'a> Encodable for SyncGroupRequest<'a> {
     }
 }
 
-named!(pub parse_group_corordinator_response<GroupCoordinatorResponse>,
+impl GroupCoordinatorResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_group_corordinator_response(buf)
+    }
+}
+
+named!(parse_group_corordinator_response<GroupCoordinatorResponse>,
     parse_tag!(ParseTag::GroupCoordinatorResponse,
         do_parse!(
             header: parse_response_header
@@ -311,7 +317,13 @@ named!(pub parse_group_corordinator_response<GroupCoordinatorResponse>,
     )
 );
 
-named!(pub parse_join_group_response<JoinGroupResponse>,
+impl JoinGroupResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_join_group_response(buf)
+    }
+}
+
+named!(parse_join_group_response<JoinGroupResponse>,
     parse_tag!(ParseTag::JoinGroupResponse,
         do_parse!(
             header: parse_response_header
@@ -347,7 +359,13 @@ named!(parse_group_member<JoinGroupMember>,
     )
 );
 
-named!(pub parse_heartbeat_response<HeartbeatResponse>,
+impl HeartbeatResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_heartbeat_response(buf)
+    }
+}
+
+named!(parse_heartbeat_response<HeartbeatResponse>,
     parse_tag!(ParseTag::HeartbeatResponse,
         do_parse!(
             header: parse_response_header
@@ -360,7 +378,13 @@ named!(pub parse_heartbeat_response<HeartbeatResponse>,
     )
 );
 
-named!(pub parse_leave_group_response<LeaveGroupResponse>,
+impl LeaveGroupResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_leave_group_response(buf)
+    }
+}
+
+named!(parse_leave_group_response<LeaveGroupResponse>,
     parse_tag!(ParseTag::LeaveGroupResponse,
         do_parse!(
             header: parse_response_header
@@ -373,7 +397,13 @@ named!(pub parse_leave_group_response<LeaveGroupResponse>,
     )
 );
 
-named!(pub parse_sync_group_response<SyncGroupResponse>,
+impl SyncGroupResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_sync_group_response(buf)
+    }
+}
+
+named!(parse_sync_group_response<SyncGroupResponse>,
     parse_tag!(ParseTag::SyncGroupResponse,
         do_parse!(
             header: parse_response_header

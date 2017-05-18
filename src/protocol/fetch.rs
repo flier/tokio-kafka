@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
 
-use nom::{be_i16, be_i32, be_i64};
+use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, MessageSet, OFFSET_SIZE, Offset,
@@ -106,7 +106,13 @@ pub struct FetchPartitionData {
     pub message_set: MessageSet,
 }
 
-named_args!(pub parse_fetch_response(api_version: ApiVersion)<FetchResponse>,
+impl FetchResponse {
+    pub fn parse(buf: &[u8], api_version: ApiVersion) -> IResult<&[u8], Self> {
+        parse_fetch_response(buf, api_version)
+    }
+}
+
+named_args!(parse_fetch_response(api_version: ApiVersion)<FetchResponse>,
     parse_tag!(ParseTag::FetchResponse,
         do_parse!(
             header: parse_response_header

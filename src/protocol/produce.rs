@@ -3,7 +3,7 @@ use std::borrow::Cow;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
 
-use nom::{be_i16, be_i32, be_i64};
+use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, Encodable, ErrorCode, MessageSet,
@@ -100,7 +100,13 @@ pub struct ProducePartitionStatus {
     pub timestamp: Option<Timestamp>,
 }
 
-named_args!(pub parse_produce_response(api_version: ApiVersion)<ProduceResponse>,
+impl ProduceResponse {
+    pub fn parse(buf: &[u8], api_version: ApiVersion) -> IResult<&[u8], Self> {
+        parse_produce_response(buf, api_version)
+    }
+}
+
+named_args!(parse_produce_response(api_version: ApiVersion)<ProduceResponse>,
     parse_tag!(ParseTag::ProduceResponse,
         do_parse!(
             header: parse_response_header

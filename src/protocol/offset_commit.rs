@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use bytes::{BufMut, ByteOrder, BytesMut};
 
-use nom::{be_i16, be_i32};
+use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
 use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, OFFSET_SIZE, Offset,
@@ -123,7 +123,13 @@ impl<'a> Encodable for OffsetCommitRequest<'a> {
     }
 }
 
-named!(pub parse_offset_commit_response<OffsetCommitResponse>,
+impl OffsetCommitResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_offset_commit_response(buf)
+    }
+}
+
+named!(parse_offset_commit_response<OffsetCommitResponse>,
     parse_tag!(ParseTag::OffsetCommitResponse,
         do_parse!(
             header: parse_response_header

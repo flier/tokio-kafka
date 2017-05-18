@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use bytes::{ByteOrder, BytesMut};
 
-use nom::{be_i16, be_i32};
+use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
 use protocol::{ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader,
@@ -66,7 +66,13 @@ impl UsableApiVersions {
     }
 }
 
-named!(pub parse_api_versions_response<ApiVersionsResponse>,
+impl ApiVersionsResponse {
+    pub fn parse(buf: &[u8]) -> IResult<&[u8], Self> {
+        parse_api_versions_response(buf)
+    }
+}
+
+named!(parse_api_versions_response<ApiVersionsResponse>,
     parse_tag!(ParseTag::ApiVersionsResponse,
         do_parse!(
             header: parse_response_header
