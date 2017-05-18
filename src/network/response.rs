@@ -5,9 +5,10 @@ use log::LogLevel::Debug;
 use nom::{self, ErrorKind, IResult, Needed};
 
 use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, FetchResponse, GroupCoordinatorResponse,
-               ListOffsetResponse, MetadataResponse, OffsetCommitResponse, OffsetFetchResponse,
-               ParseTag, ProduceResponse, display_parse_error, parse_api_versions_response,
-               parse_fetch_response, parse_group_corordinator_response,
+               JoinGroupResponse, ListOffsetResponse, MetadataResponse, OffsetCommitResponse,
+               OffsetFetchResponse, ParseTag, ProduceResponse, display_parse_error,
+               parse_api_versions_response, parse_fetch_response,
+               parse_group_corordinator_response, parse_join_group_response,
                parse_list_offset_response, parse_metadata_response, parse_offset_commit_response,
                parse_offset_fetch_response, parse_produce_response};
 
@@ -20,6 +21,7 @@ pub enum KafkaResponse {
     OffsetCommit(OffsetCommitResponse),
     OffsetFetch(OffsetFetchResponse),
     GroupCoordinator(GroupCoordinatorResponse),
+    JoinGroup(JoinGroupResponse),
     ApiVersions(ApiVersionsResponse),
 }
 
@@ -33,6 +35,7 @@ impl KafkaResponse {
             KafkaResponse::OffsetCommit(_) => ApiKeys::OffsetCommit,
             KafkaResponse::OffsetFetch(_) => ApiKeys::OffsetFetch,
             KafkaResponse::GroupCoordinator(_) => ApiKeys::GroupCoordinator,
+            KafkaResponse::JoinGroup(_) => ApiKeys::JoinGroup,
             KafkaResponse::ApiVersions(_) => ApiKeys::ApiVersions,
         }
     }
@@ -66,6 +69,7 @@ impl KafkaResponse {
             ApiKeys::GroupCoordinator => {
                 parse_group_corordinator_response(buf).map(KafkaResponse::GroupCoordinator)
             }
+            ApiKeys::JoinGroup => parse_join_group_response(buf).map(KafkaResponse::JoinGroup),
             ApiKeys::ApiVersions => {
                 parse_api_versions_response(buf).map(KafkaResponse::ApiVersions)
             }

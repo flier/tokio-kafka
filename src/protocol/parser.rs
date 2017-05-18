@@ -134,6 +134,9 @@ pub enum ParseTag {
 
     GroupCoordinatorResponse = 11000,
 
+    JoinGroupResponse = 11100,
+    JoinGroupMember = 11101,
+
     ApiVersionsResponse = 11800,
     ApiVersion = 11801,
 }

@@ -40,8 +40,9 @@ pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, Part
 pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse,
                               parse_offset_commit_response};
 pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse, parse_offset_fetch_response};
-pub use self::group::{GroupCoordinatorRequest, GroupCoordinatorResponse,
-                      parse_group_corordinator_response};
+pub use self::group::{GroupCoordinatorRequest, GroupCoordinatorResponse, JoinGroupRequest,
+                      JoinGroupResponse, parse_group_corordinator_response,
+                      parse_join_group_response};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
                              UsableApiVersions, parse_api_versions_response};
 
