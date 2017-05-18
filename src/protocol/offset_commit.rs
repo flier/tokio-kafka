@@ -197,23 +197,23 @@ mod tests {
         let data = vec![
             // OffsetCommitRequest
                 // RequestHeader
-                0, 8,                               // api_key
-                0, 0,                               // api_version
-                0, 0, 0, 123,                       // correlation_id
-                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
+                0, 8,                                       // api_key
+                0, 0,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
 
-            0, 8, 99, 111, 110, 115, 117, 109, 101, 114,    // group_id
+            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
 
-                // topics: [ListTopicOffset]
+                // topics: [OffsetCommitTopic]
                 0, 0, 0, 1,
-                    // ListTopicOffset
-                    0, 5, 116, 111, 112, 105, 99,   // topic_name
+                    // OffsetCommitTopic
+                    0, 5, b't', b'o', b'p', b'i', b'c',             // topic_name
                     // partitions: [OffsetCommitPartition]
                     0, 0, 0, 1,
                         // OffsetCommitPartition
-                        0, 0, 0, 5,                                 // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,                     // offset
-                        0, 8, 109, 101, 116, 97, 100, 97, 116, 97,  // metadata
+                        0, 0, 0, 5,                                             // partition
+                        0, 0, 0, 0, 0, 0, 0, 6,                                 // offset
+                        0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a',   // metadata
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -252,26 +252,26 @@ mod tests {
         let data = vec![
             // OffsetCommitRequest
                 // RequestHeader
-                0, 8,                               // api_key
-                0, 1,                               // api_version
-                0, 0, 0, 123,                       // correlation_id
-                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
+                0, 8,                                       // api_key
+                0, 1,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
 
-            0, 8, 99, 111, 110, 115, 117, 109, 101, 114,    // group_id
-            0, 0, 1, 200,                                   // group_generation_id
-            0, 6, 109, 101, 109, 98, 101, 114,              // member_id
+            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+            0, 0, 1, 200,                                           // group_generation_id
+            0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
 
-                // topics: [ListTopicOffset]
+                // topics: [OffsetCommitTopic]
                 0, 0, 0, 1,
-                    // ListTopicOffset
-                    0, 5, 116, 111, 112, 105, 99,   // topic_name
+                    // OffsetCommitTopic
+                    0, 5, b't', b'o', b'p', b'i', b'c',             // topic_name
                     // partitions: [OffsetCommitPartition]
                     0, 0, 0, 1,
                         // OffsetCommitPartition
-                        0, 0, 0, 5,                                 // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,                     // offset
-                        0, 0, 0, 0, 0, 0, 0, 7,                     // timestamp
-                        0, 8, 109, 101, 116, 97, 100, 97, 116, 97,  // metadata
+                        0, 0, 0, 5,                                             // partition
+                        0, 0, 0, 0, 0, 0, 0, 6,                                 // offset
+                        0, 0, 0, 0, 0, 0, 0, 7,                                 // timestamp
+                        0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a',   // metadata
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -310,26 +310,26 @@ mod tests {
         let data = vec![
             // OffsetCommitRequest
                 // RequestHeader
-                0, 8,                               // api_key
-                0, 2,                               // api_version
-                0, 0, 0, 123,                       // correlation_id
-                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
+                0, 8,                                       // api_key
+                0, 2,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
 
-            0, 8, 99, 111, 110, 115, 117, 109, 101, 114,    // group_id
-            0, 0, 1, 200,                                   // group_generation_id
-            0, 6, 109, 101, 109, 98, 101, 114,              // member_id
-            0, 0, 0, 0, 0, 0, 3, 21,                        // retention_time
+            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
+            0, 0, 1, 200,                                           // group_generation_id
+            0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
+            0, 0, 0, 0, 0, 0, 3, 21,                                // retention_time
 
-                // topics: [ListTopicOffset]
+                // topics: [OffsetCommitTopic]
                 0, 0, 0, 1,
-                    // ListTopicOffset
-                    0, 5, 116, 111, 112, 105, 99,   // topic_name
+                    // OffsetCommitTopic
+                    0, 5, b't', b'o', b'p', b'i', b'c',             // topic_name
                     // partitions: [OffsetCommitPartition]
                     0, 0, 0, 1,
                         // OffsetCommitPartition
-                        0, 0, 0, 5,                                 // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,                     // offset
-                        0, 8, 109, 101, 116, 97, 100, 97, 116, 97,  // metadata
+                        0, 0, 0, 5,                                             // partition
+                        0, 0, 0, 0, 0, 0, 0, 6,                                 // offset
+                        0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a',   // metadata
         ];
 
         let mut buf = BytesMut::with_capacity(128);

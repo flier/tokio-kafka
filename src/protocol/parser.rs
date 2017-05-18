@@ -128,6 +128,10 @@ pub enum ParseTag {
     OffsetCommitTopicStatus = 10801,
     OffsetCommitPartitionStatus = 10802,
 
+    OffsetFetchResponse = 10900,
+    OffsetFetchTopicStatus = 10901,
+    OffsetFetchPartitionStatus = 10902,
+
     GroupCoordinatorResponse = 11000,
 
     ApiVersionsResponse = 11800,
@@ -166,6 +170,10 @@ lazy_static!{
         h.insert(ParseTag::OffsetCommitResponse as u32, "OffsetCommitResponse");
         h.insert(ParseTag::OffsetCommitTopicStatus as u32, "OffsetCommitTopicStatus");
         h.insert(ParseTag::OffsetCommitPartitionStatus as u32, "OffsetCommitPartitionStatus");
+
+        h.insert(ParseTag::OffsetFetchResponse as u32, "OffsetFetchResponse");
+        h.insert(ParseTag::OffsetFetchTopicStatus as u32, "OffsetFetchTopicStatus");
+        h.insert(ParseTag::OffsetFetchPartitionStatus as u32, "OffsetFetchPartitionStatus");
 
         h.insert(ParseTag::ApiVersionsResponse as u32, "ApiVersionsResponse");
         h.insert(ParseTag::ApiVersion as u32, "ApiVersion");

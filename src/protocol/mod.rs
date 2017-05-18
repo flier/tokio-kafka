@@ -18,6 +18,7 @@ mod fetch;
 mod list_offset;
 mod metadata;
 mod offset_commit;
+mod offset_fetch;
 mod group;
 mod api_versions;
 
@@ -38,6 +39,7 @@ pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, Part
                          TopicMetadata, parse_metadata_response};
 pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse,
                               parse_offset_commit_response};
+pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse, parse_offset_fetch_response};
 pub use self::group::{GroupCoordinatorRequest, GroupCoordinatorResponse,
                       parse_group_corordinator_response};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
