@@ -12,16 +12,21 @@ pub type Interceptors<K, V> = Option<Rc<RefCell<ProducerInterceptors<K, V>>>>;
 /// A trait for intercepting (and possibly mutate) the records
 /// received by the producer before they are published to the Kafka cluster.
 pub trait ProducerInterceptor {
+    /// The type of key
     type Key: Hash;
+    /// The type of value
     type Value;
 
+    /// This is called from [`KafkaProducer::send`](struct.KafkaProducer.html#send.v) method,
+    /// before key and value get serialized and partition is assigned
+    /// (if partition is not specified in ProducerRecord).
     fn send(&self,
             record: ProducerRecord<Self::Key, Self::Value>)
-            -> Result<ProducerRecord<Self::Key, Self::Value>> {
-        Ok(record)
-    }
+            -> Result<ProducerRecord<Self::Key, Self::Value>>;
 
-    fn ack(&self, _result: &Result<RecordMetadata>) {}
+    /// This method is called when the record sent to the server has been acknowledged,
+    /// or when sending the record fails before it gets sent to the server.
+    fn ack(&self, result: &Result<RecordMetadata>);
 }
 
 pub struct ProducerInterceptors<K, V> {

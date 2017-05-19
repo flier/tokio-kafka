@@ -43,7 +43,7 @@ pub struct ClientConfig {
     #[serde(rename = "connection.max.idle.ms")]
     pub max_connection_idle: u64,
 
-    /// the maximum amount of time the client will wait for the response of a request.
+    /// The maximum amount of time the client will wait for the response of a request.
     #[serde(rename = "request.timeout.ms")]
     pub request_timeout: u64,
 
@@ -84,6 +84,7 @@ impl Default for ClientConfig {
 }
 
 impl ClientConfig {
+    /// Construct a `ClientConfig` from brokers
     pub fn from_hosts<I>(hosts: I) -> Self
         where I: Iterator<Item = SocketAddr>
     {
@@ -93,19 +94,24 @@ impl ClientConfig {
         }
     }
 
+    /// Close idle connections after the number of milliseconds specified by this config.
     pub fn max_connection_idle(&self) -> Duration {
         Duration::new((self.max_connection_idle / 1000) as u64,
                       (self.max_connection_idle % 1000) as u32 * 1000_000)
     }
 
+    /// The maximum amount of time the client will wait for the response of a request.
     pub fn request_timeout(&self) -> Duration {
         Duration::from_millis(self.request_timeout)
     }
 
+    /// The period of time in milliseconds after which we force a refresh of metadata
+    /// even if we haven't seen any partition leadership changes to proactively discover any new brokers or partitions.
     pub fn metadata_max_age(&self) -> Duration {
         Duration::from_millis(self.metadata_max_age)
     }
 
+    /// Construct a `Timer`
     pub fn timer(&self) -> Timer {
         wheel()
             .tick_duration(Duration::from_millis(DEFAULT_TIMER_TICK_MILLS))

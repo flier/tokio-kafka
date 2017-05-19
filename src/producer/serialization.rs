@@ -12,15 +12,19 @@ use errors::{Error, Result};
 
 /// A trait for serializing type to Kafka record
 pub trait Serializer {
+    /// The type of value that this serializer will serialize.
     type Item;
+    /// The type of error that this serializer will return if it fails.
     type Error;
 
+    /// Serizalize data of topic to the given buffer
     fn serialize_to<B: BufMut>(&self,
                                topic_name: &str,
                                data: Self::Item,
                                buf: &mut B)
                                -> result::Result<(), Error>;
 
+    /// Serialize data of topic as `Bytes`
     fn serialize(&self, topic_name: &str, data: Self::Item) -> result::Result<Bytes, Error> {
         let mut buf = Vec::with_capacity(16);
         self.serialize_to(topic_name, data, &mut buf)?;

@@ -22,8 +22,11 @@ use producer::{Accumulator, Interceptors, PartitionRecord, Partitioner, Producer
 
 /// A trait for publishing records to the Kafka cluster.
 pub trait Producer<'a> {
+    /// The type of key
     type Key: Hash;
+    /// The type of value
     type Value;
+    /// The type of `Sink` to send records to a topic
     type Topic: Sink<SinkItem = TopicRecord<Self::Key, Self::Value>, SinkError = Error>;
 
     /// Send the given record asynchronously and
@@ -33,7 +36,7 @@ pub trait Producer<'a> {
     /// Flush any accumulated records from the producer.
     fn flush(&mut self) -> Flush;
 
-    /// Get a `futures::Sink` to send records for topic or partition.
+    /// Get a `futures::Sink` to send records.
     fn topic(&self, topic_name: &str) -> GetTopic<Self::Topic>;
 }
 
@@ -43,7 +46,7 @@ pub type SendRecord = StaticBoxFuture<RecordMetadata>;
 /// The future of flushing records.
 pub type Flush = StaticBoxFuture;
 
-/// The future of topic `Sink`.
+/// The future of `futures::Sink` to send records..
 pub type GetTopic<T> = StaticBoxFuture<T>;
 
 /// A Kafka producer that publishes records to the Kafka cluster.
@@ -364,6 +367,7 @@ impl Sink for Pending {
     }
 }
 
+/// A `Sink` of topic which records can be sent, asynchronously.
 pub struct ProducerTopic<'a, K, V, P>
     where K: Serializer,
           K::Item: Debug + Hash,
@@ -409,10 +413,12 @@ impl<'a, K, V, P> ProducerTopic<'a, K, V, P>
           P: Partitioner,
           Self: 'static
 {
+    /// The partitions of topic
     pub fn partitions(&self) -> &[PartitionId] {
         &self.partitions
     }
 
+    /// Gets the `Sink` of partition
     pub fn partition(&self, partition_id: PartitionId) -> Option<ProducerPartition<'a, K, V, P>> {
         if self.partitions.contains(&partition_id) {
             Some(ProducerPartition {
@@ -427,6 +433,7 @@ impl<'a, K, V, P> ProducerTopic<'a, K, V, P>
     }
 }
 
+/// A `Sink` of partition which records can be sent, asynchronously.
 pub struct ProducerPartition<'a, K, V, P>
     where K: Serializer,
           K::Item: Debug + Hash,

@@ -128,6 +128,7 @@ impl ProducerConfig {
         Duration::from_millis(self.ack_timeout)
     }
 
+    /// The retry strategy when request failed
     pub fn retry_strategy(&self) -> Vec<Duration> {
         ExponentialBackoff::from_millis(self.retry_backoff)
             .map(jitter)
