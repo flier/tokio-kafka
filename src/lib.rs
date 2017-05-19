@@ -74,7 +74,7 @@ pub use network::TopicPartition;
 pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, KafkaVersion,
                  Metadata, PartitionOffset, StaticBoxFuture};
 pub use producer::{BytesSerializer, DefaultPartitioner, KafkaProducer, NoopSerializer,
-                   Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
-                   ProducerPartition, ProducerRecord, ProducerTopic, RawSerializer,
-                   RecordMetadata, Serializer, StrEncodingSerializer};
+                   PartitionRecord, Partitioner, Producer, ProducerBuilder, ProducerConfig,
+                   ProducerInterceptor, ProducerPartition, ProducerRecord, ProducerTopic,
+                   RawSerializer, RecordMetadata, Serializer, StrEncodingSerializer, TopicRecord};
 pub use consumer::{Consumer, KafkaConsumer};
