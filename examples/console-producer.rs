@@ -29,10 +29,10 @@ use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
 use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
-use tokio_kafka::{BytesSerializer, Compression, KafkaVersion, Producer, ProducerBuilder,
-                  ProducerInterceptor, ProducerRecord, RecordMetadata, RequiredAcks, TopicRecord};
-use tokio_kafka::consts::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
-                          DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
+use tokio_kafka::{BytesSerializer, Compression, DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE,
+                  DEFAULT_LINGER_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, KafkaVersion,
+                  Producer, ProducerBuilder, ProducerInterceptor, ProducerRecord, RecordMetadata,
+                  RequiredAcks, TopicRecord};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
 const DEFAULT_TOPIC: &str = "my-topic";

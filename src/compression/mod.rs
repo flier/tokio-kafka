@@ -14,6 +14,7 @@ mod snappy;
 #[cfg(feature = "lz4")]
 mod lz4;
 
+/// The compression type to use
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[repr(i8)]

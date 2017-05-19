@@ -9,13 +9,20 @@ use serde::de::{self, Deserialize, Deserializer, Visitor};
 use errors::{Error, ErrorKind, Result};
 use protocol::{ApiKeys, UsableApiVersion, UsableApiVersions};
 
+/// Kafka version for API requests version
+///
+/// See [`ClientConfig::broker_version_fallback`](struct.ClientConfig.html#broker_version_fallback.v)
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(u16)]
 pub enum KafkaVersion {
+    /// Kafka 0.8.0
     KAFKA_0_8_0 = 800,
+    /// Kafka 0.8.1.0, 0.8.1.1
     KAFKA_0_8_1 = 801,
+    /// Kafka 0.8.2.0, 0.8.2.2
     KAFKA_0_8_2 = 802,
+    /// Kafka 0.9.0.0, 0.9.0.1
     KAFKA_0_9_0 = 900,
 }
 

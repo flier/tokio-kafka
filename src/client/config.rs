@@ -5,11 +5,27 @@ use tokio_timer::{Timer, wheel};
 
 use client::KafkaVersion;
 
+/// The default milliseconds after which we close the idle connections.
+///
+/// Defaults to 5 seconds, see [`ClientConfig::max_connection_idle`](struct.ClientConfig.html#max_connection_idle.v)
 pub const DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS: u64 = 5000;
+
+/// The default milliseconds the client will wait for the response of a request.
+///
+/// Defaults to 30 seconds, see [`ClientConfig::request_timeout`](struct.ClientConfig.html#request_timeout.v)
 pub const DEFAULT_REQUEST_TIMEOUT_MILLS: u64 = 30_000;
-pub const DEFAULT_TIMER_TICK_MILLS: u64 = 100;
+
+/// The default milliseconds after which we force a refresh of metadata
+///
+/// Defaults to 5 minutes, see [`ClientConfig::metadata_max_age`](struct.ClientConfig.html#metadata_max_age.v)
 pub const DEFAULT_METADATA_MAX_AGE_MILLS: u64 = 5 * 60 * 1000;
 
+/// The default milliseconds of the timer tick duration.
+///
+/// Defaults to 100 ms
+pub const DEFAULT_TIMER_TICK_MILLS: u64 = 100;
+
+/// Configuration for the Kafka Client.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientConfig {
     /// A list of host/port pairs to use for establishing the initial connection to the Kafka cluster.

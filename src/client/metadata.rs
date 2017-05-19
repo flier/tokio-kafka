@@ -6,6 +6,7 @@ use protocol::{MetadataResponse, PartitionId, UsableApiVersions};
 use network::TopicPartition;
 use client::{Broker, BrokerRef, Cluster, PartitionInfo};
 
+/// Metadata encapsulating some of the logic around metadata.
 #[derive(Debug)]
 pub struct Metadata {
     // ~ a list of known brokers referred to by the index in this
@@ -24,6 +25,7 @@ pub struct Metadata {
 }
 
 impl Metadata {
+    /// Create a new Metadata with the given topic and partitions
     pub fn with_topics(topics: Vec<(String, Vec<PartitionInfo>)>) -> Self {
         Metadata {
             brokers: Vec::new(),
@@ -39,12 +41,7 @@ impl Metadata {
         }
     }
 
-    fn find_broker_mut(&mut self, broker_ref: BrokerRef) -> Option<&mut Broker> {
-        self.brokers
-            .iter_mut()
-            .find(|broker| broker.id() == broker_ref.index())
-    }
-
+    /// Create a new Metadata with the given brokers API versions
     pub fn with_api_versions(&self, api_versions: HashMap<BrokerRef, UsableApiVersions>) -> Self {
         Metadata {
             brokers: self.brokers
@@ -58,6 +55,7 @@ impl Metadata {
         }
     }
 
+    /// Create a new Metadata with the given fallback API versions
     pub fn with_fallback_api_versions(&self, api_versions: &UsableApiVersions) -> Self {
         Metadata {
             brokers: self.brokers

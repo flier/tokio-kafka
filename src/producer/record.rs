@@ -25,6 +25,7 @@ pub struct ProducerRecord<K, V>
 impl<K> ProducerRecord<K, ()>
     where K: Hash
 {
+    /// Creates a record to be sent to a specified topic with no value
     pub fn from_key<S: AsRef<str>>(topic_name: S, key: K) -> Self {
         ProducerRecord {
             topic_name: topic_name.as_ref().to_owned(),
@@ -37,6 +38,7 @@ impl<K> ProducerRecord<K, ()>
 }
 
 impl<V> ProducerRecord<(), V> {
+    /// Creates a record to be sent to a specified topic with no key
     pub fn from_value<S: AsRef<str>>(topic_name: S, value: V) -> Self {
         ProducerRecord {
             topic_name: topic_name.as_ref().to_owned(),
@@ -51,6 +53,7 @@ impl<V> ProducerRecord<(), V> {
 impl<K, V> ProducerRecord<K, V>
     where K: Hash
 {
+    /// Creates a record to be sent to a specified topic
     pub fn from_key_value<S: AsRef<str>>(topic_name: S, key: K, value: V) -> Self {
         ProducerRecord {
             topic_name: topic_name.as_ref().to_owned(),
@@ -61,7 +64,20 @@ impl<K, V> ProducerRecord<K, V>
         }
     }
 
-    pub fn from_topic_record<S: AsRef<str>>(topic_name: S, record: TopicRecord<K, V>) -> Self {
+    fn from_partition_record<S: AsRef<str>>(topic_name: S,
+                                            partition_id: Option<PartitionId>,
+                                            record: PartitionRecord<K, V>)
+                                            -> Self {
+        ProducerRecord {
+            topic_name: topic_name.as_ref().to_owned(),
+            partition: partition_id,
+            key: record.key,
+            value: record.value,
+            timestamp: record.timestamp,
+        }
+    }
+
+    fn from_topic_record<S: AsRef<str>>(topic_name: S, record: TopicRecord<K, V>) -> Self {
         ProducerRecord {
             topic_name: topic_name.as_ref().to_owned(),
             partition: record.partition,
@@ -71,30 +87,22 @@ impl<K, V> ProducerRecord<K, V>
         }
     }
 
-    pub fn from_partition_record<S: AsRef<str>>(topic_name: S,
-                                                partition_id: PartitionId,
-                                                record: PartitionRecord<K, V>)
-                                                -> Self {
-        ProducerRecord {
-            topic_name: topic_name.as_ref().to_owned(),
-            partition: Some(partition_id),
-            key: record.key,
-            value: record.value,
-            timestamp: record.timestamp,
-        }
-    }
-
+    /// Creates a record with partition to be sent
     pub fn with_partition(mut self, partition: PartitionId) -> Self {
         self.partition = Some(partition);
         self
     }
 
+    /// Creates a record with a specified timestamp to be sent
     pub fn with_timestamp(mut self, timestamp: Timestamp) -> Self {
         self.timestamp = Some(timestamp);
         self
     }
 }
 
+/// A key/value pair to be sent to Kafka topic.
+///
+/// This consists of an optional partition number, and an optional key and value.
 pub struct TopicRecord<K, V> {
     /// The partition to which the record will be sent (or `None` if no partition was specified)
     pub partition: Option<PartitionId>,
@@ -109,6 +117,7 @@ pub struct TopicRecord<K, V> {
 impl<K> TopicRecord<K, ()>
     where K: Hash
 {
+    /// Creates a record to be sent to a specified topic with no value
     pub fn from_key(key: K) -> Self {
         TopicRecord {
             partition: None,
@@ -120,6 +129,7 @@ impl<K> TopicRecord<K, ()>
 }
 
 impl<V> TopicRecord<(), V> {
+    /// Creates a record to be sent to a specified topic with no key
     pub fn from_value(value: V) -> Self {
         TopicRecord {
             partition: None,
@@ -133,6 +143,7 @@ impl<V> TopicRecord<(), V> {
 impl<K, V> TopicRecord<K, V>
     where K: Hash
 {
+    /// Creates a record to be sent to a specified topic
     pub fn from_key_value(key: K, value: V) -> Self {
         TopicRecord {
             partition: None,
@@ -142,18 +153,36 @@ impl<K, V> TopicRecord<K, V>
         }
     }
 
+    /// Creates a record with partition to be sent
     pub fn with_partition(mut self, partition: PartitionId) -> Self {
         self.partition = Some(partition);
         self
     }
 
+    /// Creates a record with a specified timestamp to be sent
     pub fn with_timestamp(mut self, timestamp: Timestamp) -> Self {
         self.timestamp = Some(timestamp);
         self
     }
+
+    fn from_partition_record(partition_id: PartitionId,
+                             record: PartitionRecord<K, V>)
+                             -> TopicRecord<K, V> {
+        TopicRecord {
+            partition: Some(partition_id),
+            key: record.key,
+            value: record.value,
+            timestamp: record.timestamp,
+        }
+    }
+
+    /// Creates a record to be sent to a specified topic
+    pub fn with_topic(self, topic_name: &str) -> ProducerRecord<K, V> {
+        ProducerRecord::from_topic_record(topic_name, self)
+    }
 }
 
-
+/// A key/value pair to be sent to Kafka partition.
 pub struct PartitionRecord<K, V> {
     /// The key (or `None` if no key is specified)
     pub key: Option<K>,
@@ -166,6 +195,7 @@ pub struct PartitionRecord<K, V> {
 impl<K> PartitionRecord<K, ()>
     where K: Hash
 {
+    /// Creates a record to be sent to a specified topic and partition with no value
     pub fn from_key(key: K) -> Self {
         PartitionRecord {
             key: Some(key),
@@ -176,6 +206,7 @@ impl<K> PartitionRecord<K, ()>
 }
 
 impl<V> PartitionRecord<(), V> {
+    /// Creates a record to be sent to a specified topic and partition with no key
     pub fn from_value(value: V) -> Self {
         PartitionRecord {
             key: None,
@@ -188,6 +219,7 @@ impl<V> PartitionRecord<(), V> {
 impl<K, V> PartitionRecord<K, V>
     where K: Hash
 {
+    /// Creates a record to be sent to a specified topic and partition
     pub fn from_key_value(key: K, value: V) -> Self {
         PartitionRecord {
             key: Some(key),
@@ -196,9 +228,23 @@ impl<K, V> PartitionRecord<K, V>
         }
     }
 
+    /// Creates a record with a specified timestamp to be sent
     pub fn with_timestamp(mut self, timestamp: Timestamp) -> Self {
         self.timestamp = Some(timestamp);
         self
+    }
+
+    /// Creates a record to be sent to a specified topic and partition
+    pub fn with_topic_and_partition(self,
+                                    topic_name: &str,
+                                    partition_id: Option<PartitionId>)
+                                    -> ProducerRecord<K, V> {
+        ProducerRecord::from_partition_record(topic_name, partition_id, self)
+    }
+
+    /// Creates a record to be sent to a specified partition
+    pub fn with_partition(self, partition_id: PartitionId) -> TopicRecord<K, V> {
+        TopicRecord::from_partition_record(partition_id, self)
     }
 }
 

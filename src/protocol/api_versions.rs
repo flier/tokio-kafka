@@ -45,6 +45,7 @@ pub struct UsableApiVersion {
     pub max_version: ApiVersion,
 }
 
+/// Maintains node api versions for access outside of Client
 #[derive(Clone, Debug)]
 pub struct UsableApiVersions(Vec<UsableApiVersion>);
 
@@ -57,10 +58,12 @@ impl Deref for UsableApiVersions {
 }
 
 impl UsableApiVersions {
+    /// Construct a new UsableApiVersions
     pub fn new(api_versions: Vec<UsableApiVersion>) -> Self {
         UsableApiVersions(api_versions)
     }
 
+    /// Find API version for the given ApiKeys
     pub fn find(&self, api_key: ApiKeys) -> Option<&UsableApiVersion> {
         self.0.iter().find(|v| v.api_key == api_key)
     }

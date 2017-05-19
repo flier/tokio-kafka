@@ -23,19 +23,39 @@ use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
              Metrics};
 
+/// A trait for communicating with the Kafka cluster.
 pub trait Client<'a>: 'static {
+    /// Send the given record asynchronously and return a future which will eventually contain the response information.
     fn produce_records(&self,
                        acks: RequiredAcks,
                        timeout: Duration,
-                       TopicPartition<'a>,
+                       topic_partition: TopicPartition<'a>,
                        records: Vec<Cow<'a, MessageSet>>)
                        -> ProduceRecords;
 
+    /// Search the offsets by target times for the specified topics and return a future which will eventually contain the partition offset information.
     fn fetch_offsets<S: AsRef<str>>(&self, topic_names: &[S], offset: FetchOffset) -> FetchOffsets;
 
+    /// Load metadata of the Kafka cluster and return a future which will eventually contain the metadata information.
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
 }
 
+/// The partition and offset
+#[derive(Clone, Debug)]
+pub struct PartitionOffset {
+    /// The partition id
+    pub partition: PartitionId,
+    /// The offset found in the partition
+    pub offset: Offset,
+}
+
+/// The future of records metadata information.
+pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
+
+/// The future of partition offsets information.
+pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
+
+/// A Kafka client that communicate with the Kafka cluster.
 #[derive(Clone)]
 pub struct KafkaClient<'a> {
     inner: Rc<Inner<'a>>,
@@ -480,13 +500,7 @@ impl State {
     }
 }
 
-/// A retrieved offset for a particular partition in the context of an already known topic.
-#[derive(Clone, Debug)]
-pub struct PartitionOffset {
-    pub partition: PartitionId,
-    pub offset: Offset,
-}
-
+/// The future of loaded metadata
 pub struct LoadMetadata<'a> {
     state: Loading,
     inner: Rc<Inner<'a>>,
@@ -595,8 +609,6 @@ impl<F, E> Future for StaticBoxFuture<F, E> {
 }
 
 pub type GetMetadata = StaticBoxFuture<Rc<Metadata>>;
-pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
-pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
 pub type LoadApiVersions = StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>;

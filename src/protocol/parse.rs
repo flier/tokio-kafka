@@ -6,7 +6,6 @@ use bytes::Bytes;
 
 use nom::{self, IResult, be_i16, be_i32, error_to_u32, prepare_errors, print_offsets};
 
-#[macro_export]
 macro_rules! parse_tag (
     ($i:expr, $tag:expr, $submac:ident!( $($args:tt)* )) => (
         {

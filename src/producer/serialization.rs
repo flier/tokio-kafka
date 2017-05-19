@@ -10,6 +10,7 @@ use encoding::{ByteWriter, EncoderTrap, Encoding};
 
 use errors::{Error, Result};
 
+/// A trait for serializing type to Kafka record
 pub trait Serializer {
     type Item;
     type Error;
@@ -27,6 +28,7 @@ pub trait Serializer {
     }
 }
 
+/// Serialize type to nothing
 #[derive(Clone, Debug, Default)]
 pub struct NoopSerializer<T> {
     phantom: PhantomData<T>,
@@ -49,6 +51,7 @@ impl<T> Serializer for NoopSerializer<T> {
     }
 }
 
+/// Serialize type to it's raw data
 #[derive(Clone, Debug, Default)]
 pub struct RawSerializer<T> {
     phantom: PhantomData<T>,
@@ -78,6 +81,7 @@ impl<T> Serializer for RawSerializer<T> {
     }
 }
 
+/// Serialize `Buf` like type to it's raw bytes
 #[derive(Clone, Debug, Default)]
 pub struct BytesSerializer<T> {
     phantom: PhantomData<T>,
@@ -118,6 +122,7 @@ impl<B> ByteWriter for BufWriter<B>
     }
 }
 
+/// Serialize `String` base on the special encoding
 #[derive(Clone, Debug)]
 pub struct StrEncodingSerializer<E, T> {
     encoding: E,

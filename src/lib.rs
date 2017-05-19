@@ -52,7 +52,7 @@ extern crate lz4_compress;
 extern crate pretty_env_logger;
 
 #[macro_use]
-pub mod errors;
+mod errors;
 mod compression;
 #[macro_use]
 mod protocol;
@@ -61,20 +61,19 @@ mod client;
 mod producer;
 mod consumer;
 
-pub mod consts {
-    pub use client::{DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_REQUEST_TIMEOUT_MILLS};
-    pub use producer::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
-                       DEFAULT_MAX_REQUEST_SIZE};
-}
-
 pub use errors::{Error, ErrorKind, Result};
 pub use compression::Compression;
-pub use protocol::{FetchOffset, PartitionId, RequiredAcks, ToMilliseconds};
+pub use protocol::{ApiKey, ApiKeys, ErrorCode, FetchOffset, Offset, PartitionId, RequiredAcks,
+                   Timestamp, ToMilliseconds, UsableApiVersion, UsableApiVersions};
 pub use network::TopicPartition;
-pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, KafkaVersion,
-                 Metadata, PartitionOffset, StaticBoxFuture};
-pub use producer::{BytesSerializer, DefaultPartitioner, KafkaProducer, NoopSerializer,
-                   PartitionRecord, Partitioner, Producer, ProducerBuilder, ProducerConfig,
-                   ProducerInterceptor, ProducerPartition, ProducerRecord, ProducerTopic,
-                   RawSerializer, RecordMetadata, Serializer, StrEncodingSerializer, TopicRecord};
+pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster,
+                 DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,
+                 DEFAULT_REQUEST_TIMEOUT_MILLS, FetchOffsets, KafkaClient, KafkaVersion,
+                 LoadMetadata, Metadata, PartitionOffset, ProduceRecords};
+pub use producer::{BytesSerializer, DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE,
+                   DEFAULT_LINGER_MILLIS, DEFAULT_MAX_REQUEST_SIZE, DEFAULT_RETRY_BACKOFF_MILLIS,
+                   DefaultPartitioner, KafkaProducer, NoopSerializer, PartitionRecord,
+                   Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
+                   ProducerPartition, ProducerRecord, ProducerTopic, RawSerializer,
+                   RecordMetadata, Serializer, StrEncodingSerializer, TopicRecord};
 pub use consumer::{Consumer, KafkaConsumer};

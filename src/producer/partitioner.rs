@@ -7,8 +7,7 @@ use twox_hash::XxHash;
 use protocol::PartitionId;
 use client::{Cluster, Metadata};
 
-/// A partitioner is given a chance to choose/redefine a partition
-/// for a message to be sent to Kafka.
+/// A trait for choosing a partition for a message to be sent to Kafka.
 pub trait Partitioner {
     /// Compute the partition for the given record.
     fn partition<K: Hash, V>(&self,
@@ -22,7 +21,7 @@ pub trait Partitioner {
 
 pub type DefaultHasher = XxHash;
 
-/// The default partitioning strategy:
+/// The default partitioning strategy
 ///
 /// - If a partition is specified in the record, use it
 /// - If no partition is specified but a key is present choose a partition based on a hash of the key
@@ -34,10 +33,12 @@ pub struct DefaultPartitioner<H: BuildHasher = BuildHasherDefault<DefaultHasher>
 }
 
 impl DefaultPartitioner {
+    /// Create a `DefaultPartitioner` with the default hasher.
     pub fn new() -> DefaultPartitioner<BuildHasherDefault<DefaultHasher>> {
         Default::default()
     }
 
+    /// Create a `DefaultPartitioner` with the special hasher.
     pub fn with_hasher<B: BuildHasher>(hash_builder: B) -> DefaultPartitioner<B> {
         DefaultPartitioner {
             hash_builder: hash_builder.into(),
@@ -45,7 +46,7 @@ impl DefaultPartitioner {
         }
     }
 
-    pub fn records(&self) -> usize {
+    fn records(&self) -> usize {
         self.records.load(Ordering::Relaxed)
     }
 }

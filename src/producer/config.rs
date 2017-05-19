@@ -8,12 +8,33 @@ use compression::Compression;
 use protocol::RequiredAcks;
 use client::ClientConfig;
 
+/// The default amount of time the server will wait for acknowledgments
+///
+/// Defaults to 30 seconds, see [`ProducerConfig::ack_timeout`](struct.ProducerConfig.html#ack_timeout.v)
 pub const DEFAULT_ACK_TIMEOUT_MILLIS: u64 = 30_000;
+
+/// The default bytes that producer will attempt to batch records together into fewer requests
+///
+/// Defaults to 16 KB, see [`ProducerConfig::batch_size`](struct.ProducerConfig.html#batch_size.v)
 pub const DEFAULT_BATCH_SIZE: usize = 16 * 1024;
+
+/// The default maximum size of a request in bytes.
+///
+/// Defaults to 1 MB, see [`ProducerConfig::max_request_size`](struct.ProducerConfig.html#max_request_size.v)
 pub const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
+
+/// The default millionseconds that producer groups together any records
+/// that arrive in between request transmissions into a single batched request.
+///
+/// Defaults to 0 ms, see [`ProducerConfig::linger`](struct.ProducerConfig.html#linger.v)
 pub const DEFAULT_LINGER_MILLIS: u64 = 0;
+
+/// The default time to wait before attempting to retry a failed request to a given topic partition.
+///
+/// Defaults to 100 ms, see [`ProducerConfig::retry_backoff`](struct.ProducerConfig.html#retry_backoff.v)
 pub const DEFAULT_RETRY_BACKOFF_MILLIS: u64 = 100;
 
+/// Configuration for the Kafka Producer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProducerConfig {
     pub client: ClientConfig,

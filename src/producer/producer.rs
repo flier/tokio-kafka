@@ -20,6 +20,7 @@ use producer::{Accumulator, Interceptors, PartitionRecord, Partitioner, Producer
                ProducerConfig, ProducerInterceptor, ProducerInterceptors, ProducerRecord,
                PushRecord, RecordAccumulator, RecordMetadata, Sender, Serializer, TopicRecord};
 
+/// A trait for publishing records to the Kafka cluster.
 pub trait Producer<'a> {
     type Key: Hash;
     type Value;
@@ -32,13 +33,20 @@ pub trait Producer<'a> {
     /// Flush any accumulated records from the producer.
     fn flush(&mut self) -> Flush;
 
+    /// Get a `futures::Sink` to send records for topic or partition.
     fn topic(&self, topic_name: &str) -> GetTopic<Self::Topic>;
 }
 
+/// The future of records metadata information.
 pub type SendRecord = StaticBoxFuture<RecordMetadata>;
+
+/// The future of flushing records.
 pub type Flush = StaticBoxFuture;
+
+/// The future of topic `Sink`.
 pub type GetTopic<T> = StaticBoxFuture<T>;
 
+/// A Kafka producer that publishes records to the Kafka cluster.
 #[derive(Clone)]
 pub struct KafkaProducer<'a, K, V, P>
     where K: Serializer,
@@ -381,7 +389,7 @@ impl<'a, K, V, P> Sink for ProducerTopic<'a, K, V, P>
     type SinkError = Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        let record = ProducerRecord::from_topic_record(self.topic_name.as_ref(), item);
+        let record = item.with_topic(&self.topic_name);
 
         self.pending
             .start_send(self.producer.send(record))
@@ -444,9 +452,7 @@ impl<'a, K, V, P> Sink for ProducerPartition<'a, K, V, P>
     type SinkError = Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        let record = ProducerRecord::from_partition_record(self.topic_name.as_ref(),
-                                                           self.partition_id,
-                                                           item);
+        let record = item.with_topic_and_partition(&self.topic_name, Some(self.partition_id));
         self.pending
             .start_send(self.producer.send(record))
             .map(|_| AsyncSink::Ready)

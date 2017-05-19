@@ -3,27 +3,27 @@ use std::collections::HashMap;
 use protocol::{ApiKeys, ApiVersion, NodeId, PartitionId, UsableApiVersions};
 use network::TopicPartition;
 
-/// A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
+/// A trait for representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
 pub trait Cluster {
     /// The known set of brokers.
     fn brokers(&self) -> &[Broker];
 
-    /// Get all topics.
+    /// Get all topic with partition information.
     fn topics(&self) -> HashMap<&str, &[PartitionInfo]>;
 
     /// Get all topic names.
     fn topic_names(&self) -> Vec<&str>;
 
-    /// Get the broker by the node id (or None if no such node exists)
+    /// Find the broker by the node id (return `None` if no such node exists)
     fn find_broker(&self, broker: BrokerRef) -> Option<&Broker>;
 
-    /// Get the current leader for the given topic-partition
+    /// Get the current leader for the given topic-partition (return `None` if no such node exists)
     fn leader_for(&self, tp: &TopicPartition) -> Option<&Broker>;
 
-    /// Get the metadata for the specified partition
+    /// Get the metadata for the specified partition (return `None` if no such partition exists)
     fn find_partition(&self, tp: &TopicPartition) -> Option<&PartitionInfo>;
 
-    /// Get the list of partitions for this topic
+    /// Get the list of partitions for this topic (return `None` if no such topic exists)
     fn partitions_for_topic(&self, topic_name: &str) -> Option<Vec<TopicPartition>>;
 
     /// Get the list of partitions whose leader is this node
@@ -105,20 +105,13 @@ impl Broker {
     }
 }
 
+/// The node index of this broker
 pub type BrokerIndex = i32;
 
 // See `Brokerref`
 static UNKNOWN_BROKER_INDEX: BrokerIndex = ::std::i32::MAX;
 
-/// ~ A custom identifier for a broker.  This type hides the fact that
-/// a `TopicPartition` references a `Broker` indirectly, loosely
-/// through an index, thereby being able to share broker data without
-/// having to fallback to `Rc` or `Arc` or otherwise fighting the
-/// borrowck.
-// ~ The value `UNKNOWN_BROKER_INDEX` is artificial and represents an
-// index to an unknown broker (aka the null value.) Code indexing
-// `self.brokers` using a `BrokerRef` _must_ check against this
-// constant and/or treat it conditionally.
+/// A custom identifier that used to refer to a broker.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct BrokerRef(BrokerIndex);
 
@@ -170,7 +163,7 @@ impl<'a> Default for PartitionInfo {
 }
 
 impl PartitionInfo {
-    pub fn new(partition: PartitionId, leader: BrokerRef) -> Self {
+    fn new(partition: PartitionId, leader: BrokerRef) -> Self {
         PartitionInfo {
             partition: partition,
             leader: Some(leader),
