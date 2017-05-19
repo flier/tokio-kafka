@@ -15,10 +15,10 @@ use tokio_retry::Retry;
 use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, PartitionId, ToMilliseconds};
 use network::TopicPartition;
-use client::{Cluster, KafkaClient, Metadata, StaticBoxFuture};
-use producer::{Accumulator, Interceptors, PartitionRecord, Partitioner, ProducerBuilder,
-               ProducerConfig, ProducerInterceptor, ProducerInterceptors, ProducerRecord,
-               PushRecord, RecordAccumulator, RecordMetadata, Sender, Serializer, TopicRecord};
+use client::{Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, TopicRecord};
+use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
+               ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,
+               RecordAccumulator, RecordMetadata, Sender, Serializer};
 
 /// A trait for publishing records to the Kafka cluster.
 pub trait Producer<'a> {
@@ -264,8 +264,8 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
             partition: partition,
         };
 
-        let timestamp =
-            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
+        let timestamp = timestamp
+            .unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
         let api_version = metadata
             .leader_for(&tp)
@@ -393,7 +393,7 @@ impl<'a, K, V, P> Sink for ProducerTopic<'a, K, V, P>
     type SinkError = Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        let record = item.with_topic(&self.topic_name);
+        let record = ProducerRecord::from_topic_record(&self.topic_name, item);
 
         self.pending
             .start_send(self.producer.send(record))
@@ -459,7 +459,8 @@ impl<'a, K, V, P> Sink for ProducerPartition<'a, K, V, P>
     type SinkError = Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        let record = item.with_topic_and_partition(&self.topic_name, Some(self.partition_id));
+        let record =
+            ProducerRecord::from_partition_record(&self.topic_name, Some(self.partition_id), item);
         self.pending
             .start_send(self.producer.send(record))
             .map(|_| AsyncSink::Ready)

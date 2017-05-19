@@ -34,7 +34,7 @@ pub const DEFAULT_LINGER_MILLIS: u64 = 0;
 /// Defaults to 100 ms, see [`ProducerConfig::retry_backoff`](struct.ProducerConfig.html#retry_backoff.v)
 pub const DEFAULT_RETRY_BACKOFF_MILLIS: u64 = 100;
 
-/// Configuration for the Kafka Producer.
+/// Configuration for the `KafkaProducer`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProducerConfig {
     pub client: ClientConfig,

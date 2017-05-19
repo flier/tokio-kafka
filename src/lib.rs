@@ -69,11 +69,12 @@ pub use network::TopicPartition;
 pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster,
                  DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,
                  DEFAULT_REQUEST_TIMEOUT_MILLS, FetchOffsets, KafkaClient, KafkaVersion,
-                 LoadMetadata, Metadata, PartitionOffset, ProduceRecords};
+                 LoadMetadata, Metadata, PartitionOffset, PartitionRecord, ProduceRecords,
+                 TopicRecord};
 pub use producer::{BytesSerializer, DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE,
                    DEFAULT_LINGER_MILLIS, DEFAULT_MAX_REQUEST_SIZE, DEFAULT_RETRY_BACKOFF_MILLIS,
-                   DefaultPartitioner, GetTopic, KafkaProducer, NoopSerializer, PartitionRecord,
-                   Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
+                   DefaultPartitioner, GetTopic, KafkaProducer, NoopSerializer, Partitioner,
+                   Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
                    ProducerPartition, ProducerRecord, ProducerTopic, RawSerializer,
-                   RecordMetadata, SendRecord, Serializer, StrEncodingSerializer, TopicRecord};
+                   RecordMetadata, SendRecord, Serializer, StrEncodingSerializer};
 pub use consumer::{Consumer, KafkaConsumer};

@@ -4,6 +4,7 @@ mod cluster;
 mod metadata;
 mod metrics;
 mod service;
+mod record;
 mod client;
 mod builder;
 
@@ -14,6 +15,7 @@ pub use self::cluster::{Broker, BrokerRef, Cluster, PartitionInfo};
 pub use self::metadata::{Metadata, TopicPartitions};
 pub use self::metrics::Metrics;
 pub use self::service::{FutureResponse, KafkaService};
+pub use self::record::{PartitionRecord, TopicRecord};
 pub use self::client::{Client, FetchOffsets, KafkaClient, LoadMetadata, PartitionOffset,
                        ProduceRecords, StaticBoxFuture};
 pub use self::builder::ClientBuilder;
