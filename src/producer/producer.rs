@@ -1,3 +1,4 @@
+use std::mem;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::borrow::{Borrow, Cow};
@@ -183,7 +184,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                                  producer: KafkaProducer { inner: inner.clone() },
                                  topic_name: topic_name.into(),
                                  partitions: partitions.iter().map(|p| p.partition).collect(),
-                                 flushing: None,
+                                 pending: Pending::new(),
                              })
                       } else {
                           bail!(ErrorKind::TopicNotFound(topic_name))
@@ -303,6 +304,58 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
     }
 }
 
+struct Pending {
+    sending: Vec<SendRecord>,
+    flushing: Option<Flush>,
+}
+
+impl Pending {
+    pub fn new() -> Pending {
+        Pending {
+            sending: Vec::new(),
+            flushing: None,
+        }
+    }
+
+    fn pending(&mut self) -> Option<Flush> {
+        if self.sending.is_empty() {
+            None
+        } else {
+            let sending = mem::replace(&mut self.sending, Vec::new());
+
+            Some(Flush::new(future::join_all(sending).map(|_| ())))
+        }
+    }
+}
+
+impl Sink for Pending {
+    type SinkItem = SendRecord;
+    type SinkError = Error;
+
+    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        self.sending.push(item);
+
+        Ok(AsyncSink::Ready)
+    }
+
+    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        let mut flushing = match (self.flushing.take(), self.pending()) {
+            (Some(flushing), Some(pending)) => Flush::new(flushing.join(pending).map(|_| ())),
+            (Some(flushing), None) => flushing,
+            (None, Some(pending)) => pending,
+            (None, None) => return Ok(Async::Ready(())),
+        };
+
+        let poll = flushing.poll();
+
+        if let Ok(Async::NotReady) = poll {
+            self.flushing = Some(flushing);
+        }
+
+        poll
+    }
+}
+
 pub struct ProducerTopic<'a, K, V, P>
     where K: Serializer,
           K::Item: Debug + Hash,
@@ -313,7 +366,7 @@ pub struct ProducerTopic<'a, K, V, P>
     producer: KafkaProducer<'a, K, V, P>,
     topic_name: Cow<'a, str>,
     partitions: Vec<PartitionId>,
-    flushing: Option<Flush>,
+    pending: Pending,
 }
 
 impl<'a, K, V, P> Sink for ProducerTopic<'a, K, V, P>
@@ -329,25 +382,14 @@ impl<'a, K, V, P> Sink for ProducerTopic<'a, K, V, P>
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         let record = ProducerRecord::from_topic_record(self.topic_name.as_ref(), item);
-        drop(Producer::send(&mut self.producer, record));
 
-        Ok(AsyncSink::Ready)
+        self.pending
+            .start_send(self.producer.send(record))
+            .map(|_| AsyncSink::Ready)
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        let mut flushing = if let Some(flushing) = self.flushing.take() {
-            flushing
-        } else {
-            self.producer.flush()
-        };
-
-        let polling = flushing.poll();
-
-        if let Ok(Async::NotReady) = polling {
-            self.flushing = Some(flushing);
-        }
-
-        polling
+        self.pending.poll_complete()
     }
 }
 
@@ -369,7 +411,7 @@ impl<'a, K, V, P> ProducerTopic<'a, K, V, P>
                      producer: KafkaProducer { inner: self.producer.inner.clone() },
                      topic_name: self.topic_name.clone(),
                      partition_id: partition_id,
-                     flushing: None,
+                     pending: Pending::new(),
                  })
         } else {
             None
@@ -387,7 +429,7 @@ pub struct ProducerPartition<'a, K, V, P>
     producer: KafkaProducer<'a, K, V, P>,
     topic_name: Cow<'a, str>,
     partition_id: PartitionId,
-    flushing: Option<Flush>,
+    pending: Pending,
 }
 
 impl<'a, K, V, P> Sink for ProducerPartition<'a, K, V, P>
@@ -405,24 +447,12 @@ impl<'a, K, V, P> Sink for ProducerPartition<'a, K, V, P>
         let record = ProducerRecord::from_partition_record(self.topic_name.as_ref(),
                                                            self.partition_id,
                                                            item);
-        drop(Producer::send(&mut self.producer, record));
-
-        Ok(AsyncSink::Ready)
+        self.pending
+            .start_send(self.producer.send(record))
+            .map(|_| AsyncSink::Ready)
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        let mut flushing = if let Some(flushing) = self.flushing.take() {
-            flushing
-        } else {
-            self.producer.flush()
-        };
-
-        let polling = flushing.poll();
-
-        if let Ok(Async::NotReady) = polling {
-            self.flushing = Some(flushing);
-        }
-
-        polling
+        self.pending.poll_complete()
     }
 }

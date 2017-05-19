@@ -85,7 +85,7 @@ impl Cluster for Metadata {
         self.brokers.as_slice()
     }
 
-    fn topics<'a>(&'a self) -> HashMap<&str, &[PartitionInfo]> {
+    fn topics(&self) -> HashMap<&str, &[PartitionInfo]> {
         HashMap::from_iter(self.topic_partitions
                                .iter()
                                .map(|(topic_name, topic_partitions)| {

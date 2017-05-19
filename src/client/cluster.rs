@@ -9,7 +9,7 @@ pub trait Cluster {
     fn brokers(&self) -> &[Broker];
 
     /// Get all topics.
-    fn topics<'a>(&'a self) -> HashMap<&str, &[PartitionInfo]>;
+    fn topics(&self) -> HashMap<&str, &[PartitionInfo]>;
 
     /// Get all topic names.
     fn topic_names(&self) -> Vec<&str>;
