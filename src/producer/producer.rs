@@ -11,7 +11,7 @@ use futures::{Async, AsyncSink, Future, Poll, Sink, StartSend, Stream, future};
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_retry::Retry;
 
-use errors::Error;
+use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, PartitionId, ToMilliseconds};
 use network::TopicPartition;
 use client::{Cluster, KafkaClient, Metadata, StaticBoxFuture};
@@ -23,7 +23,6 @@ pub trait Producer<'a> {
     type Key: Hash;
     type Value;
     type Topic: Sink<SinkItem = TopicRecord<Self::Key, Self::Value>, SinkError = Error>;
-    type Partition: Sink<SinkItem = PartitionRecord<Self::Key, Self::Value>, SinkError = Error>;
 
     /// Send the given record asynchronously and
     /// return a future which will eventually contain the response information.
@@ -32,13 +31,12 @@ pub trait Producer<'a> {
     /// Flush any accumulated records from the producer.
     fn flush(&mut self) -> Flush;
 
-    fn topic(&self, topic_name: &str) -> Self::Topic;
-
-    fn partition(&self, topic_name: &str, partition_id: PartitionId) -> Self::Partition;
+    fn topic(&self, topic_name: &str) -> GetTopic<Self::Topic>;
 }
 
 pub type SendRecord = StaticBoxFuture<RecordMetadata>;
 pub type Flush = StaticBoxFuture;
+pub type GetTopic<T> = StaticBoxFuture<T>;
 
 #[derive(Clone)]
 pub struct KafkaProducer<'a, K, V, P>
@@ -118,8 +116,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
 {
     type Key = K::Item;
     type Value = V::Item;
-    type Topic = Topic<'a, K, V, P>;
-    type Partition = Partition<'a, K, V, P>;
+    type Topic = ProducerTopic<'a, K, V, P>;
 
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
         let inner = self.inner.clone();
@@ -173,21 +170,25 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         self.inner.flush_batches(true)
     }
 
-    fn topic(&self, topic_name: &str) -> Self::Topic {
-        Topic {
-            producer: KafkaProducer { inner: self.inner.clone() },
-            topic_name: topic_name.to_owned().into(),
-            flushing: None,
-        }
-    }
-
-    fn partition(&self, topic_name: &str, partition_id: PartitionId) -> Self::Partition {
-        Partition {
-            producer: KafkaProducer { inner: self.inner.clone() },
-            topic_name: topic_name.to_owned().into(),
-            partition_id: partition_id,
-            flushing: None,
-        }
+    fn topic(&self, topic_name: &str) -> GetTopic<Self::Topic> {
+        let topic_name = topic_name.to_owned();
+        let inner = self.inner.clone();
+        let get_topic = self.inner
+            .client
+            .metadata()
+            .and_then(move |metadata| if let Some(partitions) = metadata
+                             .topics()
+                             .get(topic_name.as_str()) {
+                          Ok(ProducerTopic {
+                                 producer: KafkaProducer { inner: inner.clone() },
+                                 topic_name: topic_name.into(),
+                                 partitions: partitions.iter().map(|p| p.partition).collect(),
+                                 flushing: None,
+                             })
+                      } else {
+                          bail!(ErrorKind::TopicNotFound(topic_name))
+                      });
+        GetTopic::new(get_topic)
     }
 }
 
@@ -302,7 +303,7 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
     }
 }
 
-pub struct Topic<'a, K, V, P>
+pub struct ProducerTopic<'a, K, V, P>
     where K: Serializer,
           K::Item: Debug + Hash,
           V: Serializer,
@@ -311,10 +312,11 @@ pub struct Topic<'a, K, V, P>
 {
     producer: KafkaProducer<'a, K, V, P>,
     topic_name: Cow<'a, str>,
+    partitions: Vec<PartitionId>,
     flushing: Option<Flush>,
 }
 
-impl<'a, K, V, P> Sink for Topic<'a, K, V, P>
+impl<'a, K, V, P> Sink for ProducerTopic<'a, K, V, P>
     where K: Serializer,
           K::Item: Debug + Hash,
           V: Serializer,
@@ -349,7 +351,33 @@ impl<'a, K, V, P> Sink for Topic<'a, K, V, P>
     }
 }
 
-pub struct Partition<'a, K, V, P>
+impl<'a, K, V, P> ProducerTopic<'a, K, V, P>
+    where K: Serializer,
+          K::Item: Debug + Hash,
+          V: Serializer,
+          V::Item: Debug,
+          P: Partitioner,
+          Self: 'static
+{
+    pub fn partitions(&self) -> &[PartitionId] {
+        &self.partitions
+    }
+
+    pub fn partition(&self, partition_id: PartitionId) -> Option<ProducerPartition<'a, K, V, P>> {
+        if self.partitions.contains(&partition_id) {
+            Some(ProducerPartition {
+                     producer: KafkaProducer { inner: self.producer.inner.clone() },
+                     topic_name: self.topic_name.clone(),
+                     partition_id: partition_id,
+                     flushing: None,
+                 })
+        } else {
+            None
+        }
+    }
+}
+
+pub struct ProducerPartition<'a, K, V, P>
     where K: Serializer,
           K::Item: Debug + Hash,
           V: Serializer,
@@ -362,7 +390,7 @@ pub struct Partition<'a, K, V, P>
     flushing: Option<Flush>,
 }
 
-impl<'a, K, V, P> Sink for Partition<'a, K, V, P>
+impl<'a, K, V, P> Sink for ProducerPartition<'a, K, V, P>
     where K: Serializer,
           K::Item: Debug + Hash,
           V: Serializer,

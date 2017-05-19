@@ -16,7 +16,8 @@ pub use self::config::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_L
 pub use self::batch::{ProducerBatch, Thunk};
 pub use self::accumulator::{Accumulator, PushRecord, RecordAccumulator};
 pub use self::sender::{SendBatch, Sender};
-pub use self::producer::{Flush, KafkaProducer, Partition, Producer, SendRecord, Topic};
+pub use self::producer::{Flush, KafkaProducer, Producer, ProducerPartition, ProducerTopic,
+                         SendRecord};
 pub use self::serialization::{BytesSerializer, NoopSerializer, RawSerializer, Serializer,
                               StrEncodingSerializer};
 pub use self::interceptor::{Interceptors, ProducerInterceptor, ProducerInterceptors};

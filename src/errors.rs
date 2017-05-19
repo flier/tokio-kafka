@@ -64,6 +64,10 @@ error_chain!{
           description("LZ4 error")
           display("LZ4 error, {:?}", reason)
         }
+        TopicNotFound(name: String) {
+            description("topic not found")
+            display("topic `{}` not found", name)
+        }
     }
 }
 

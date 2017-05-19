@@ -75,6 +75,6 @@ pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster, KafkaClient, 
                  Metadata, PartitionOffset, StaticBoxFuture};
 pub use producer::{BytesSerializer, DefaultPartitioner, KafkaProducer, NoopSerializer,
                    Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
-                   ProducerRecord, RawSerializer, RecordMetadata, Serializer,
-                   StrEncodingSerializer};
+                   ProducerPartition, ProducerRecord, ProducerTopic, RawSerializer,
+                   RecordMetadata, Serializer, StrEncodingSerializer};
 pub use consumer::{Consumer, KafkaConsumer};

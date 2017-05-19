@@ -194,7 +194,7 @@ fn dump_metadata<'a>(config: Config,
     }
 
     for (idx, (topic_name, partitions)) in metadata.topics().iter().enumerate() {
-        let topic_name = topic_name.to_owned().into_owned();
+        let topic_name = topic_name.to_owned().to_owned();
 
         if !topics.contains(&topic_name) {
             continue;

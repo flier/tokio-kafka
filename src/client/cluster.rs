@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 
 use protocol::{ApiKeys, ApiVersion, NodeId, PartitionId, UsableApiVersions};
@@ -10,7 +9,7 @@ pub trait Cluster {
     fn brokers(&self) -> &[Broker];
 
     /// Get all topics.
-    fn topics<'a>(&'a self) -> HashMap<Cow<'a, str>, &[PartitionInfo]>;
+    fn topics<'a>(&'a self) -> HashMap<&str, &[PartitionInfo]>;
 
     /// Get all topic names.
     fn topic_names(&self) -> Vec<&str>;
