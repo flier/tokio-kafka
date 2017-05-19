@@ -66,7 +66,7 @@ pub use compression::Compression;
 pub use protocol::{ApiKey, ApiKeys, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId,
                    RequiredAcks, Timestamp, ToMilliseconds, UsableApiVersion, UsableApiVersions};
 pub use network::TopicPartition;
-pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster,
+pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster,
                  DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,
                  DEFAULT_REQUEST_TIMEOUT_MILLS, FetchOffsets, KafkaClient, KafkaVersion,
                  LoadMetadata, Metadata, PartitionOffset, ProduceRecords};

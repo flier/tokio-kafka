@@ -9,7 +9,7 @@ use errors::{ErrorKind, Result};
 use protocol::ToMilliseconds;
 use client::{ClientConfig, KafkaClient, KafkaVersion};
 
-/// A KafkaClient builder easing the process of setting up various configuration settings.
+/// A `KafkaClient` builder easing the process of setting up various configuration settings.
 #[derive(Default)]
 pub struct ClientBuilder<'a> {
     config: ClientConfig,

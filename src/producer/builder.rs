@@ -14,7 +14,7 @@ use client::{KafkaClient, KafkaVersion};
 use producer::{DefaultPartitioner, Interceptors, KafkaProducer, NoopSerializer, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors, Serializer};
 
-/// A KafkaProducer builder easing the process of setting up various configuration settings.
+/// A `KafkaProducer` builder easing the process of setting up various configuration settings.
 pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner>
     where K: Serializer,
           V: Serializer

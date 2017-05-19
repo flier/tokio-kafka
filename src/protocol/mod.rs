@@ -47,7 +47,7 @@ pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiV
 
 /// This is a numeric id for the API being invoked (i.e. is it a metadata request, a produce request, a fetch request, etc).
 ///
-/// See [ApiKeys](enum.ApiKeys.html)
+/// See [`ApiKeys`](enum.ApiKeys.html)
 pub type ApiKey = i16;
 
 /// This is a numeric version number for this api.
@@ -93,7 +93,7 @@ pub type RequiredAck = i16;
 ///
 /// The following are the numeric codes that the `ApiKey` in the request can take for each of the below request types.
 ///
-/// See [ApiKey](type.ApiKey.html)
+/// See [`ApiKey`](type.ApiKey.html)
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(i16)]
 pub enum ApiKeys {
