@@ -43,7 +43,7 @@ error_chain!{
         }
         KafkaError(code: KafkaCode) {
             description("kafka error")
-            display("kafka error, {:?}", code)
+            display("kafka error, {:?}, {}", code, code.reason())
         }
         TimeoutError(reason: String) {
             description("operation timed out")

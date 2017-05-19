@@ -63,8 +63,8 @@ mod consumer;
 
 pub use errors::{Error, ErrorKind, Result};
 pub use compression::Compression;
-pub use protocol::{ApiKey, ApiKeys, ErrorCode, FetchOffset, Offset, PartitionId, RequiredAcks,
-                   Timestamp, ToMilliseconds, UsableApiVersion, UsableApiVersions};
+pub use protocol::{ApiKey, ApiKeys, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId,
+                   RequiredAcks, Timestamp, ToMilliseconds, UsableApiVersion, UsableApiVersions};
 pub use network::TopicPartition;
 pub use client::{Broker, BrokerRef, Client, ClientConfig, Cluster,
                  DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,
