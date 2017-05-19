@@ -24,10 +24,10 @@ pub trait Cluster {
     fn find_partition(&self, tp: &TopicPartition) -> Option<&PartitionInfo>;
 
     /// Get the list of partitions for this topic
-    fn partitions_for_topic<'a>(&'a self, topic_name: &str) -> Option<Vec<TopicPartition<'a>>>;
+    fn partitions_for_topic(&self, topic_name: &str) -> Option<Vec<TopicPartition>>;
 
     /// Get the list of partitions whose leader is this node
-    fn partitions_for_broker<'a>(&'a self, broker: BrokerRef) -> Vec<TopicPartition<'a>>;
+    fn partitions_for_broker(&self, broker: BrokerRef) -> Vec<TopicPartition>;
 }
 
 /// Describes a Kafka broker node is communicating with.

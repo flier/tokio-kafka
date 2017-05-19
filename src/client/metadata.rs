@@ -124,7 +124,7 @@ impl Cluster for Metadata {
                       })
     }
 
-    fn partitions_for_topic<'a>(&'a self, topic_name: &str) -> Option<Vec<TopicPartition<'a>>> {
+    fn partitions_for_topic(&self, topic_name: &str) -> Option<Vec<TopicPartition>> {
         self.topic_partitions
             .iter()
             .find(|&(topic, _)| topic.as_str() == topic_name)
@@ -141,7 +141,7 @@ impl Cluster for Metadata {
             })
     }
 
-    fn partitions_for_broker<'a>(&'a self, leader: BrokerRef) -> Vec<TopicPartition<'a>> {
+    fn partitions_for_broker(&self, leader: BrokerRef) -> Vec<TopicPartition> {
         self.topic_partitions
             .iter()
             .flat_map(|(topic_name, partitions)| {
