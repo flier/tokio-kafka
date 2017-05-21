@@ -20,7 +20,7 @@ use futures::Future;
 use futures::future;
 use tokio_core::reactor::Core;
 use tokio_kafka::{Client, Cluster, FetchOffset, KafkaClient, KafkaVersion, Metadata,
-                  PartitionOffset};
+                  PartitionOffset, TopicPartition};
 
 const DEFAULT_BROKER: &'static str = "127.0.0.1:9092";
 
@@ -37,7 +37,7 @@ struct Config {
     brokers: Vec<SocketAddr>,
     api_version_request: bool,
     broker_version: Option<KafkaVersion>,
-    topics: Option<Vec<String>>,
+    topic_names: Option<Vec<String>>,
     show_header: bool,
     show_host: bool,
     show_size: bool,
@@ -47,11 +47,7 @@ struct Config {
 impl Config {
     fn parse_cmdline() -> Result<Self> {
         let args: Vec<String> = env::args().collect();
-        let program = Path::new(&args[0])
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
+        let program = Path::new(&args[0]).file_name().unwrap().to_str().unwrap();
         let mut opts = Options::new();
 
         opts.optflag("h", "help", "print this help menu");
@@ -92,7 +88,7 @@ impl Config {
                 (false, Some(s.parse().unwrap()))
             });
 
-        let topics = matches
+        let topic_names = matches
             .opt_str("t")
             .map(|s| s.split(',').map(|s| s.trim().to_owned()).collect());
 
@@ -103,7 +99,7 @@ impl Config {
                    .collect(),
                api_version_request: api_version_request,
                broker_version: broker_version,
-               topics: topics,
+               topic_names: topic_names,
                show_header: !matches.opt_present("no-header"),
                show_host: !matches.opt_present("no-host"),
                show_size: !matches.opt_present("no-size"),
@@ -130,26 +126,45 @@ fn main() {
 
     let client = builder.build().unwrap();
 
-    let topics = config.topics.clone();
+    let topics = config.topic_names.clone();
 
     let work = client
         .metadata()
         .and_then(move |metadata| {
-            let topics = topics.unwrap_or_else(|| {
-                                                   metadata
-                                                       .topic_names()
-                                                       .iter()
-                                                       .map(|&s| s.to_owned())
-                                                       .collect()
-                                               });
+            let topics: Vec<TopicPartition> = metadata
+                .topics()
+                .iter()
+                .filter(move |&(&topic_name, _)| {
+                            topics
+                                .as_ref()
+                                .map_or(true, move |topic_names| {
+                        topic_names.contains(&topic_name.to_owned())
+                    })
+                        })
+                .flat_map(|(topic_name, partitions)| {
+                    partitions
+                        .iter()
+                        .map(move |partition| {
+                                 TopicPartition {
+                                     topic_name: String::from(*topic_name).into(),
+                                     partition: partition.partition,
+                                 }
+                             })
+                })
+                .collect();
 
-            let requests = vec![client.fetch_offsets(&topics, FetchOffset::Earliest),
-                                client.fetch_offsets(&topics, FetchOffset::Latest)];
+            let requests = vec![client.fetch_offsets(topics.clone(), FetchOffset::Earliest),
+                                client.fetch_offsets(topics.clone(), FetchOffset::Latest)];
+
+            let topic_names = topics
+                .iter()
+                .map(|ref tp| String::from(tp.topic_name.to_owned()))
+                .collect();
 
             future::join_all(requests).map(|responses| {
                                                dump_metadata(config,
                                                              metadata,
-                                                             topics,
+                                                             topic_names,
                                                              &responses[0],
                                                              &responses[1])
                                            })
