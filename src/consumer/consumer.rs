@@ -52,17 +52,19 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
             .metadata()
             .and_then(move |metadata| {
                 let topics = metadata.topics();
+                let not_found: Vec<String> = topic_names
+                    .iter()
+                    .filter(|topic_name| !topics.contains_key(topic_name.as_str()))
+                    .cloned()
+                    .collect();
 
-                if let Some(topic_name) =
-                    topic_names
-                        .iter()
-                        .find(|topic_name| !topics.contains_key(topic_name.as_str())) {
-                    bail!(ErrorKind::TopicNotFound(topic_name.clone()))
-                } else {
+                if not_found.is_empty() {
                     Ok(ConsumerTopics {
                            consumer: KafkaConsumer { inner: inner },
                            subscriptions: Subscriptions::with_topics(topic_names.iter()),
                        })
+                } else {
+                    bail!(ErrorKind::TopicNotFound(not_found.join(",")))
                 }
             });
         Subscribe::new(topics)
