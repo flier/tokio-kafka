@@ -27,6 +27,7 @@ pub const DEFAULT_TIMER_TICK_MILLS: u64 = 100;
 
 /// Configuration for the Kafka Client.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ClientConfig {
     /// A list of host/port pairs to use for establishing the initial connection to the Kafka cluster.
     #[serde(rename = "bootstrap.servers")]

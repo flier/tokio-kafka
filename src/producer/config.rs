@@ -36,6 +36,7 @@ pub const DEFAULT_RETRY_BACKOFF_MILLIS: u64 = 100;
 
 /// Configuration for the `KafkaProducer`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ProducerConfig {
     pub client: ClientConfig,
 

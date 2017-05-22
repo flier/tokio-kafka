@@ -16,7 +16,7 @@ pub trait Consumer {
     /// The type of `Stream` to receive records from topics
     type Topics: Stream<Item = TopicRecord<Self::Key, Self::Value>, Error = Error>;
 
-    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
+    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscriber<Self::Topics>
         where S: AsRef<str> + Hash + Eq;
 }
 
@@ -42,10 +42,13 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
     type Value = V::Item;
     type Topics = ConsumerTopics<'a, K, V>;
 
-    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
+    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscriber<Self::Topics>
         where S: AsRef<str> + Hash + Eq
     {
-        let topic_names: Vec<String> = topic_names.iter().map(|s| s.as_ref().to_owned()).collect();
+        let topic_names: Vec<String> = topic_names
+            .iter()
+            .map(|s| s.as_ref().to_owned())
+            .collect();
         let inner = self.inner.clone();
         let topics = self.inner
             .client
@@ -67,11 +70,11 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
                 }
             });
-        Subscribe::new(topics)
+        Subscriber::new(topics)
     }
 }
 
-pub type Subscribe<T> = StaticBoxFuture<T>;
+pub type Subscriber<T> = StaticBoxFuture<T>;
 
 pub struct ConsumerTopics<'a, K, V> {
     consumer: KafkaConsumer<'a, K, V>,

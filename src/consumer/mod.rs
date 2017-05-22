@@ -5,7 +5,9 @@ mod consumer;
 mod serialization;
 mod builder;
 
-pub use self::config::ConsumerConfig;
+pub use self::config::{ConsumerConfig, DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS,
+                       DEFAULT_HEARTBEAT_INTERVAL_MILLIS, DEFAULT_MAX_POLL_INTERVAL_MILLIS,
+                       DEFAULT_MAX_POLL_RECORDS};
 pub use self::subscriptions::Subscriptions;
 pub use self::fetcher::Fetcher;
 pub use self::consumer::{Consumer, KafkaConsumer};
