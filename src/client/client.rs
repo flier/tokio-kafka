@@ -41,6 +41,12 @@ pub trait Client<'a>: 'static {
 
     /// Load metadata of the Kafka cluster and return a future which will eventually contain the metadata information.
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
+
+    /// Discover the current coordinator of the consumer group.
+    fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator;
+
+    /// Leave the current group
+    fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup;
 }
 
 /// The partition and offset
@@ -57,6 +63,12 @@ pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, Erro
 
 /// The future of partition offsets information.
 pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
+
+/// The future of discover group coodinator
+pub type GroupCoordinator = StaticBoxFuture<Broker>;
+
+/// The future of leave group.
+pub type LeaveGroup = StaticBoxFuture<String>;
 
 /// A Kafka client that communicate with the Kafka cluster.
 #[derive(Clone)]
@@ -187,8 +199,6 @@ impl<'a> Client<'a> for KafkaClient<'a>
     }
 
     fn load_metadata(&mut self) -> LoadMetadata<'a> {
-        debug!("loading metadata...");
-
         if self.inner.config.metadata_max_age > 0 {
             let handle = self.inner.handle.clone();
 
@@ -212,6 +222,14 @@ impl<'a> Client<'a> for KafkaClient<'a>
         }
 
         LoadMetadata::new(self.inner.clone())
+    }
+
+    fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
+        self.inner.group_coordinator(group_id)
+    }
+
+    fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup {
+        self.inner.leave_group(group_id, member_id)
     }
 }
 
@@ -264,7 +282,12 @@ impl<'a> Inner<'a>
     fn fetch_api_versions(&self, broker: &Broker) -> FetchApiVersions {
         debug!("fetch API versions for broker: {:?}", broker);
 
-        let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
+        let addr = broker
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
 
         let request = KafkaRequest::fetch_api_versions(0, // api_version,
                                                        self.next_correlation_id(),
@@ -313,9 +336,14 @@ impl<'a> Inner<'a>
             .leader_for(&tp)
             .map_or_else(|| (0, *self.config.hosts.iter().next().unwrap()),
                          |broker| {
-                             (broker.api_version(ApiKeys::Produce).unwrap_or_default(),
-                              broker.addr().to_socket_addrs().unwrap().next().unwrap())
-                         });
+                (broker.api_version(ApiKeys::Produce).unwrap_or_default(),
+                 broker
+                     .addr()
+                     .to_socket_addrs()
+                     .unwrap()
+                     .next()
+                     .unwrap())
+            });
 
         let request = KafkaRequest::produce_records(api_version,
                                                     self.next_correlation_id(),
@@ -358,8 +386,15 @@ impl<'a> Inner<'a>
 
         for topic_partition in topic_partitions {
             if let Some(broker) = metadata.leader_for(&topic_partition) {
-                let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
-                let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
+                let addr = broker
+                    .addr()
+                    .to_socket_addrs()
+                    .unwrap()
+                    .next()
+                    .unwrap(); // TODO
+                let api_version = broker
+                    .api_version(ApiKeys::ListOffsets)
+                    .unwrap_or_default();
                 topics
                     .entry((addr, api_version))
                     .or_insert_with(HashMap::new)
@@ -442,6 +477,61 @@ impl<'a> Inner<'a>
         });
 
         FetchOffsets::new(offsets)
+    }
+
+    fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
+        debug!("disover group coordinator of group `{}`", group_id);
+
+        let addr = *self.config.hosts.iter().next().unwrap(); // TODO
+
+        let request = KafkaRequest::group_coordinator(0, // api_version,
+                                                      self.next_correlation_id(),
+                                                      self.client_id(),
+                                                      group_id);
+
+        let response = self.service
+            .call((addr, request))
+            .and_then(|res| if let KafkaResponse::GroupCoordinator(res) = res {
+                          if res.error_code == KafkaCode::None as ErrorCode {
+                              future::ok(Broker::new(res.coordinator_id,
+                                                     &res.coordinator_host,
+                                                     res.coordinator_port as u16))
+                          } else {
+                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                          }
+                      } else {
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                      });
+
+        GroupCoordinator::new(response)
+    }
+
+    fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup {
+        debug!("member `{}` leave group `{}`", member_id, group_id);
+
+        let addr = *self.config.hosts.iter().next().unwrap(); // TODO
+
+        let leaved_group_id: String = (*group_id).to_owned();
+
+        let request = KafkaRequest::leave_group(0, // api_version,
+                                                self.next_correlation_id(),
+                                                self.client_id(),
+                                                group_id,
+                                                member_id);
+
+        let response = self.service
+            .call((addr, request))
+            .and_then(move |res| if let KafkaResponse::LeaveGroup(res) = res {
+                          if res.error_code == KafkaCode::None as ErrorCode {
+                              future::ok(leaved_group_id)
+                          } else {
+                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                          }
+                      } else {
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                      });
+
+        LeaveGroup::new(response)
     }
 }
 

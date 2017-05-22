@@ -5,7 +5,7 @@ use futures::{Async, Future, Poll, Stream, future};
 
 use errors::{Error, ErrorKind};
 use client::{Cluster, KafkaClient, StaticBoxFuture, TopicRecord};
-use consumer::{ConsumerConfig, Deserializer, Subscriptions};
+use consumer::{ConsumerConfig, ConsumerCoordinator, Coordinator, Deserializer, Subscriptions};
 
 /// A trait for consuming records from a Kafka cluster.
 pub trait Consumer {
@@ -26,7 +26,7 @@ pub struct KafkaConsumer<'a, K, V> {
 }
 
 struct Inner<'a, K, V> {
-    client: Rc<KafkaClient<'a>>,
+    client: KafkaClient<'a>,
     config: ConsumerConfig,
     key_deserializer: K,
     value_deserializer: V,
@@ -50,6 +50,7 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
             .map(|s| s.as_ref().to_owned())
             .collect();
         let inner = self.inner.clone();
+        let group_id = self.inner.config.group_id.clone();
         let topics = self.inner
             .client
             .metadata()
@@ -62,9 +63,12 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                     .collect();
 
                 if not_found.is_empty() {
+                    let client = inner.client.clone();
+
                     Ok(ConsumerTopics {
                            consumer: KafkaConsumer { inner: inner },
                            subscriptions: Subscriptions::with_topics(topic_names.iter()),
+                           coordinator: ConsumerCoordinator::new(client, group_id),
                        })
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
@@ -79,19 +83,31 @@ pub type Subscriber<T> = StaticBoxFuture<T>;
 pub struct ConsumerTopics<'a, K, V> {
     consumer: KafkaConsumer<'a, K, V>,
     subscriptions: Subscriptions,
+    coordinator: ConsumerCoordinator<'a>,
 }
 
 impl<'a, K, V> ConsumerTopics<'a, K, V>
     where K: Deserializer,
           K::Item: Hash,
-          V: Deserializer
+          V: Deserializer,
+          Self: 'static
 {
     pub fn commit(&mut self) -> Commit {
         StaticBoxFuture::new(future::ok(()))
     }
+
+    /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
+    pub fn unsubscribe(self) -> Unsubscribe {
+        StaticBoxFuture::new(self.coordinator
+                                 .leave_group()
+                                 .map(|group_id| {
+                                          debug!("leaved `{}` group", group_id);
+                                      }))
+    }
 }
 
 pub type Commit = StaticBoxFuture;
+pub type Unsubscribe = StaticBoxFuture;
 
 impl<'a, K, V> Stream for ConsumerTopics<'a, K, V>
     where K: Deserializer,

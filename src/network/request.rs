@@ -135,7 +135,7 @@ impl<'a> KafkaRequest<'a> {
                                          correlation_id: CorrelationId,
                                          client_id: Option<Cow<'a, str>>,
                                          topic_names: &[S])
-                                         -> Self {
+                                         -> KafkaRequest<'a> {
         let request = MetadataRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Metadata as ApiKey,
@@ -155,7 +155,7 @@ impl<'a> KafkaRequest<'a> {
     pub fn fetch_api_versions(api_version: ApiVersion,
                               correlation_id: CorrelationId,
                               client_id: Option<Cow<'a, str>>)
-                              -> Self {
+                              -> KafkaRequest<'a> {
         let request = ApiVersionsRequest {
             header: RequestHeader {
                 api_key: ApiKeys::ApiVersions as ApiKey,
@@ -166,6 +166,44 @@ impl<'a> KafkaRequest<'a> {
         };
 
         KafkaRequest::ApiVersions(request)
+    }
+
+    pub fn group_coordinator(api_version: ApiVersion,
+                             correlation_id: CorrelationId,
+                             client_id: Option<Cow<'a, str>>,
+                             group_id: Cow<'a, str>)
+                             -> KafkaRequest<'a> {
+        let request = GroupCoordinatorRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::GroupCoordinator as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            group_id: group_id,
+        };
+
+        KafkaRequest::GroupCoordinator(request)
+    }
+
+    pub fn leave_group(api_version: ApiVersion,
+                       correlation_id: CorrelationId,
+                       client_id: Option<Cow<'a, str>>,
+                       group_id: Cow<'a, str>,
+                       member_id: Cow<'a, str>)
+                       -> KafkaRequest<'a> {
+        let request = LeaveGroupRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::LeaveGroup as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            group_id: group_id,
+            member_id: member_id,
+        };
+
+        KafkaRequest::LeaveGroup(request)
     }
 }
 

@@ -13,6 +13,8 @@ const SESSION_TIMEOUT_SIZE: usize = 4;
 const REBALANCE_TIMEOUT_SIZE: usize = 4;
 const GROUP_GENERATION_ID_SIZE: usize = 4;
 
+pub type GenerationId = i32;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupCoordinatorRequest<'a> {
     pub header: RequestHeader<'a>,
@@ -63,7 +65,7 @@ pub struct JoinGroupResponse {
     /// Error code.
     pub error_code: ErrorCode,
     /// The generation of the consumer group.
-    pub generation_id: i32,
+    pub generation_id: GenerationId,
     /// The group protocol selected by the coordinator
     pub group_protocol: String,
     /// The leader id assigned by the group coordinator.
@@ -87,7 +89,7 @@ pub struct HeartbeatRequest<'a> {
     /// The unique group id.
     pub group_id: Cow<'a, str>,
     /// The generation of the group.
-    pub group_generation_id: i32,
+    pub group_generation_id: GenerationId,
     /// The member id assigned by the group coordinator.
     pub member_id: Cow<'a, str>,
 }
@@ -121,7 +123,7 @@ pub struct SyncGroupRequest<'a> {
     /// The unique group id.
     pub group_id: Cow<'a, str>,
     /// The generation of the group.
-    pub group_generation_id: i32,
+    pub group_generation_id: GenerationId,
     /// The member id assigned by the group coordinator.
     pub member_id: Cow<'a, str>,
 
