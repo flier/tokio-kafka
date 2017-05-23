@@ -425,6 +425,10 @@ impl<'a> Inner<'a>
             for addr in broker.addr().to_socket_addrs()? {
                 match self.service.in_flight_requests(&addr) {
                     Some(0) => {
+                        trace!("found least loaded broker #{} @ {} without in flight requests",
+                               broker.id(),
+                               addr);
+
                         return Ok((addr, broker.as_ref()));
                     }
                     Some(n) if n < in_flight_requests => {
@@ -437,21 +441,40 @@ impl<'a> Inner<'a>
         }
 
         found
+            .map(|(addr, broker)| {
+                trace!("found least loaded broker #{} @ {} with {} in flight requests",
+                       broker.index(),
+                       addr,
+                       self.service
+                           .in_flight_requests(&addr)
+                           .unwrap_or_default());
+
+                (addr, broker)
+            })
             .or_else(|| {
                 metadata
                     .brokers()
                     .first()
                     .map(|broker| {
-                        (broker
-                             .addr()
-                             .to_socket_addrs()
-                             .unwrap()
-                             .next()
-                             .unwrap(),
-                         broker.as_ref())
+                        let addr = broker
+                            .addr()
+                            .to_socket_addrs()
+                            .unwrap()
+                            .next()
+                            .unwrap();
+
+                        trace!("not found any alive broker, use a random broker # {} @ {}",
+                               broker.id(),
+                               addr);
+
+                        (addr, broker.as_ref())
                     })
             })
-            .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::BrokerNotAvailable).into())
+            .ok_or_else(|| {
+                            warn!("not found any broker");
+
+                            ErrorKind::KafkaError(KafkaCode::BrokerNotAvailable).into()
+                        })
     }
 
     fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
