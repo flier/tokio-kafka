@@ -200,7 +200,7 @@ impl<'a> KafkaRequest<'a> {
                       rebalance_timeout: i32,
                       member_id: Cow<'a, str>,
                       protocol_type: Cow<'a, str>,
-                      group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                      group_protocols: Vec<JoinGroupProtocol<'a>>)
                       -> KafkaRequest<'a> {
         let request = JoinGroupRequest {
             header: RequestHeader {
@@ -214,15 +214,7 @@ impl<'a> KafkaRequest<'a> {
             rebalance_timeout: rebalance_timeout,
             member_id: member_id,
             protocol_type: protocol_type,
-            protocols: group_protocols
-                .iter()
-                .map(|(protocol_name, protocol_metadata)| {
-                         JoinGroupProtocol {
-                             protocol_name: protocol_name.clone(),
-                             protocol_metadata: protocol_metadata.clone(),
-                         }
-                     })
-                .collect(),
+            protocols: group_protocols,
         };
 
         KafkaRequest::JoinGroup(request)
@@ -252,7 +244,7 @@ impl<'a> KafkaRequest<'a> {
                       group_id: Cow<'a, str>,
                       group_generation_id: GenerationId,
                       member_id: Cow<'a, str>,
-                      group_assignment: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                      group_assignment: Vec<SyncGroupAssignment<'a>>)
                       -> KafkaRequest<'a> {
         let request = SyncGroupRequest {
             header: RequestHeader {
@@ -265,11 +257,11 @@ impl<'a> KafkaRequest<'a> {
             group_generation_id: group_generation_id,
             member_id: member_id,
             group_assignment: group_assignment
-                .iter()
-                .map(|(member_id, member_assignment)| {
+                .into_iter()
+                .map(|assignment| {
                          SyncGroupAssignment {
-                             member_id: member_id.clone(),
-                             member_assignment: member_assignment.clone(),
+                             member_id: assignment.member_id,
+                             member_assignment: assignment.member_assignment,
                          }
                      })
                 .collect(),

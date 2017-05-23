@@ -20,7 +20,8 @@ use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 
 use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, GenerationId,
-               KafkaCode, MessageSet, Offset, PartitionId, RequiredAcks, UsableApiVersions};
+               JoinGroupMember, JoinGroupProtocol, KafkaCode, MessageSet, Offset, PartitionId,
+               RequiredAcks, SyncGroupAssignment, UsableApiVersions};
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
              Metrics};
@@ -55,7 +56,7 @@ pub trait Client<'a>: 'static {
                   rebalance_timeout: i32,
                   member_id: Cow<'a, str>,
                   protocol_type: Cow<'a, str>,
-                  group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                  group_protocols: Vec<ConsumerGroupProtocol<'a>>)
                   -> JoinGroup;
 
     /// Send heartbeat to the consumer group
@@ -66,12 +67,21 @@ pub trait Client<'a>: 'static {
                  member_id: Cow<'a, str>)
                  -> Heartbeat;
 
-    /// Leave the current group
+    /// Leave the current consumer group
     fn leave_group(&self,
                    coordinator: BrokerRef,
                    group_id: Cow<'a, str>,
                    member_id: Cow<'a, str>)
                    -> LeaveGroup;
+
+    /// Sync the current consumer group
+    fn sync_group(&self,
+                  coordinator: BrokerRef,
+                  group_id: Cow<'a, str>,
+                  group_generation_id: GenerationId,
+                  member_id: Cow<'a, str>,
+                  group_assignment: Vec<ConsumerGroupAssignment<'a>>)
+                  -> SyncGroup;
 }
 
 /// The future of records metadata information.
@@ -94,6 +104,8 @@ pub type GroupCoordinator = StaticBoxFuture<Broker>;
 
 /// The future of join group.
 pub type JoinGroup = StaticBoxFuture<ConsumerGroup>;
+
+pub type ConsumerGroupProtocol<'a> = JoinGroupProtocol<'a>;
 
 /// The future of heartbeat.
 pub type Heartbeat = StaticBoxFuture;
@@ -120,16 +132,15 @@ pub struct ConsumerGroup {
 }
 
 /// The consumer group member
-pub struct ConsumerGroupMember {
-    /// The consumer id assigned by the group coordinator.
-    pub member_id: String,
+pub type ConsumerGroupMember = JoinGroupMember;
 
-    /// Any associated metadata the client wants to keep.
-    pub member_metadata: Bytes,
-}
-
-/// The future of leave group.
+/// The future of leave consumer group.
 pub type LeaveGroup = StaticBoxFuture<String>;
+
+pub type ConsumerGroupAssignment<'a> = SyncGroupAssignment<'a>;
+
+/// The future of sync consumer group.
+pub type SyncGroup = StaticBoxFuture<Bytes>;
 
 /// A Kafka client that communicate with the Kafka cluster.
 #[derive(Clone)]
@@ -296,7 +307,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                   rebalance_timeout: i32,
                   member_id: Cow<'a, str>,
                   protocol_type: Cow<'a, str>,
-                  group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                  group_protocols: Vec<ConsumerGroupProtocol<'a>>)
                   -> JoinGroup {
         let inner = self.inner.clone();
         let future = self.metadata()
@@ -351,6 +362,30 @@ impl<'a> Client<'a> for KafkaClient<'a>
                         .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
                 });
         LeaveGroup::new(future)
+    }
+
+    fn sync_group(&self,
+                  coordinator: BrokerRef,
+                  group_id: Cow<'a, str>,
+                  group_generation_id: GenerationId,
+                  member_id: Cow<'a, str>,
+                  group_assignment: Vec<ConsumerGroupAssignment<'a>>)
+                  -> SyncGroup {
+        let inner = self.inner.clone();
+        let future = self.metadata()
+            .and_then(move |metadata| {
+                metadata
+                    .find_broker(coordinator)
+                    .map(move |coordinator| {
+                             inner.sync_group(coordinator,
+                                              group_id,
+                                              group_generation_id,
+                                              member_id,
+                                              group_assignment)
+                         })
+                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+            });
+        SyncGroup::new(future)
     }
 }
 
@@ -632,7 +667,7 @@ impl<'a> Inner<'a>
                   rebalance_timeout: i32,
                   member_id: Cow<'a, str>,
                   protocol_type: Cow<'a, str>,
-                  group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                  group_protocols: Vec<ConsumerGroupProtocol<'a>>)
                   -> JoinGroup {
         debug!("member `{}` join group `{}`", member_id, group_id);
 
@@ -669,16 +704,7 @@ impl<'a> Inner<'a>
                                              group_protocol: res.group_protocol,
                                              leader_id: res.leader_id,
                                              member_id: res.member_id,
-                                             members: res.members
-                                                 .into_iter()
-                                                 .map(|member| {
-                                                          ConsumerGroupMember {
-                                                              member_id: member.member_id,
-                                                              member_metadata:
-                                                                  member.member_metadata,
-                                                          }
-                                                      })
-                                                 .collect(),
+                                             members: res.members,
                                          })
                           } else {
                               future::err(ErrorKind::KafkaError(res.error_code.into()).into())
@@ -762,6 +788,47 @@ impl<'a> Inner<'a>
                       });
 
         LeaveGroup::new(response)
+    }
+
+    fn sync_group(&self,
+                  coordinator: &Broker,
+                  group_id: Cow<'a, str>,
+                  group_generation_id: GenerationId,
+                  member_id: Cow<'a, str>,
+                  group_assignment: Vec<ConsumerGroupAssignment<'a>>)
+                  -> SyncGroup {
+        debug!("sync group `{}` # {} with member `{}`",
+               group_id,
+               group_generation_id,
+               member_id);
+
+        let addr = coordinator
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
+
+        let request = KafkaRequest::sync_group(self.next_correlation_id(),
+                                               self.client_id(),
+                                               group_id,
+                                               group_generation_id,
+                                               member_id,
+                                               group_assignment);
+
+        let response = self.service
+            .call((addr, request))
+            .and_then(move |res| if let KafkaResponse::SyncGroup(res) = res {
+                          if res.error_code == KafkaCode::None as ErrorCode {
+                              future::ok(res.member_assignment)
+                          } else {
+                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                          }
+                      } else {
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                      });
+
+        SyncGroup::new(response)
     }
 }
 

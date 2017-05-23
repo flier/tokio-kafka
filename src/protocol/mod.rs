@@ -40,9 +40,9 @@ pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse};
 pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse};
 pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordinatorRequest,
                       GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse,
-                      JoinGroupProtocol, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest,
-                      LeaveGroupResponse, ListGroupsRequest, ListGroupsResponse,
-                      SyncGroupAssignment, SyncGroupRequest, SyncGroupResponse};
+                      JoinGroupMember, JoinGroupProtocol, JoinGroupRequest, JoinGroupResponse,
+                      LeaveGroupRequest, LeaveGroupResponse, ListGroupsRequest,
+                      ListGroupsResponse, SyncGroupAssignment, SyncGroupRequest, SyncGroupResponse};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
                              UsableApiVersions};
 
