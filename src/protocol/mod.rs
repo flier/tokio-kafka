@@ -38,11 +38,10 @@ pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, Part
                          TopicMetadata};
 pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse};
 pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse};
-pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GenerationId,
-                      GroupCoordinatorRequest, GroupCoordinatorResponse, HeartbeatRequest,
-                      HeartbeatResponse, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest,
-                      LeaveGroupResponse, ListGroupsRequest, ListGroupsResponse, SyncGroupRequest,
-                      SyncGroupResponse};
+pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordinatorRequest,
+                      GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse,
+                      JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest, LeaveGroupResponse,
+                      ListGroupsRequest, ListGroupsResponse, SyncGroupRequest, SyncGroupResponse};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
                              UsableApiVersions};
 
@@ -89,6 +88,9 @@ pub type ReplicaId = i32;
 /// The number of acknowledgments the producer
 /// requires the leader to have received before considering a request complete.
 pub type RequiredAck = i16;
+
+/// The generation of the group.
+pub type GenerationId = i32;
 
 /// Identifiers for all the Kafka APIs
 ///

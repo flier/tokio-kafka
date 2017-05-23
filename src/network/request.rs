@@ -6,7 +6,7 @@ use bytes::{ByteOrder, BytesMut};
 
 use errors::Result;
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId,
-               DescribeGroupsRequest, Encodable, FetchOffset, FetchRequest,
+               DescribeGroupsRequest, Encodable, FetchOffset, FetchRequest, GenerationId,
                GroupCoordinatorRequest, HeartbeatRequest, JoinGroupRequest, LeaveGroupRequest,
                ListGroupsRequest, ListOffsetRequest, ListPartitionOffset, ListTopicOffset,
                MessageSet, MetadataRequest, OffsetCommitRequest, OffsetFetchRequest, PartitionId,
@@ -152,22 +152,6 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::Metadata(request)
     }
 
-    pub fn fetch_api_versions(api_version: ApiVersion,
-                              correlation_id: CorrelationId,
-                              client_id: Option<Cow<'a, str>>)
-                              -> KafkaRequest<'a> {
-        let request = ApiVersionsRequest {
-            header: RequestHeader {
-                api_key: ApiKeys::ApiVersions as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
-            },
-        };
-
-        KafkaRequest::ApiVersions(request)
-    }
-
     pub fn group_coordinator(api_version: ApiVersion,
                              correlation_id: CorrelationId,
                              client_id: Option<Cow<'a, str>>,
@@ -186,8 +170,28 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::GroupCoordinator(request)
     }
 
-    pub fn leave_group(api_version: ApiVersion,
-                       correlation_id: CorrelationId,
+    pub fn heartbeat(correlation_id: CorrelationId,
+                     client_id: Option<Cow<'a, str>>,
+                     group_id: Cow<'a, str>,
+                     group_generation_id: GenerationId,
+                     member_id: Cow<'a, str>)
+                     -> KafkaRequest<'a> {
+        let request = HeartbeatRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Heartbeat as ApiKey,
+                api_version: 0,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            group_id: group_id,
+            group_generation_id: group_generation_id,
+            member_id: member_id,
+        };
+
+        KafkaRequest::Heartbeat(request)
+    }
+
+    pub fn leave_group(correlation_id: CorrelationId,
                        client_id: Option<Cow<'a, str>>,
                        group_id: Cow<'a, str>,
                        member_id: Cow<'a, str>)
@@ -195,7 +199,7 @@ impl<'a> KafkaRequest<'a> {
         let request = LeaveGroupRequest {
             header: RequestHeader {
                 api_key: ApiKeys::LeaveGroup as ApiKey,
-                api_version: api_version,
+                api_version: 0,
                 correlation_id: correlation_id,
                 client_id: client_id,
             },
@@ -204,6 +208,21 @@ impl<'a> KafkaRequest<'a> {
         };
 
         KafkaRequest::LeaveGroup(request)
+    }
+
+    pub fn api_versions(correlation_id: CorrelationId,
+                        client_id: Option<Cow<'a, str>>)
+                        -> KafkaRequest<'a> {
+        let request = ApiVersionsRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::ApiVersions as ApiKey,
+                api_version: 0,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+        };
+
+        KafkaRequest::ApiVersions(request)
     }
 }
 

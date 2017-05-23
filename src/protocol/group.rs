@@ -5,15 +5,13 @@ use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, Encodable, ErrorCode, ParseTag, Record,
-               RequestHeader, ResponseHeader, STR_LEN_SIZE, WriteExt, parse_bytes,
-               parse_response_header, parse_string};
+use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, Encodable, ErrorCode, GenerationId,
+               ParseTag, Record, RequestHeader, ResponseHeader, STR_LEN_SIZE, WriteExt,
+               parse_bytes, parse_response_header, parse_string};
 
 const SESSION_TIMEOUT_SIZE: usize = 4;
 const REBALANCE_TIMEOUT_SIZE: usize = 4;
 const GROUP_GENERATION_ID_SIZE: usize = 4;
-
-pub type GenerationId = i32;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupCoordinatorRequest<'a> {

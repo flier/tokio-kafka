@@ -289,9 +289,7 @@ impl<'a> Inner<'a>
             .next()
             .unwrap(); // TODO
 
-        let request = KafkaRequest::fetch_api_versions(0, // api_version,
-                                                       self.next_correlation_id(),
-                                                       self.client_id());
+        let request = KafkaRequest::api_versions(self.next_correlation_id(), self.client_id());
 
         let response = self.service
             .call((addr, request))
@@ -513,8 +511,7 @@ impl<'a> Inner<'a>
 
         let leaved_group_id: String = (*group_id).to_owned();
 
-        let request = KafkaRequest::leave_group(0, // api_version,
-                                                self.next_correlation_id(),
+        let request = KafkaRequest::leave_group(self.next_correlation_id(),
                                                 self.client_id(),
                                                 group_id,
                                                 member_id);
