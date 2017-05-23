@@ -72,7 +72,7 @@ impl<'a> Service for KafkaService<'a>
 
         metrics
             .as_ref()
-            .map(|metrics| metrics.send_request(&request));
+            .map(|metrics| metrics.send_request(&addr, &request));
 
         let checkout = self.pool.checkout(addr);
         let connect = {
@@ -117,8 +117,8 @@ impl<'a> Service for KafkaService<'a>
                          Message::WithBody(res, _) => res,
                      }
                  })
-            .map(|response| {
-                     metrics.map(|metrics| metrics.received_response(&response));
+            .map(move |response| {
+                     metrics.map(|metrics| metrics.received_response(&addr, &response));
 
                      response
                  })
