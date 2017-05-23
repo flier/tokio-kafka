@@ -1,7 +1,7 @@
 #![recursion_limit="128"]
 
 #![cfg_attr(feature="clippy", feature(plugin))]
-#![cfg_attr(feature="clippy", plugin(clippy))]
+#![cfg_attr(feature="clippy", plugin(clippy(conf_file=".clippy.toml")))]
 #![cfg_attr(feature="clippy", allow(module_inception, block_in_if_condition_stmt))]
 
 #![allow(dead_code)]
