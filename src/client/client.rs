@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::time::Duration;
 
+use bytes::Bytes;
+
 use futures::{Async, Poll};
 use futures::future::{self, Future};
 use futures::unsync::oneshot;
@@ -17,8 +19,8 @@ use tokio_service::Service;
 use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 
 use errors::{Error, ErrorKind};
-use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, KafkaCode, MessageSet,
-               Offset, PartitionId, RequiredAcks, UsableApiVersions};
+use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, GenerationId,
+               KafkaCode, MessageSet, Offset, PartitionId, RequiredAcks, UsableApiVersions};
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
              Metrics};
@@ -45,9 +47,26 @@ pub trait Client<'a>: 'static {
     /// Discover the current coordinator of the consumer group.
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator;
 
+    /// Join the consumer group
+    fn join_group(&self,
+                  coordinator: BrokerRef,
+                  group_id: Cow<'a, str>,
+                  session_timeout: i32,
+                  rebalance_timeout: i32,
+                  member_id: Cow<'a, str>,
+                  protocol_type: Cow<'a, str>,
+                  group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                  -> JoinGroup;
+
     /// Leave the current group
     fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup;
 }
+
+/// The future of records metadata information.
+pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
+
+/// The future of partition offsets information.
+pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 
 /// The partition and offset
 #[derive(Clone, Debug)]
@@ -58,14 +77,41 @@ pub struct PartitionOffset {
     pub offset: Offset,
 }
 
-/// The future of records metadata information.
-pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
-
-/// The future of partition offsets information.
-pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
-
 /// The future of discover group coodinator
 pub type GroupCoordinator = StaticBoxFuture<Broker>;
+
+/// The future of join group.
+pub type JoinGroup = StaticBoxFuture<ConsumerGroup>;
+
+/// The consumer group
+pub struct ConsumerGroup {
+    /// The group id.
+    pub group_id: String,
+
+    /// The generation of the consumer group.
+    pub generation_id: GenerationId,
+
+    /// The group protocol selected by the coordinator
+    pub group_protocol: String,
+
+    /// The leader of the group
+    pub leader_id: String,
+
+    /// The consumer id assigned by the group coordinator.
+    pub member_id: String,
+
+    /// The members of the group
+    pub members: Vec<ConsumerGroupMember>,
+}
+
+/// The consumer group member
+pub struct ConsumerGroupMember {
+    /// The consumer id assigned by the group coordinator.
+    pub member_id: String,
+
+    /// Any associated metadata the client wants to keep.
+    pub member_metadata: Bytes,
+}
 
 /// The future of leave group.
 pub type LeaveGroup = StaticBoxFuture<String>;
@@ -226,6 +272,32 @@ impl<'a> Client<'a> for KafkaClient<'a>
 
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
         self.inner.group_coordinator(group_id)
+    }
+
+    fn join_group(&self,
+                  coordinator: BrokerRef,
+                  group_id: Cow<'a, str>,
+                  session_timeout: i32,
+                  rebalance_timeout: i32,
+                  member_id: Cow<'a, str>,
+                  protocol_type: Cow<'a, str>,
+                  group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                  -> JoinGroup {
+        let inner = self.inner.clone();
+        let future = self.metadata()
+            .and_then(move |metadata| if let Some(coordinator) =
+                metadata.find_broker(coordinator) {
+                          inner.join_group(coordinator,
+                                           group_id,
+                                           session_timeout,
+                                           rebalance_timeout,
+                                           member_id,
+                                           protocol_type,
+                                           group_protocols)
+                      } else {
+                          JoinGroup::new(future::err(ErrorKind::BrokerNotFound(coordinator).into()))
+                      });
+        JoinGroup::new(future)
     }
 
     fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup {
@@ -502,6 +574,71 @@ impl<'a> Inner<'a>
                       });
 
         GroupCoordinator::new(response)
+    }
+
+    fn join_group(&self,
+                  coordinator: &Broker,
+                  group_id: Cow<'a, str>,
+                  session_timeout: i32,
+                  rebalance_timeout: i32,
+                  member_id: Cow<'a, str>,
+                  protocol_type: Cow<'a, str>,
+                  group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                  -> JoinGroup {
+        debug!("member `{}` join group `{}`", member_id, group_id);
+
+        let addr = coordinator
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
+
+        let api_version = coordinator
+            .api_version(ApiKeys::JoinGroup)
+            .unwrap_or_default();
+
+        let joined_group_id: String = (*group_id).to_owned();
+
+        let request = KafkaRequest::join_group(api_version,
+                                               self.next_correlation_id(),
+                                               self.client_id(),
+                                               group_id,
+                                               session_timeout,
+                                               rebalance_timeout,
+                                               member_id,
+                                               protocol_type,
+                                               group_protocols);
+
+        let response = self.service
+            .call((addr, request))
+            .and_then(move |res| if let KafkaResponse::JoinGroup(res) = res {
+                          if res.error_code == KafkaCode::None as ErrorCode {
+                              future::ok(ConsumerGroup {
+                                             group_id: joined_group_id,
+                                             generation_id: res.generation_id,
+                                             group_protocol: res.group_protocol,
+                                             leader_id: res.leader_id,
+                                             member_id: res.member_id,
+                                             members: res.members
+                                                 .into_iter()
+                                                 .map(|member| {
+                                                          ConsumerGroupMember {
+                                                              member_id: member.member_id,
+                                                              member_metadata:
+                                                                  member.member_metadata,
+                                                          }
+                                                      })
+                                                 .collect(),
+                                         })
+                          } else {
+                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                          }
+                      } else {
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                      });
+
+        JoinGroup::new(response)
     }
 
     fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup {
