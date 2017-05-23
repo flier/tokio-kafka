@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
+use rand::{self, Rng};
+
 use futures::{Async, IntoFuture, Poll};
 use futures::future::{self, Future};
 use futures::unsync::oneshot;
@@ -18,7 +20,7 @@ use tokio_core::reactor::{Handle, Timeout};
 use tokio_service::Service;
 use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 
-use errors::{Error, ErrorKind};
+use errors::{Error, ErrorKind, Result};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, GenerationId,
                JoinGroupMember, JoinGroupProtocol, KafkaCode, MessageSet, Offset, PartitionId,
                RequiredAcks, SyncGroupAssignment, UsableApiVersions};
@@ -151,7 +153,7 @@ pub struct KafkaClient<'a> {
 struct Inner<'a> {
     config: ClientConfig,
     handle: Handle,
-    service: LogMiddleware<TimeoutMiddleware<KafkaService<'a>>>,
+    service: InFlightMiddleware<LogMiddleware<TimeoutMiddleware<KafkaService<'a>>>>,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
 }
@@ -198,11 +200,14 @@ impl<'a> KafkaClient<'a>
         } else {
             None
         };
-        let service = LogMiddleware::new(TimeoutMiddleware::new(KafkaService::new(handle.clone(),
-                                                              config.max_connection_idle(),
-                                                              metrics.clone()),
-                                            config.timer(),
-                                            config.request_timeout()));
+        let service = InFlightMiddleware::new(
+            LogMiddleware::new(
+                TimeoutMiddleware::new(
+                    KafkaService::new(handle.clone(),
+                                      config.max_connection_idle(),
+                                      metrics.clone()),
+                                      config.timer(),
+                                      config.request_timeout())));
 
         let inner = Rc::new(Inner {
                                 config: config,
@@ -297,7 +302,10 @@ impl<'a> Client<'a> for KafkaClient<'a>
     }
 
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
-        self.inner.group_coordinator(group_id)
+        let inner = self.inner.clone();
+        let future = self.metadata()
+            .and_then(move |metadata| inner.group_coordinator(metadata, group_id));
+        GroupCoordinator::new(future)
     }
 
     fn join_group(&self,
@@ -402,6 +410,48 @@ impl<'a> Inner<'a>
 
     pub fn metadata(&self) -> GetMetadata {
         (*self.state).borrow().metadata()
+    }
+
+    /// Choose the node with the fewest outstanding requests which is at least eligible for connection.
+    pub fn least_loaded_broker(&self, metadata: Rc<Metadata>) -> Result<(SocketAddr, BrokerRef)> {
+        let mut brokers = metadata.brokers().to_vec();
+
+        rand::thread_rng().shuffle(&mut brokers);
+
+        let mut in_flight_requests = usize::max_value();
+        let mut found = None;
+
+        for broker in brokers {
+            for addr in broker.addr().to_socket_addrs()? {
+                match self.service.in_flight_requests(&addr) {
+                    Some(0) => {
+                        return Ok((addr, broker.as_ref()));
+                    }
+                    Some(n) if n < in_flight_requests => {
+                        in_flight_requests = n;
+                        found = Some((addr, broker.as_ref()));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        found
+            .or_else(|| {
+                metadata
+                    .brokers()
+                    .first()
+                    .map(|broker| {
+                        (broker
+                             .addr()
+                             .to_socket_addrs()
+                             .unwrap()
+                             .next()
+                             .unwrap(),
+                         broker.as_ref())
+                    })
+            })
+            .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::BrokerNotAvailable).into())
     }
 
     fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
@@ -633,10 +683,20 @@ impl<'a> Inner<'a>
         FetchOffsets::new(offsets)
     }
 
-    fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
+    fn group_coordinator(&self,
+                         metadata: Rc<Metadata>,
+                         group_id: Cow<'a, str>)
+                         -> GroupCoordinator {
         debug!("disover group coordinator of group `{}`", group_id);
 
-        let addr = *self.config.hosts.iter().next().unwrap(); // TODO
+        let addr = {
+            match self.least_loaded_broker(metadata) {
+                Ok((addr, _)) => addr,
+                Err(err) => {
+                    return GroupCoordinator::err(err);
+                }
+            }
+        };
 
         let request = KafkaRequest::group_coordinator(0, // api_version,
                                                       self.next_correlation_id(),
@@ -1001,3 +1061,51 @@ pub type GetMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
 pub type LoadApiVersions = StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>;
+
+#[derive(Clone)]
+struct InFlightMiddleware<S> {
+    upstream: S,
+    requests: HashMap<SocketAddr, usize>,
+}
+
+impl<S> InFlightMiddleware<S> {
+    pub fn new(upstream: S) -> InFlightMiddleware<S> {
+        InFlightMiddleware {
+            upstream: upstream,
+            requests: HashMap::new(),
+        }
+    }
+
+    pub fn in_flight_requests(&self, addr: &SocketAddr) -> Option<usize> {
+        self.requests.get(addr).cloned()
+    }
+
+    pub fn send_request(&mut self, addr: SocketAddr) {
+        let requests = self.requests.entry(addr).or_insert(0);
+
+        if let Some(new) = requests.checked_add(1) {
+            *requests = new;
+        }
+    }
+
+    pub fn received_response(&mut self, addr: SocketAddr) {
+        let requests = self.requests.entry(addr).or_insert(0);
+
+        if let Some(new) = requests.checked_sub(1) {
+            *requests = new;
+        }
+    }
+}
+
+impl<S> Service for InFlightMiddleware<S>
+    where S: Service
+{
+    type Request = S::Request;
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn call(&self, request: Self::Request) -> Self::Future {
+        self.upstream.call(request)
+    }
+}

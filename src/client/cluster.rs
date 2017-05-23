@@ -31,7 +31,7 @@ pub trait Cluster {
 }
 
 /// Describes a Kafka broker node is communicating with.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Broker {
     /// The identifier of this broker as understood in a Kafka cluster.
     node_id: NodeId,

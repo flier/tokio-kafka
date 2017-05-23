@@ -68,9 +68,8 @@ impl<'a> Service for KafkaService<'a>
 
     fn call(&self, req: Self::Request) -> Self::Future {
         let (addr, request) = req;
-        let metrics = self.metrics.clone();
 
-        metrics
+        self.metrics
             .as_ref()
             .map(|metrics| metrics.send_request(&addr, &request));
 
@@ -107,6 +106,8 @@ impl<'a> Service for KafkaService<'a>
                 // never had a pooled stream at all
                 err.into()
             });
+
+        let metrics = self.metrics.clone();
 
         let response = race.and_then(move |client| client.call(Message::WithoutBody(request)))
             .map(|msg| {

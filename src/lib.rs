@@ -18,6 +18,7 @@ extern crate nom;
 extern crate crc;
 extern crate twox_hash;
 extern crate time;
+extern crate rand;
 extern crate hexplay;
 extern crate encoding;
 extern crate byteorder;
