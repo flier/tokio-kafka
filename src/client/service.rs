@@ -128,24 +128,7 @@ impl<'a> Service for KafkaService<'a>
     }
 }
 
-pub struct FutureResponse(StaticBoxFuture<KafkaResponse>);
-
-impl FutureResponse {
-    pub fn new<F>(future: F) -> Self
-        where F: Future<Item = KafkaResponse, Error = Error> + 'static
-    {
-        FutureResponse(StaticBoxFuture::new(future))
-    }
-}
-
-impl Future for FutureResponse {
-    type Item = KafkaResponse;
-    type Error = Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        self.0.poll()
-    }
-}
+pub type FutureResponse = StaticBoxFuture<KafkaResponse>;
 
 type TokioBody = Body<BytesMut, io::Error>;
 

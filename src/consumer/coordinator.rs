@@ -1,5 +1,3 @@
-use futures::future;
-
 use protocol::GenerationId;
 use client::{BrokerRef, Client, KafkaClient, StaticBoxFuture};
 
@@ -63,7 +61,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                              self.group_id.clone().into(),
                              generation.member_id.clone().into())
         } else {
-            LeaveGroup::new(future::ok(self.group_id.clone()))
+            LeaveGroup::ok(self.group_id.clone())
         }
     }
 }

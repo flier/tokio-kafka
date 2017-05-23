@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::hash::Hash;
 
-use futures::{Async, Future, Poll, Stream, future};
+use futures::{Async, Future, Poll, Stream};
 
 use errors::{Error, ErrorKind};
 use client::{Cluster, KafkaClient, StaticBoxFuture, TopicRecord};
@@ -93,16 +93,16 @@ impl<'a, K, V> ConsumerTopics<'a, K, V>
           Self: 'static
 {
     pub fn commit(&mut self) -> Commit {
-        StaticBoxFuture::new(future::ok(()))
+        Commit::ok(())
     }
 
     /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
     pub fn unsubscribe(self) -> Unsubscribe {
-        StaticBoxFuture::new(self.coordinator
-                                 .leave_group()
-                                 .map(|group_id| {
-                                          debug!("leaved `{}` group", group_id);
-                                      }))
+        Unsubscribe::new(self.coordinator
+                             .leave_group()
+                             .map(|group_id| {
+                                      debug!("leaved `{}` group", group_id);
+                                  }))
     }
 }
 

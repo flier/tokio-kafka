@@ -308,7 +308,7 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
                 Err(err) => {
                     warn!("fail to create sender, {}", err);
 
-                    StaticBoxFuture::new(future::err(err))
+                    StaticBoxFuture::err(err)
                 }
             }
         }))
