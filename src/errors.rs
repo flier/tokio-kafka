@@ -2,6 +2,7 @@ use std::error::Error as StdError;
 use std::borrow::{Borrow, Cow};
 
 use protocol::{ApiKeys, KafkaCode};
+use client::BrokerRef;
 
 error_chain!{
     foreign_links {
@@ -67,6 +68,10 @@ error_chain!{
         TopicNotFound(name: String) {
             description("topic not found")
             display("topic `{}` not found", name)
+        }
+        BrokerNotFound(broker: BrokerRef) {
+            description("broker not found")
+            display("broker `{}` not found", broker.index())
         }
     }
 }
