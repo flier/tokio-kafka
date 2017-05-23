@@ -1,7 +1,7 @@
 use futures::future;
 
 use protocol::GenerationId;
-use client::{Broker, Client, KafkaClient, StaticBoxFuture};
+use client::{BrokerRef, Client, KafkaClient, StaticBoxFuture};
 
 /// Manages the coordination process with the consumer coordinator.
 pub trait Coordinator {
@@ -25,7 +25,7 @@ enum State {
     Rebalancing,
     /// the client has joined and is sending heartbeats
     Stable {
-        coordinator: Broker,
+        coordinator: BrokerRef,
         generation: Generation,
     },
 }
@@ -51,7 +51,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
 {
     fn leave_group(&self) -> LeaveGroup {
         if let State::Stable {
-                   ref coordinator,
+                   coordinator,
                    ref generation,
                } = self.state {
             debug!("sending LeaveGroup request to coordinator {:?} for group `{}`",
@@ -59,7 +59,8 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                    self.group_id);
 
             self.client
-                .leave_group(self.group_id.clone().into(),
+                .leave_group(coordinator,
+                             self.group_id.clone().into(),
                              generation.member_id.clone().into())
         } else {
             LeaveGroup::new(future::ok(self.group_id.clone()))

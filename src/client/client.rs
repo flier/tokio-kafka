@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
-use futures::{Async, Poll};
+use futures::{Async, IntoFuture, Poll};
 use futures::future::{self, Future};
 use futures::unsync::oneshot;
 use tokio_core::reactor::{Handle, Timeout};
@@ -58,8 +58,20 @@ pub trait Client<'a>: 'static {
                   group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
                   -> JoinGroup;
 
+    /// Send heartbeat to the consumer group
+    fn heartbeat(&self,
+                 coordinator: BrokerRef,
+                 group_id: Cow<'a, str>,
+                 group_generation_id: GenerationId,
+                 member_id: Cow<'a, str>)
+                 -> Heartbeat;
+
     /// Leave the current group
-    fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup;
+    fn leave_group(&self,
+                   coordinator: BrokerRef,
+                   group_id: Cow<'a, str>,
+                   member_id: Cow<'a, str>)
+                   -> LeaveGroup;
 }
 
 /// The future of records metadata information.
@@ -82,6 +94,9 @@ pub type GroupCoordinator = StaticBoxFuture<Broker>;
 
 /// The future of join group.
 pub type JoinGroup = StaticBoxFuture<ConsumerGroup>;
+
+/// The future of heartbeat.
+pub type Heartbeat = StaticBoxFuture;
 
 /// The consumer group
 pub struct ConsumerGroup {
@@ -285,23 +300,57 @@ impl<'a> Client<'a> for KafkaClient<'a>
                   -> JoinGroup {
         let inner = self.inner.clone();
         let future = self.metadata()
-            .and_then(move |metadata| if let Some(coordinator) =
-                metadata.find_broker(coordinator) {
-                          inner.join_group(coordinator,
-                                           group_id,
-                                           session_timeout,
-                                           rebalance_timeout,
-                                           member_id,
-                                           protocol_type,
-                                           group_protocols)
-                      } else {
-                          JoinGroup::new(future::err(ErrorKind::BrokerNotFound(coordinator).into()))
-                      });
+            .and_then(move |metadata| {
+                metadata
+                    .find_broker(coordinator)
+                    .map(move |coordinator| {
+                        inner.join_group(coordinator,
+                                         group_id,
+                                         session_timeout,
+                                         rebalance_timeout,
+                                         member_id,
+                                         protocol_type,
+                                         group_protocols)
+                    })
+                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+            });
         JoinGroup::new(future)
     }
 
-    fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup {
-        self.inner.leave_group(group_id, member_id)
+    fn heartbeat(&self,
+                 coordinator: BrokerRef,
+                 group_id: Cow<'a, str>,
+                 group_generation_id: GenerationId,
+                 member_id: Cow<'a, str>)
+                 -> Heartbeat {
+        let inner = self.inner.clone();
+        let future = self.metadata()
+            .and_then(move |metadata| {
+                metadata
+                    .find_broker(coordinator)
+                    .map(move |coordinator| {
+                             inner.heartbeat(coordinator, group_id, group_generation_id, member_id)
+                         })
+                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+            });
+        Heartbeat::new(future)
+    }
+
+    fn leave_group(&self,
+                   coordinator: BrokerRef,
+                   group_id: Cow<'a, str>,
+                   member_id: Cow<'a, str>)
+                   -> LeaveGroup {
+        let inner = self.inner.clone();
+        let future =
+            self.metadata()
+                .and_then(move |metadata| {
+                    metadata
+                        .find_broker(coordinator)
+                        .map(move |coordinator| inner.leave_group(coordinator, group_id, member_id))
+                        .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+                });
+        LeaveGroup::new(future)
     }
 }
 
@@ -641,10 +690,57 @@ impl<'a> Inner<'a>
         JoinGroup::new(response)
     }
 
-    fn leave_group(&self, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup {
+    fn heartbeat(&self,
+                 coordinator: &Broker,
+                 group_id: Cow<'a, str>,
+                 group_generation_id: GenerationId,
+                 member_id: Cow<'a, str>)
+                 -> Heartbeat {
+        debug!("member `{}` send heartbeat to group `{}`",
+               member_id,
+               group_id);
+
+        let addr = coordinator
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
+
+        let request = KafkaRequest::heartbeat(self.next_correlation_id(),
+                                              self.client_id(),
+                                              group_id,
+                                              group_generation_id,
+                                              member_id);
+
+        let response = self.service
+            .call((addr, request))
+            .and_then(move |res| if let KafkaResponse::Heartbeat(res) = res {
+                          if res.error_code == KafkaCode::None as ErrorCode {
+                              future::ok(())
+                          } else {
+                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                          }
+                      } else {
+                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                      });
+
+        Heartbeat::new(response)
+    }
+
+    fn leave_group(&self,
+                   coordinator: &Broker,
+                   group_id: Cow<'a, str>,
+                   member_id: Cow<'a, str>)
+                   -> LeaveGroup {
         debug!("member `{}` leave group `{}`", member_id, group_id);
 
-        let addr = *self.config.hosts.iter().next().unwrap(); // TODO
+        let addr = coordinator
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
 
         let leaved_group_id: String = (*group_id).to_owned();
 
@@ -795,18 +891,38 @@ impl<'a> Future for LoadMetadata<'a>
 }
 
 
-pub struct StaticBoxFuture<F = (), E = Error>(Box<Future<Item = F, Error = E> + 'static>);
+pub struct StaticBoxFuture<T = (), E = Error>(Box<Future<Item = T, Error = E> + 'static>)
+    where T: 'static,
+          E: 'static;
 
-impl<F, E> StaticBoxFuture<F, E> {
-    pub fn new<T>(inner: T) -> Self
-        where T: Future<Item = F, Error = E> + 'static
+impl<T, E> StaticBoxFuture<T, E> {
+    pub fn new<F>(inner: F) -> Self
+        where F: IntoFuture<Item = T, Error = E> + 'static,
+              T: 'static,
+              E: 'static
     {
-        StaticBoxFuture(Box::new(inner))
+        StaticBoxFuture(Box::new(inner.into_future()))
+    }
+
+    pub fn ok(item: T) -> Self {
+        StaticBoxFuture(Box::new(future::ok(item)))
+    }
+
+    pub fn err(err: E) -> Self {
+        StaticBoxFuture(Box::new(future::err(err)))
     }
 }
 
-impl<F, E> Future for StaticBoxFuture<F, E> {
-    type Item = F;
+impl<T, E> From<ErrorKind> for StaticBoxFuture<T, E>
+    where E: From<ErrorKind>
+{
+    fn from(err: ErrorKind) -> Self {
+        Self::err(err.into())
+    }
+}
+
+impl<T, E> Future for StaticBoxFuture<T, E> {
+    type Item = T;
     type Error = E;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {

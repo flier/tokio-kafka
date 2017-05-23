@@ -264,8 +264,8 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
             partition: partition,
         };
 
-        let timestamp = timestamp
-            .unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
+        let timestamp =
+            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
         let api_version = metadata
             .leader_for(&tp)
