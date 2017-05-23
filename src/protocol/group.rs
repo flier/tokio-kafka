@@ -125,11 +125,11 @@ pub struct SyncGroupRequest<'a> {
     /// The member id assigned by the group coordinator.
     pub member_id: Cow<'a, str>,
 
-    pub members: Vec<SyncGroupMember<'a>>,
+    pub group_assignment: Vec<SyncGroupAssignment<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SyncGroupMember<'a> {
+pub struct SyncGroupAssignment<'a> {
     /// The member id assigned by the group coordinator.
     pub member_id: Cow<'a, str>,
 
@@ -329,7 +329,7 @@ impl<'a> Record for SyncGroupRequest<'a> {
         {
             STR_LEN_SIZE + self.member_id.len()
         } +
-        self.members
+        self.group_assignment
             .iter()
             .fold(ARRAY_LEN_SIZE, |size, member| {
                 size +
@@ -351,9 +351,9 @@ impl<'a> Encodable for SyncGroupRequest<'a> {
         dst.put_i32::<T>(self.group_generation_id);
         dst.put_str::<T, _>(Some(self.member_id.as_ref()))?;
 
-        dst.put_array::<T, _, _>(&self.members, |buf, member| {
-            buf.put_str::<T, _>(Some(member.member_id.as_ref()))?;
-            buf.put_bytes::<T, _>(Some(member.member_assignment.as_ref()))
+        dst.put_array::<T, _, _>(&self.group_assignment, |buf, assignment| {
+            buf.put_str::<T, _>(Some(assignment.member_id.as_ref()))?;
+            buf.put_bytes::<T, _>(Some(assignment.member_assignment.as_ref()))
         })
     }
 }
@@ -932,7 +932,7 @@ mod tests {
             group_id: "consumer".into(),
             group_generation_id: 456,
             member_id: "member".into(),
-            members: vec![SyncGroupMember {
+            group_assignment: vec![SyncGroupAssignment {
                 member_id: "member".into(),
                 member_assignment: Cow::Borrowed(b"assignment"),
             }],
@@ -950,9 +950,9 @@ mod tests {
             0, 0, 1, 200,                                           // group_generation_id
             0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
 
-            // members[SyncGroupMember]
+            // group_assignment: [SyncGroupAssignment]
             0, 0, 0, 1,
-                // SyncGroupMember
+                // SyncGroupAssignment
                 0, 6, b'm', b'e', b'm', b'b', b'e', b'r',           // member_id
                 0, 0, 0, 10, b'a', b's', b's', b'i', b'g', b'n', b'm', b'e', b'n', b't',
                                                                     // member_assignment

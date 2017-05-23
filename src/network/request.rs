@@ -7,11 +7,12 @@ use bytes::{ByteOrder, BytesMut};
 use errors::Result;
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId,
                DescribeGroupsRequest, Encodable, FetchOffset, FetchRequest, GenerationId,
-               GroupCoordinatorRequest, HeartbeatRequest, JoinGroupRequest, LeaveGroupRequest,
-               ListGroupsRequest, ListOffsetRequest, ListPartitionOffset, ListTopicOffset,
-               MessageSet, MetadataRequest, OffsetCommitRequest, OffsetFetchRequest, PartitionId,
-               ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
-               RequiredAck, RequiredAcks, SyncGroupRequest, ToMilliseconds};
+               GroupCoordinatorRequest, HeartbeatRequest, JoinGroupProtocol, JoinGroupRequest,
+               LeaveGroupRequest, ListGroupsRequest, ListOffsetRequest, ListPartitionOffset,
+               ListTopicOffset, MessageSet, MetadataRequest, OffsetCommitRequest,
+               OffsetFetchRequest, PartitionId, ProducePartitionData, ProduceRequest,
+               ProduceTopicData, Record, RequestHeader, RequiredAck, RequiredAcks,
+               SyncGroupAssignment, SyncGroupRequest, ToMilliseconds};
 
 /// A topic name and partition number
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -191,6 +192,42 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::Heartbeat(request)
     }
 
+    pub fn join_group(api_version: ApiVersion,
+                      correlation_id: CorrelationId,
+                      client_id: Option<Cow<'a, str>>,
+                      group_id: Cow<'a, str>,
+                      session_timeout: i32,
+                      rebalance_timeout: i32,
+                      member_id: Cow<'a, str>,
+                      protocol_type: Cow<'a, str>,
+                      group_protocols: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                      -> KafkaRequest<'a> {
+        let request = JoinGroupRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::LeaveGroup as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            group_id: group_id,
+            session_timeout: session_timeout,
+            rebalance_timeout: rebalance_timeout,
+            member_id: member_id,
+            protocol_type: protocol_type,
+            protocols: group_protocols
+                .iter()
+                .map(|(protocol_name, protocol_metadata)| {
+                         JoinGroupProtocol {
+                             protocol_name: protocol_name.clone(),
+                             protocol_metadata: protocol_metadata.clone(),
+                         }
+                     })
+                .collect(),
+        };
+
+        KafkaRequest::JoinGroup(request)
+    }
+
     pub fn leave_group(correlation_id: CorrelationId,
                        client_id: Option<Cow<'a, str>>,
                        group_id: Cow<'a, str>,
@@ -208,6 +245,37 @@ impl<'a> KafkaRequest<'a> {
         };
 
         KafkaRequest::LeaveGroup(request)
+    }
+
+    pub fn sync_group(correlation_id: CorrelationId,
+                      client_id: Option<Cow<'a, str>>,
+                      group_id: Cow<'a, str>,
+                      group_generation_id: GenerationId,
+                      member_id: Cow<'a, str>,
+                      group_assignment: HashMap<Cow<'a, str>, Cow<'a, [u8]>>)
+                      -> KafkaRequest<'a> {
+        let request = SyncGroupRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::SyncGroup as ApiKey,
+                api_version: 0,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            group_id: group_id,
+            group_generation_id: group_generation_id,
+            member_id: member_id,
+            group_assignment: group_assignment
+                .iter()
+                .map(|(member_id, member_assignment)| {
+                         SyncGroupAssignment {
+                             member_id: member_id.clone(),
+                             member_assignment: member_assignment.clone(),
+                         }
+                     })
+                .collect(),
+        };
+
+        KafkaRequest::SyncGroup(request)
     }
 
     pub fn api_versions(correlation_id: CorrelationId,
