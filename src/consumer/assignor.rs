@@ -126,7 +126,7 @@ impl PartitionAssignor for RangeAssignor {
         let mut consumers_per_topic = HashMap::new();
 
         for (member_id, subscription) in subscriptions {
-            for topic_name in subscription.topics.into_iter() {
+            for topic_name in subscription.topics {
                 consumers_per_topic
                     .entry(topic_name)
                     .or_insert_with(Vec::new)
