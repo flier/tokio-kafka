@@ -133,6 +133,41 @@ pub struct ConsumerGroup {
     pub members: Vec<ConsumerGroupMember>,
 }
 
+impl ConsumerGroup {
+    pub fn is_leader(&self) -> bool {
+        self.leader_id == self.member_id
+    }
+
+    pub fn generation(&self) -> Generation {
+        Generation {
+            generation_id: self.generation_id,
+            member_id: self.member_id.clone(),
+            group_protocol: self.group_protocol.clone(),
+        }
+    }
+}
+
+pub struct Generation {
+    /// The generation of the consumer group.
+    pub generation_id: GenerationId,
+
+    /// The consumer id assigned by the group coordinator.
+    pub member_id: String,
+
+    /// The group protocol selected by the coordinator
+    pub group_protocol: String,
+}
+
+impl Default for Generation {
+    fn default() -> Self {
+        Generation {
+            generation_id: -1,
+            member_id: "".to_owned(),
+            group_protocol: "".to_owned(),
+        }
+    }
+}
+
 /// The consumer group member
 pub type ConsumerGroupMember = JoinGroupMember;
 
@@ -442,26 +477,19 @@ impl<'a> Inner<'a>
 
         found
             .map(|(addr, broker)| {
-                trace!("found least loaded broker #{} @ {} with {} in flight requests",
-                       broker.index(),
-                       addr,
-                       self.service
-                           .in_flight_requests(&addr)
-                           .unwrap_or_default());
+                     trace!("found least loaded broker #{} @ {} with {} in flight requests",
+                            broker.index(),
+                            addr,
+                            self.service.in_flight_requests(&addr).unwrap_or_default());
 
-                (addr, broker)
-            })
+                     (addr, broker)
+                 })
             .or_else(|| {
                 metadata
                     .brokers()
                     .first()
                     .map(|broker| {
-                        let addr = broker
-                            .addr()
-                            .to_socket_addrs()
-                            .unwrap()
-                            .next()
-                            .unwrap();
+                        let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap();
 
                         trace!("not found any alive broker, use a random broker # {} @ {}",
                                broker.id(),
@@ -511,12 +539,7 @@ impl<'a> Inner<'a>
     fn fetch_api_versions(&self, broker: &Broker) -> FetchApiVersions {
         debug!("fetch API versions for broker: {:?}", broker);
 
-        let addr = broker
-            .addr()
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap(); // TODO
+        let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
 
         let request = KafkaRequest::api_versions(self.next_correlation_id(), self.client_id());
 
@@ -563,14 +586,9 @@ impl<'a> Inner<'a>
             .leader_for(&tp)
             .map_or_else(|| (0, *self.config.hosts.iter().next().unwrap()),
                          |broker| {
-                (broker.api_version(ApiKeys::Produce).unwrap_or_default(),
-                 broker
-                     .addr()
-                     .to_socket_addrs()
-                     .unwrap()
-                     .next()
-                     .unwrap())
-            });
+                             (broker.api_version(ApiKeys::Produce).unwrap_or_default(),
+                              broker.addr().to_socket_addrs().unwrap().next().unwrap())
+                         });
 
         let request = KafkaRequest::produce_records(api_version,
                                                     self.next_correlation_id(),
@@ -613,15 +631,8 @@ impl<'a> Inner<'a>
 
         for topic_partition in topic_partitions {
             if let Some(broker) = metadata.leader_for(&topic_partition) {
-                let addr = broker
-                    .addr()
-                    .to_socket_addrs()
-                    .unwrap()
-                    .next()
-                    .unwrap(); // TODO
-                let api_version = broker
-                    .api_version(ApiKeys::ListOffsets)
-                    .unwrap_or_default();
+                let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
+                let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
                 topics
                     .entry((addr, api_version))
                     .or_insert_with(HashMap::new)

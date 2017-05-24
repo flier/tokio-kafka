@@ -45,12 +45,18 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
     fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscriber<Self::Topics>
         where S: AsRef<str> + Hash + Eq
     {
-        let topic_names: Vec<String> = topic_names
-            .iter()
-            .map(|s| s.as_ref().to_owned())
-            .collect();
+        let topic_names: Vec<String> = topic_names.iter().map(|s| s.as_ref().to_owned()).collect();
         let inner = self.inner.clone();
         let group_id = self.inner.config.group_id.clone();
+        let session_timeout = self.inner.config.session_timeout;
+        let rebalance_timeout = self.inner.config.rebalance_timeout;
+        let assignors = self.inner
+            .config
+            .assignment_strategy
+            .iter()
+            .map(|strategy| strategy.assignor())
+            .collect();
+
         let topics = self.inner
             .client
             .metadata()
@@ -68,7 +74,11 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                     Ok(ConsumerTopics {
                            consumer: KafkaConsumer { inner: inner },
                            subscriptions: Subscriptions::with_topics(topic_names.iter()),
-                           coordinator: ConsumerCoordinator::new(client, group_id),
+                           coordinator: ConsumerCoordinator::new(client,
+                                                                 group_id,
+                                                                 session_timeout as i32,
+                                                                 rebalance_timeout as i32,
+                                                                 assignors),
                        })
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
@@ -97,12 +107,8 @@ impl<'a, K, V> ConsumerTopics<'a, K, V>
     }
 
     /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
-    pub fn unsubscribe(self) -> Unsubscribe {
-        Unsubscribe::new(self.coordinator
-                             .leave_group()
-                             .map(|group_id| {
-                                      debug!("leaved `{}` group", group_id);
-                                  }))
+    pub fn unsubscribe(mut self) -> Unsubscribe {
+        Unsubscribe::new(self.coordinator.leave_group())
     }
 }
 
