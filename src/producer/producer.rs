@@ -241,7 +241,7 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
                        partition,
                        key.as_ref(),
                        value.as_ref(),
-                       metadata.clone())
+                       &metadata)
             .unwrap_or_default();
 
         let key = key.and_then(|key| {

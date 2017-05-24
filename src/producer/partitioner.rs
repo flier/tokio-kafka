@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::hash::{BuildHasher, BuildHasherDefault, Hash, Hasher};
 
@@ -15,7 +14,7 @@ pub trait Partitioner {
                              partition: Option<PartitionId>,
                              key: Option<&K>,
                              value: Option<&V>,
-                             metadata: Rc<Metadata>)
+                             metadata: &Metadata)
                              -> Option<PartitionId>;
 }
 
@@ -59,7 +58,7 @@ impl<H> Partitioner for DefaultPartitioner<H>
                              partition: Option<PartitionId>,
                              key: Option<&K>,
                              _value: Option<&V>,
-                             metadata: Rc<Metadata>)
+                             metadata: &Metadata)
                              -> Option<PartitionId> {
         if let Some(partition) = partition {
             if partition >= 0 {
@@ -102,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_skip_partitioning() {
-        let metadata = Rc::new(Metadata::default());
+        let metadata = Metadata::default();
         let partitioner = DefaultPartitioner::new();
 
         // partition without topics
@@ -110,7 +109,7 @@ mod tests {
                                          None,
                                          Some("key").as_ref(),
                                          Some("value").as_ref(),
-                                         metadata),
+                                         &metadata),
                    None);
     }
 
@@ -124,7 +123,7 @@ mod tests {
                      }
                  })
             .collect();
-        let metadata = Rc::new(Metadata::with_topics(vec![("topic".to_owned(), partitions)]));
+        let metadata = Metadata::with_topics(vec![("topic".to_owned(), partitions)]);
 
         let partitioner = DefaultPartitioner::new();
 
@@ -133,7 +132,7 @@ mod tests {
                                          None,
                                          Some("key").as_ref(),
                                          Some("value").as_ref(),
-                                         metadata.clone()),
+                                         &metadata),
                    Some(2));
 
         // partition without key
@@ -142,7 +141,7 @@ mod tests {
                                                          None,
                                                          None,
                                                          Some("value").as_ref(),
-                                                         metadata.clone()),
+                                                         &metadata),
                        Some(id % 3));
         }
 
