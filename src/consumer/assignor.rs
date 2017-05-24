@@ -339,12 +339,10 @@ impl PartitionAssignor for StickyAssignor {
     }
 
     fn assign<'a>(&self,
-                  metadata: &'a Metadata,
-                  subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>)
+                  _metadata: &'a Metadata,
+                  _subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>)
                   -> HashMap<Cow<'a, str>, Assignment<'a>> {
-        let assignments = HashMap::new();
-
-        assignments
+        unimplemented!()
     }
 }
 
