@@ -21,6 +21,14 @@ pub struct TopicPartition<'a> {
     pub partition: PartitionId,
 }
 
+#[macro_export]
+macro_rules! topic_partition {
+    ($topic_name:expr, $partition:expr) => (TopicPartition {
+        topic_name: $topic_name.into(),
+        partition: $partition,
+    })
+}
+
 #[derive(Debug)]
 pub enum KafkaRequest<'a> {
     Produce(ProduceRequest<'a>),

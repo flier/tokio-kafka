@@ -63,10 +63,7 @@ impl<'a, K, V> Sender<'a, K, V>
             .borrow()
             .produce_records(acks,
                              ack_timeout,
-                             TopicPartition {
-                                 topic_name: topic_name.clone().into(),
-                                 partition: partition,
-                             },
+                             topic_partition!(topic_name.clone(), partition),
                              vec![message_set])
             .map(move |responses| {
                 responses

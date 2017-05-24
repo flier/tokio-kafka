@@ -259,13 +259,10 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
                                    .ok()
                            });
 
-        let tp = TopicPartition {
-            topic_name: topic_name.into(),
-            partition: partition,
-        };
+        let tp = topic_partition!(topic_name, partition);
 
-        let timestamp =
-            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
+        let timestamp = timestamp
+            .unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
         let api_version = metadata
             .leader_for(&tp)

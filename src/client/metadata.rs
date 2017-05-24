@@ -127,32 +127,26 @@ impl Cluster for Metadata {
             .iter()
             .find(|&(topic, _)| topic.as_str() == topic_name)
             .map(|(topic_name, partitions)| {
-                partitions
-                    .iter()
-                    .map(|(id, _)| {
-                             TopicPartition {
-                                 topic_name: topic_name.as_str().into(),
-                                 partition: id,
-                             }
-                         })
-                    .collect()
-            })
+                     partitions
+                         .iter()
+                         .map(|(partition_id, _)| {
+                                  topic_partition!(topic_name.as_str(), partition_id)
+                              })
+                         .collect()
+                 })
     }
 
     fn partitions_for_broker(&self, leader: BrokerRef) -> Vec<TopicPartition> {
         self.topic_partitions
             .iter()
             .flat_map(|(topic_name, partitions)| {
-                partitions
-                    .iter()
-                    .find(|&(_, partition)| partition.leader() == Some(leader))
-                    .map(|(id, _)| {
-                             TopicPartition {
-                                 topic_name: topic_name.as_str().into(),
-                                 partition: id,
-                             }
-                         })
-            })
+                          partitions
+                              .iter()
+                              .find(|&(_, partition)| partition.leader() == Some(leader))
+                              .map(|(partition_id, _)| {
+                                       topic_partition!(topic_name.as_str(), partition_id)
+                                   })
+                      })
             .collect()
     }
 }

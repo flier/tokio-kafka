@@ -1,3 +1,4 @@
+#[macro_use]
 mod request;
 mod response;
 mod codec;

@@ -57,6 +57,7 @@ mod errors;
 mod compression;
 #[macro_use]
 mod protocol;
+#[macro_use]
 mod network;
 mod client;
 mod producer;

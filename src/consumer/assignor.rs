@@ -255,34 +255,15 @@ mod tests {
         assert_eq!(assignment.len(), 2);
         assert_eq!(assignment["c0"],
                    Assignment {
-                       partitions: vec![TopicPartition {
-                                            topic_name: "t0".into(),
-                                            partition: 0,
-                                        },
-                                        TopicPartition {
-                                            topic_name: "t0".into(),
-                                            partition: 1,
-                                        },
-                                        TopicPartition {
-                                            topic_name: "t1".into(),
-                                            partition: 0,
-                                        },
-                                        TopicPartition {
-                                            topic_name: "t1".into(),
-                                            partition: 1,
-                                        }],
+                       partitions: vec![topic_partition!("t0", 0),
+                                        topic_partition!("t0", 1),
+                                        topic_partition!("t1", 0),
+                                        topic_partition!("t1", 1)],
                        user_data: None,
                    });
         assert_eq!(assignment["c1"],
                    Assignment {
-                       partitions: vec![TopicPartition {
-                                            topic_name: "t0".into(),
-                                            partition: 2,
-                                        },
-                                        TopicPartition {
-                                            topic_name: "t1".into(),
-                                            partition: 2,
-                                        }],
+                       partitions: vec![topic_partition!("t0", 2), topic_partition!("t1", 2)],
                        user_data: None,
                    });
     }
