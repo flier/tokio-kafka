@@ -163,7 +163,16 @@ impl<'a> Default for PartitionInfo {
 }
 
 impl PartitionInfo {
-    fn new(partition: PartitionId, leader: BrokerRef) -> Self {
+    pub fn new(partition: PartitionId) -> Self {
+        PartitionInfo {
+            partition: partition,
+            leader: None,
+            replicas: vec![],
+            in_sync_replicas: vec![],
+        }
+    }
+
+    pub fn with_leader(partition: PartitionId, leader: BrokerRef) -> Self {
         PartitionInfo {
             partition: partition,
             leader: Some(leader),

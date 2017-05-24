@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::borrow::{Cow, ToOwned};
 use std::time::Duration;
 use std::collections::HashMap;
 
@@ -15,7 +15,7 @@ use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId,
                SyncGroupAssignment, SyncGroupRequest, ToMilliseconds};
 
 /// A topic name and partition number
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TopicPartition<'a> {
     pub topic_name: Cow<'a, str>,
     pub partition: PartitionId,
