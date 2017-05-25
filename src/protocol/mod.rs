@@ -22,6 +22,7 @@ mod offset_commit;
 mod offset_fetch;
 mod group;
 mod api_versions;
+mod schema;
 
 pub use self::encode::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, PARTITION_ID_SIZE,
                        REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE, WriteExt};
@@ -45,6 +46,7 @@ pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordi
                       ListGroupsResponse, SyncGroupAssignment, SyncGroupRequest, SyncGroupResponse};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
                              UsableApiVersions};
+pub use self::schema::{Nullable, Schema};
 
 /// This is a numeric id for the API being invoked (i.e. is it a metadata request, a produce request, a fetch request, etc).
 ///
@@ -380,41 +382,79 @@ pub enum KafkaCode {
 impl KafkaCode {
     pub fn reason(&self) -> &'static str {
         match *self {
-            KafkaCode::Unknown => "The server experienced an unexpected error when processing the request",
+            KafkaCode::Unknown => {
+                "The server experienced an unexpected error when processing the request"
+            }
             KafkaCode::None => "Ok",
-            KafkaCode::OffsetOutOfRange => "The requested offset is not within the range of offsets maintained by the server.",
-            KafkaCode::CorruptMessage => "This message has failed its CRC checksum, exceeds the valid size, or is otherwise corrupt.",
+            KafkaCode::OffsetOutOfRange => {
+                "The requested offset is not within the range of offsets maintained by the server."
+            }
+            KafkaCode::CorruptMessage => {
+                "This message has failed its CRC checksum, exceeds the valid size, or is otherwise corrupt."
+            }
             KafkaCode::UnknownTopicOrPartition => "This server does not host this topic-partition.",
             KafkaCode::InvalidMessageSize => "The requested fetch size is invalid.",
-            KafkaCode::LeaderNotAvailable => "There is no leader for this topic-partition as we are in the middle of a leadership election.",
-            KafkaCode::NotLeaderForPartition => "This server is not the leader for that topic-partition.",
+            KafkaCode::LeaderNotAvailable => {
+                "There is no leader for this topic-partition as we are in the middle of a leadership election."
+            }
+            KafkaCode::NotLeaderForPartition => {
+                "This server is not the leader for that topic-partition."
+            }
             KafkaCode::RequestTimedOut => "The request timed out.",
             KafkaCode::BrokerNotAvailable => "The broker is not available.",
-            KafkaCode::ReplicaNotAvailable => "The replica is not available for the requested topic-partition",
-            KafkaCode::MessageSizeTooLarge => "The request included a message larger than the max message size the server will accept.",
+            KafkaCode::ReplicaNotAvailable => {
+                "The replica is not available for the requested topic-partition"
+            }
+            KafkaCode::MessageSizeTooLarge => {
+                "The request included a message larger than the max message size the server will accept."
+            }
             KafkaCode::StaleControllerEpoch => "The controller moved to another broker.",
-            KafkaCode::OffsetMetadataTooLarge => "The metadata field of the offset request was too large.",
-            KafkaCode::NetworkException => "The server disconnected before a response was received.",
-            KafkaCode::GroupLoadInProgress => "The coordinator is loading and hence can't process requests.",
+            KafkaCode::OffsetMetadataTooLarge => {
+                "The metadata field of the offset request was too large."
+            }
+            KafkaCode::NetworkException => {
+                "The server disconnected before a response was received."
+            }
+            KafkaCode::GroupLoadInProgress => {
+                "The coordinator is loading and hence can't process requests."
+            }
             KafkaCode::GroupCoordinatorNotAvailable => "The coordinator is not available.",
             KafkaCode::NotCoordinatorForGroup => "This is not the correct coordinator.",
-            KafkaCode::InvalidTopic => "The request attempted to perform an operation on an invalid topic.",
-            KafkaCode::RecordListTooLarge => "The request included message batch larger than the configured segment size on the server.",
-            KafkaCode::NotEnoughReplicas => "Messages are rejected since there are fewer in-sync replicas than required.",
-            KafkaCode::NotEnoughReplicasAfterAppend => "Messages are written to the log, but to fewer in-sync replicas than required.",
-            KafkaCode::InvalidRequiredAcks => "Produce request specified an invalid value for required acks.",
+            KafkaCode::InvalidTopic => {
+                "The request attempted to perform an operation on an invalid topic."
+            }
+            KafkaCode::RecordListTooLarge => {
+                "The request included message batch larger than the configured segment size on the server."
+            }
+            KafkaCode::NotEnoughReplicas => {
+                "Messages are rejected since there are fewer in-sync replicas than required."
+            }
+            KafkaCode::NotEnoughReplicasAfterAppend => {
+                "Messages are written to the log, but to fewer in-sync replicas than required."
+            }
+            KafkaCode::InvalidRequiredAcks => {
+                "Produce request specified an invalid value for required acks."
+            }
             KafkaCode::IllegalGeneration => "Specified group generation id is not valid.",
-            KafkaCode::InconsistentGroupProtocol => "The group member's supported protocols are incompatible with those of existing members.",
+            KafkaCode::InconsistentGroupProtocol => {
+                "The group member's supported protocols are incompatible with those of existing members."
+            }
             KafkaCode::InvalidGroupId => "The configured groupId is invalid",
             KafkaCode::UnknownMemberId => "The coordinator is not aware of this member.",
-            KafkaCode::InvalidSessionTimeout => "The session timeout is not within the range allowed by the broker",
+            KafkaCode::InvalidSessionTimeout => {
+                "The session timeout is not within the range allowed by the broker"
+            }
             KafkaCode::RebalanceInProgress => "The group is rebalancing, so a rejoin is needed.",
             KafkaCode::InvalidOffsetCommitSize => "The committing offset data size is not valid",
             KafkaCode::TopicAuthorizationFailed => "Topic authorization failed.",
             KafkaCode::GroupAuthorizationFailed => "Group authorization failed.",
             KafkaCode::ClusterAuthorizationFailed => "Cluster authorization failed.",
-            KafkaCode::InvalidTimestamp => "The timestamp of the message is out of acceptable range.",
-            KafkaCode::UnsupportedSaslMechanism => "The broker does not support the requested SASL mechanism.",
+            KafkaCode::InvalidTimestamp => {
+                "The timestamp of the message is out of acceptable range."
+            }
+            KafkaCode::UnsupportedSaslMechanism => {
+                "The broker does not support the requested SASL mechanism."
+            }
             KafkaCode::IllegalSaslState => "Request is not valid given the current SASL state.",
             KafkaCode::UnsupportedVersion => "The version of API is not supported.",
             KafkaCode::TopicAlreadyExists => "Topic with this name already exists.",
@@ -423,19 +463,41 @@ impl KafkaCode {
             KafkaCode::InvalidReplicaAssignment => "Replica assignment is invalid.",
             KafkaCode::InvalidConfig => "Configuration is invalid.",
             KafkaCode::NotController => "This is not the correct controller for this cluster.",
-            KafkaCode::InvalidRequest => "This most likely occurs because of a request being malformed by the client library or the message was sent to an incompatible broker.",
-            KafkaCode::UnsupportedForMessageFormat => "The message format version on the broker does not support the request.",
-            KafkaCode::PolicyViolation => "Request parameters do not satisfy the configured policy.",
-            KafkaCode::OutOfOrderSequenceNumber => "The broker received an out of order sequence number",
+            KafkaCode::InvalidRequest => {
+                "This most likely occurs because of a request being malformed by the client library or the message was sent to an incompatible broker."
+            }
+            KafkaCode::UnsupportedForMessageFormat => {
+                "The message format version on the broker does not support the request."
+            }
+            KafkaCode::PolicyViolation => {
+                "Request parameters do not satisfy the configured policy."
+            }
+            KafkaCode::OutOfOrderSequenceNumber => {
+                "The broker received an out of order sequence number"
+            }
             KafkaCode::DuplicateSequenceNumber => "The broker received a duplicate sequence number",
             KafkaCode::InvalidProducerEpoch => "Producer attempted an operation with an old epoch",
-            KafkaCode::InvalidTxnState => "The producer attempted a transactional operation in an invalid state",
-            KafkaCode::InvalidProducerIdMapper => "The producer attempted to use a producer id which is not currently assigned to its transactional id",
-            KafkaCode::InvalidTransactionTimeout => "The transaction timeout is larger than the maximum value allowed by the broker",
-            KafkaCode::ConcurrentTransactions => "The producer attempted to update a transaction while another concurrent operation on the same transaction was ongoing",
-            KafkaCode::TransactionCoordinatorFenced => "Indicates that the transaction coordinator sending a WriteTxnMarker is no longer the current coordinator for a given producer",
-            KafkaCode::TransactionalIdAuthorizationFailed => "Transactional Id authorization failed",
-            KafkaCode::ProducerIdAuthorizationFailed => "Producer is not authorized to use producer Ids, which is required to write idempotent data.",
+            KafkaCode::InvalidTxnState => {
+                "The producer attempted a transactional operation in an invalid state"
+            }
+            KafkaCode::InvalidProducerIdMapper => {
+                "The producer attempted to use a producer id which is not currently assigned to its transactional id"
+            }
+            KafkaCode::InvalidTransactionTimeout => {
+                "The transaction timeout is larger than the maximum value allowed by the broker"
+            }
+            KafkaCode::ConcurrentTransactions => {
+                "The producer attempted to update a transaction while another concurrent operation on the same transaction was ongoing"
+            }
+            KafkaCode::TransactionCoordinatorFenced => {
+                "Indicates that the transaction coordinator sending a WriteTxnMarker is no longer the current coordinator for a given producer"
+            }
+            KafkaCode::TransactionalIdAuthorizationFailed => {
+                "Transactional Id authorization failed"
+            }
+            KafkaCode::ProducerIdAuthorizationFailed => {
+                "Producer is not authorized to use producer Ids, which is required to write idempotent data."
+            }
             KafkaCode::SecurityDisabled => "Security features are disabled.",
             KafkaCode::BrokerAuthorizationFailed => "Broker authorization failed",
         }

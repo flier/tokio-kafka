@@ -1,4 +1,5 @@
 mod config;
+mod protocol;
 mod assignor;
 mod subscriptions;
 mod fetcher;
@@ -10,6 +11,7 @@ mod builder;
 pub use self::config::{ConsumerConfig, DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS,
                        DEFAULT_HEARTBEAT_INTERVAL_MILLIS, DEFAULT_MAX_POLL_RECORDS,
                        DEFAULT_SESSION_TIMEOUT_MILLIS};
+pub use self::protocol::ConsumerProtocol;
 pub use self::assignor::{Assignment, AssignmentStrategy, PartitionAssignor, Subscription};
 pub use self::subscriptions::Subscriptions;
 pub use self::fetcher::Fetcher;
