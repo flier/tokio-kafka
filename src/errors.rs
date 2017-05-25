@@ -2,7 +2,7 @@ use std::fmt;
 use std::error::Error as StdError;
 use std::borrow::{Borrow, Cow};
 
-use serde::ser;
+use serde::{de, ser};
 
 use protocol::{ApiKeys, KafkaCode};
 use client::BrokerRef;
@@ -87,6 +87,14 @@ unsafe impl Sync for Error {}
 unsafe impl Send for Error {}
 
 impl ser::Error for Error {
+    fn custom<T>(msg: T) -> Self
+        where T: fmt::Display
+    {
+        ErrorKind::Msg(msg.to_string()).into()
+    }
+}
+
+impl de::Error for Error {
     fn custom<T>(msg: T) -> Self
         where T: fmt::Display
     {
