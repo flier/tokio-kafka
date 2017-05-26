@@ -46,7 +46,7 @@ pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordi
                       ListGroupsResponse, SyncGroupAssignment, SyncGroupRequest, SyncGroupResponse};
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
                              UsableApiVersions};
-pub use self::schema::{Nullable, Schema};
+pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
 
 /// This is a numeric id for the API being invoked (i.e. is it a metadata request, a produce request, a fetch request, etc).
 ///

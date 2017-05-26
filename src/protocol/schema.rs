@@ -32,7 +32,7 @@ impl Schema {
 }
 
 #[derive(Clone, Debug)]
-pub enum Type {
+pub enum SchemaType {
     BOOLEAN,
     INT8,
     INT16,
