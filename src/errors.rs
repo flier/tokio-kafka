@@ -11,6 +11,7 @@ error_chain!{
     foreign_links {
         IoError(::std::io::Error);
         ParseIntError(::std::num::ParseIntError);
+        Utf8Error(::std::str::Utf8Error);
         TlsError(::native_tls::Error);
         MetricsError(::prometheus::Error);
         SnappyError(::snap::Error) #[cfg(feature = "snappy")];
