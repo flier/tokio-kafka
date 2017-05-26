@@ -23,7 +23,7 @@ pub struct TopicPartition<'a> {
 
 #[macro_export]
 macro_rules! topic_partition {
-    ($topic_name:expr, $partition:expr) => (TopicPartition {
+    ($topic_name:expr, $partition:expr) => ($crate::network::TopicPartition {
         topic_name: $topic_name.into(),
         partition: $partition,
     })

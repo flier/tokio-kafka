@@ -2,6 +2,7 @@ use std::fmt;
 use std::str;
 use std::io::prelude::*;
 use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 use std::result::Result as StdResult;
 
 use serde::ser::{self, Serialize, SerializeSeq};
@@ -55,6 +56,16 @@ pub struct VarLong(i64);
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Nullable<T>(Option<T>);
 
+impl<T> Nullable<T> {
+    pub fn into_raw(self) -> Option<T> {
+        self.0
+    }
+
+    pub fn null() -> Self {
+        Nullable(None)
+    }
+}
+
 impl From<i32> for VarInt {
     fn from(v: i32) -> Self {
         VarInt(v)
@@ -70,6 +81,48 @@ impl From<i64> for VarLong {
 impl<T> From<Option<T>> for Nullable<T> {
     fn from(v: Option<T>) -> Self {
         Nullable(v)
+    }
+}
+
+impl Deref for VarInt {
+    type Target = i32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for VarInt {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Deref for VarLong {
+    type Target = i64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for VarLong {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T> Deref for Nullable<T> {
+    type Target = Option<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Nullable<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
