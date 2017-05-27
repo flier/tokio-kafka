@@ -14,7 +14,6 @@ use tokio_retry::Retry;
 
 use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, PartitionId, ToMilliseconds};
-use network::TopicPartition;
 use client::{Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, TopicRecord};
 use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,

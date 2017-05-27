@@ -249,7 +249,7 @@ impl Serialize for Nullable<String> {
         where S: ser::Serializer
     {
         if let Some(ref v) = self.0 {
-            serializer.serialize_str(&v)
+            serializer.serialize_str(v)
         } else {
             serializer.serialize_i16(-1)
         }
