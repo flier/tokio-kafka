@@ -33,4 +33,8 @@ impl Subscriptions {
         self.subscription = HashSet::from_iter(topic_names.iter().cloned());
         self.group_subscription = &self.group_subscription | &self.subscription;
     }
+
+    pub fn topics(&self) -> Vec<&str> {
+        Vec::from_iter(self.subscription.iter().map(|s| s.as_ref()))
+    }
 }

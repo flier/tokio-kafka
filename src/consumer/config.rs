@@ -105,7 +105,7 @@ impl Default for ConsumerConfig {
             auto_commit_interval: DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS,
             heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL_MILLIS,
             max_poll_records: DEFAULT_MAX_POLL_RECORDS,
-            assignment_strategy: vec![AssignmentStrategy::Range],
+            assignment_strategy: vec![AssignmentStrategy::Range, AssignmentStrategy::RoundRobin],
             session_timeout: DEFAULT_SESSION_TIMEOUT_MILLIS,
             rebalance_timeout: DEFAULT_REBALANCE_TIMEOUT_MILLIS,
         }

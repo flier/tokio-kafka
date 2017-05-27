@@ -8,6 +8,8 @@ use consumer::{Assignment, Subscription};
 
 const CONSUMER_PROTOCOL_V0: i16 = 0;
 
+pub const CONSUMER_PROTOCOL: &str = "consumer";
+
 pub struct ConsumerProtocol {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -70,12 +70,13 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
 
                 if not_found.is_empty() {
                     let client = inner.client.clone();
+                    let subscriptions = Subscriptions::with_topics(topic_names.iter());
 
                     Ok(ConsumerTopics {
                            consumer: KafkaConsumer { inner: inner },
-                           subscriptions: Subscriptions::with_topics(topic_names.iter()),
                            coordinator: ConsumerCoordinator::new(client,
                                                                  group_id,
+                                                                 subscriptions,
                                                                  session_timeout as i32,
                                                                  rebalance_timeout as i32,
                                                                  assignors),
@@ -92,7 +93,6 @@ pub type Subscriber<T> = StaticBoxFuture<T>;
 
 pub struct ConsumerTopics<'a, K, V> {
     consumer: KafkaConsumer<'a, K, V>,
-    subscriptions: Subscriptions,
     coordinator: ConsumerCoordinator<'a>,
 }
 
