@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::borrow::Cow;
+use std::iter::FromIterator;
 use std::collections::{HashMap, HashSet};
 
 use futures::Future;
@@ -8,7 +9,7 @@ use futures::Future;
 use errors::{ErrorKind, Result};
 use protocol::{KafkaCode, Schema};
 use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
-             ConsumerGroupProtocol, Generation, KafkaClient, StaticBoxFuture};
+             ConsumerGroupProtocol, Generation, KafkaClient, Metadata, StaticBoxFuture};
 use consumer::{CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 
 /// Manages the coordination process with the consumer coordinator.
@@ -32,7 +33,7 @@ pub struct ConsumerCoordinator<'a> {
 struct Inner<'a> {
     client: KafkaClient<'a>,
     group_id: String,
-    subscriptions: Subscriptions,
+    subscriptions: RefCell<Subscriptions>,
     session_timeout: i32,
     rebalance_timeout: i32,
     assignors: Vec<Box<PartitionAssignor>>,
@@ -53,7 +54,7 @@ enum State {
 
 impl State {
     pub fn member_id(&self) -> Option<String> {
-        if let &State::Stable { ref generation, .. } = self {
+        if let State::Stable { ref generation, .. } = *self {
             Some(generation.member_id.clone())
         } else {
             None
@@ -73,7 +74,7 @@ impl<'a> ConsumerCoordinator<'a> {
             inner: Rc::new(Inner {
                                client: client,
                                group_id: group_id,
-                               subscriptions: subscriptions,
+                               subscriptions: RefCell::new(subscriptions),
                                session_timeout: session_timeout,
                                rebalance_timeout: rebalance_timeout,
                                assignors: assignors,
@@ -83,20 +84,26 @@ impl<'a> ConsumerCoordinator<'a> {
     }
 }
 
-impl<'a> Inner<'a> {
+impl<'a> Inner<'a>
+    where Self: 'static
+{
     fn group_protocols(&self) -> Vec<ConsumerGroupProtocol<'a>> {
-        let topics = self.subscriptions.topics();
+        let topics: Vec<String> = self.subscriptions
+            .borrow()
+            .topics()
+            .iter()
+            .map(|topic_name| String::from(*topic_name))
+            .collect();
 
         self.assignors
             .iter()
             .flat_map(move |assignor| {
-                let subscription = assignor.subscription(topics
-                                                             .iter()
-                                                             .map(|topic_name| {
-                                                                      String::from(*topic_name)
-                                                                          .into()
-                                                                  })
-                                                             .collect());
+                let subscription =
+                    assignor.subscription(topics
+                                              .iter()
+                                              .map(|topic_name| topic_name.as_str().into())
+                                              .collect());
+
                 Schema::serialize(&subscription)
                     .map_err(|err| warn!("fail to serialize subscription, {}", err))
                     .ok()
@@ -111,6 +118,7 @@ impl<'a> Inner<'a> {
     }
 
     fn perform_assignment(&self,
+                          metadata: &Metadata,
                           group_protocol: &str,
                           members: &[ConsumerGroupMember])
                           -> Result<Vec<ConsumerGroupAssignment<'a>>> {
@@ -127,10 +135,63 @@ impl<'a> Inner<'a> {
             let subscription: Subscription = Schema::deserialize(member.member_metadata.as_ref())?;
 
             subscripbed_topics.extend(subscription.topics.iter().cloned());
-            subscriptions.insert(member.member_id.clone(), subscription);
+            subscriptions.insert(member.member_id.as_str().into(), subscription);
         }
 
-        Ok(vec![])
+        let assignment = assignor.assign(metadata, subscriptions);
+
+        // user-customized assignor may have created some topics that are not in the subscription
+        // list and assign their partitions to the members; in this case we would like to update the
+        // leader's own metadata with the newly added topics so that it will not trigger a
+        // subsequent rebalance when these topics gets updated from metadata refresh.
+
+        let mut assigned_topics = HashSet::new();
+
+        assigned_topics.extend(assignment
+                                   .values()
+                                   .flat_map(|member| {
+                                                 member.partitions.iter().map(|tp| {
+                                                                                  tp.topic_name
+                                                                                      .clone()
+                                                                              })
+                                             }));
+
+        let not_assigned_topics = &subscripbed_topics - &assigned_topics;
+
+        if !not_assigned_topics.is_empty() {
+            warn!("The following subscribed topics are not assigned to any members in the group `{}`: {}",
+                  self.group_id,
+                  Vec::from_iter(not_assigned_topics.iter().cloned())
+                      .as_slice()
+                      .join(","));
+        }
+
+        let newly_added_topics = &assigned_topics - &subscripbed_topics;
+
+        if !newly_added_topics.is_empty() {
+            info!("The following not-subscribed topics are assigned to group {}, and their metadata will be fetched from the brokers : {}",
+                  self.group_id,
+                  Vec::from_iter(newly_added_topics.iter().cloned())
+                      .as_slice()
+                      .join(","));
+
+            subscripbed_topics.extend(assigned_topics);
+        }
+
+        self.subscriptions
+            .borrow_mut()
+            .group_subscribe(subscripbed_topics.iter());
+
+        let mut group_assignment = Vec::new();
+
+        for (member_id, assignment) in assignment {
+            group_assignment.push(ConsumerGroupAssignment {
+                                      member_id: String::from(member_id).into(),
+                                      member_assignment: Schema::serialize(&assignment)?.into(),
+                                  })
+        }
+
+        Ok(group_assignment)
     }
 }
 
@@ -152,8 +213,9 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
 
         let future = self.inner
             .client
-            .group_coordinator(group_id.clone())
-            .and_then(move |coordinator| {
+            .metadata()
+            .join(self.inner.client.group_coordinator(group_id.clone()))
+            .and_then(move |(metadata, coordinator)| {
                 client
                     .join_group(coordinator.as_ref(),
                                 group_id,
@@ -166,7 +228,8 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                         let generation = consumer_group.generation();
 
                         let group_assignment = if consumer_group.is_leader() {
-                            match inner.perform_assignment(&consumer_group.protocol,
+                            match inner.perform_assignment(&metadata,
+                                                           &consumer_group.protocol,
                                                            &consumer_group.members) {
                                 Ok(group_assignment) => group_assignment,
                                 Err(err) => return JoinGroup::err(err),

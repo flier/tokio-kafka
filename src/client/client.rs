@@ -254,14 +254,7 @@ impl<'a> KafkaClient<'a>
 
         let mut client = KafkaClient { inner: inner };
 
-        handle.spawn(client
-                         .load_metadata()
-                         .map(|metadata| {
-                                  trace!("auto loaded metadata, {:?}", metadata);
-                              })
-                         .map_err(|err| {
-                                      warn!("fail to load metadata, {}", err);
-                                  }));
+        client.refresh_metadata();
 
         client
     }
@@ -276,6 +269,18 @@ impl<'a> KafkaClient<'a>
 
     pub fn metadata(&self) -> GetMetadata {
         (*self.inner.state).borrow().metadata()
+    }
+
+    pub fn refresh_metadata(&mut self) {
+        let handle = self.inner.handle.clone();
+
+        handle.spawn(self.load_metadata()
+                         .map(|metadata| {
+                                  trace!("auto loaded metadata, {:?}", metadata);
+                              })
+                         .map_err(|err| {
+                                      warn!("fail to load metadata, {}", err);
+                                  }));
     }
 }
 

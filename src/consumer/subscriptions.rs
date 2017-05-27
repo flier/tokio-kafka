@@ -34,6 +34,16 @@ impl Subscriptions {
         self.group_subscription = &self.group_subscription | &self.subscription;
     }
 
+    /// Add topics to the current group subscription.
+    ///
+    /// This is used by the group leader to ensure that it receives metadata updates for all topics
+    /// that the group is interested in.
+    pub fn group_subscribe<I: Iterator<Item = S>, S: AsRef<str> + Hash + Eq>(&mut self,
+                                                                             topic_names: I) {
+        self.group_subscription
+            .extend(topic_names.map(|s| s.as_ref().to_owned()))
+    }
+
     pub fn topics(&self) -> Vec<&str> {
         Vec::from_iter(self.subscription.iter().map(|s| s.as_ref()))
     }
