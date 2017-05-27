@@ -174,7 +174,8 @@ mod tests {
   "heartbeat.interval.ms": 3000,
   "max.poll.records": 500,
   "partition.assignment.strategy": [
-    "range"
+    "range",
+    "roundrobin"
   ],
   "session.timeout.ms": 10000,
   "max.poll.interval.ms": 300000

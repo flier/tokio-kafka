@@ -45,6 +45,16 @@ enum State {
     },
 }
 
+impl State {
+    pub fn member_id(&self) -> Option<String> {
+        if let &State::Stable { ref generation, .. } = self {
+            Some(generation.member_id.clone())
+        } else {
+            None
+        }
+    }
+}
+
 impl<'a> ConsumerCoordinator<'a> {
     pub fn new(client: KafkaClient<'a>,
                group_id: String,
@@ -67,7 +77,7 @@ impl<'a> ConsumerCoordinator<'a> {
     fn group_protocols(&self) -> Vec<ConsumerGroupProtocol<'a>> {
         let topics = self.subscriptions.topics();
 
-        let group_protocols = self.assignors
+        self.assignors
             .iter()
             .flat_map(move |assignor| {
                 let subscription = assignor.subscription(topics
@@ -87,9 +97,7 @@ impl<'a> ConsumerCoordinator<'a> {
                              }
                          })
             })
-            .collect();
-
-        group_protocols
+            .collect()
     }
 }
 
@@ -97,14 +105,14 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
     where Self: 'static
 {
     fn join_group(&mut self) -> JoinGroup {
+        let member_id = self.state.borrow().member_id().unwrap_or_default();
+
         (*self.state.borrow_mut()) = State::Rebalancing;
 
         let client = self.client.clone();
         let group_id: Cow<'a, str> = self.group_id.clone().into();
         let session_timeout = self.session_timeout;
         let rebalance_timeout = self.rebalance_timeout;
-        let generation = Generation::default();
-        let member_id = generation.member_id.into();
         let group_protocols = self.group_protocols();
         let state = self.state.clone();
 
@@ -116,7 +124,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                                 group_id,
                                 session_timeout,
                                 rebalance_timeout,
-                                member_id,
+                                member_id.into(),
                                 CONSUMER_PROTOCOL.into(),
                                 group_protocols)
                     .and_then(move |consumer_group| {
