@@ -145,6 +145,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_properties() {
+        let config = ProducerConfig {
+            retries: 3,
+            ..Default::default()
+        };
+
+        assert_eq!(config.linger(),
+                   Duration::from_millis(DEFAULT_LINGER_MILLIS));
+        assert_eq!(config.ack_timeout(),
+                   Duration::from_millis(DEFAULT_ACK_TIMEOUT_MILLIS));
+        assert_eq!(config.retry_strategy().len(), 3);
+    }
+
+    #[test]
     fn test_serialize() {
         let config = ProducerConfig::default();
         let json = r#"{

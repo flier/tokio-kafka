@@ -97,8 +97,7 @@ impl ClientConfig {
 
     /// Close idle connections after the number of milliseconds specified by this config.
     pub fn max_connection_idle(&self) -> Duration {
-        Duration::new((self.max_connection_idle / 1000) as u64,
-                      (self.max_connection_idle % 1000) as u32 * 1000_000)
+        Duration::from_millis(self.max_connection_idle)
     }
 
     /// The maximum amount of time the client will wait for the response of a request.
@@ -127,6 +126,18 @@ mod tests {
     extern crate serde_json;
 
     use super::*;
+
+    #[test]
+    fn test_properties() {
+        let config = ClientConfig::default();
+
+        assert_eq!(config.max_connection_idle(),
+                   Duration::from_millis(DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS));
+        assert_eq!(config.request_timeout(),
+                   Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MILLS));
+        assert_eq!(config.metadata_max_age(),
+                   Duration::from_millis(DEFAULT_METADATA_MAX_AGE_MILLS));
+    }
 
     #[test]
     fn test_serialize() {

@@ -141,6 +141,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_properties() {
+        let config = ConsumerConfig::default();
+
+        assert_eq!(config.auto_commit_interval(),
+                   Duration::from_millis(DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS));
+        assert_eq!(config.heartbeat_interval(),
+                   Duration::from_millis(DEFAULT_HEARTBEAT_INTERVAL_MILLIS));
+        assert_eq!(config.session_timeout(),
+                   Duration::from_millis(DEFAULT_SESSION_TIMEOUT_MILLIS));
+        assert_eq!(config.rebalance_timeout(),
+                   Duration::from_millis(DEFAULT_REBALANCE_TIMEOUT_MILLIS));
+    }
+
+    #[test]
     fn test_serialize() {
         let config = ConsumerConfig::default();
         let json = r#"{
