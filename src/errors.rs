@@ -20,7 +20,7 @@ error_chain!{
     errors {
         ConfigError(reason: &'static str) {
             description("invalid config")
-            display("invalid config, {:?}", reason)
+            display("invalid config, {}", reason)
         }
         LockError(reason: String) {
             description("lock failed")
@@ -28,11 +28,11 @@ error_chain!{
         }
         ParseError(reason: String) {
             description("fail to parse")
-            display("fail to parse, {:?}", reason)
+            display("fail to parse, {}", reason)
         }
         EncodeError(reason: &'static str) {
             description("fail to encode")
-            display("fail to encode, {:?}", reason)
+            display("fail to encode, {}", reason)
         }
         IllegalArgument(reason: String) {
             description("invalid argument")
@@ -52,14 +52,18 @@ error_chain!{
         }
         TimeoutError(reason: String) {
             description("operation timed out")
-            display("operation timed out, {:?}", reason)
+            display("operation timed out, {}", reason)
         }
         RetryError(reason: String) {
             description("retry failed")
-            display("retry failed, {:?}", reason)
+            display("retry failed, {}", reason)
         }
         UnsupportedCompression {
             description("Unsupported compression format")
+        }
+        UnsupportedAssignmentStrategy(name: String) {
+            description("unsupported assignment strategy")
+            display("unsupported assignment strategy, {}", name)
         }
         UnexpectedEOF {
             description("Unexpected EOF")
@@ -67,7 +71,7 @@ error_chain!{
         #[cfg(feature = "lz4")]
         Lz4Error(reason: String) {
           description("LZ4 error")
-          display("LZ4 error, {:?}", reason)
+          display("LZ4 error, {}", reason)
         }
         TopicNotFound(name: String) {
             description("topic not found")
@@ -79,7 +83,7 @@ error_chain!{
         }
         SchemaError(reason: String) {
             description("schema error")
-            display("schema error, {:?}", reason)
+            display("schema error, {}", reason)
         }
     }
 }

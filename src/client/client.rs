@@ -121,7 +121,7 @@ pub struct ConsumerGroup {
     pub generation_id: GenerationId,
 
     /// The group protocol selected by the coordinator
-    pub group_protocol: String,
+    pub protocol: String,
 
     /// The leader of the group
     pub leader_id: String,
@@ -142,7 +142,7 @@ impl ConsumerGroup {
         Generation {
             generation_id: self.generation_id,
             member_id: self.member_id.clone(),
-            group_protocol: self.group_protocol.clone(),
+            protocol: self.protocol.clone(),
         }
     }
 }
@@ -155,7 +155,7 @@ pub struct Generation {
     pub member_id: String,
 
     /// The group protocol selected by the coordinator
-    pub group_protocol: String,
+    pub protocol: String,
 }
 
 impl Default for Generation {
@@ -163,7 +163,7 @@ impl Default for Generation {
         Generation {
             generation_id: -1,
             member_id: "".to_owned(),
-            group_protocol: "".to_owned(),
+            protocol: "".to_owned(),
         }
     }
 }
@@ -795,7 +795,7 @@ impl<'a> Inner<'a>
                               future::ok(ConsumerGroup {
                                              group_id: joined_group_id,
                                              generation_id: res.generation_id,
-                                             group_protocol: res.group_protocol,
+                                             protocol: res.protocol,
                                              leader_id: res.leader_id,
                                              member_id: res.member_id,
                                              members: res.members,

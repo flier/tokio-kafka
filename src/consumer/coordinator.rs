@@ -1,13 +1,15 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 
 use futures::Future;
 
-use errors::ErrorKind;
+use errors::{ErrorKind, Result};
 use protocol::{KafkaCode, Schema};
-use client::{BrokerRef, Client, ConsumerGroupProtocol, Generation, KafkaClient, StaticBoxFuture};
-use consumer::{CONSUMER_PROTOCOL, PartitionAssignor, Subscriptions};
+use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
+             ConsumerGroupProtocol, Generation, KafkaClient, StaticBoxFuture};
+use consumer::{CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 
 /// Manages the coordination process with the consumer coordinator.
 pub trait Coordinator {
@@ -24,6 +26,10 @@ pub type LeaveGroup = StaticBoxFuture;
 
 /// Manages the coordination process with the consumer coordinator.
 pub struct ConsumerCoordinator<'a> {
+    inner: Rc<Inner<'a>>,
+}
+
+struct Inner<'a> {
     client: KafkaClient<'a>,
     group_id: String,
     subscriptions: Subscriptions,
@@ -64,16 +70,20 @@ impl<'a> ConsumerCoordinator<'a> {
                assignors: Vec<Box<PartitionAssignor>>)
                -> Self {
         ConsumerCoordinator {
-            client: client,
-            group_id: group_id,
-            subscriptions: subscriptions,
-            session_timeout: session_timeout,
-            rebalance_timeout: rebalance_timeout,
-            assignors: assignors,
-            state: Rc::new(RefCell::new(State::Unjoined)),
+            inner: Rc::new(Inner {
+                               client: client,
+                               group_id: group_id,
+                               subscriptions: subscriptions,
+                               session_timeout: session_timeout,
+                               rebalance_timeout: rebalance_timeout,
+                               assignors: assignors,
+                               state: Rc::new(RefCell::new(State::Unjoined)),
+                           }),
         }
     }
+}
 
+impl<'a> Inner<'a> {
     fn group_protocols(&self) -> Vec<ConsumerGroupProtocol<'a>> {
         let topics = self.subscriptions.topics();
 
@@ -99,24 +109,49 @@ impl<'a> ConsumerCoordinator<'a> {
             })
             .collect()
     }
+
+    fn perform_assignment(&self,
+                          group_protocol: &str,
+                          members: &[ConsumerGroupMember])
+                          -> Result<Vec<ConsumerGroupAssignment<'a>>> {
+        let strategy = group_protocol.parse()?;
+        let assignor = self.assignors
+            .iter()
+            .find(|assigner| assigner.strategy() == strategy)
+            .ok_or_else(|| ErrorKind::UnsupportedAssignmentStrategy(group_protocol.to_owned()))?;
+
+        let mut subscripbed_topics = HashSet::new();
+        let mut subscriptions = HashMap::new();
+
+        for member in members {
+            let subscription: Subscription = Schema::deserialize(member.member_metadata.as_ref())?;
+
+            subscripbed_topics.extend(subscription.topics.iter().cloned());
+            subscriptions.insert(member.member_id.clone(), subscription);
+        }
+
+        Ok(vec![])
+    }
 }
 
 impl<'a> Coordinator for ConsumerCoordinator<'a>
     where Self: 'static
 {
     fn join_group(&mut self) -> JoinGroup {
-        let member_id = self.state.borrow().member_id().unwrap_or_default();
+        let member_id = self.inner.state.borrow().member_id().unwrap_or_default();
 
-        (*self.state.borrow_mut()) = State::Rebalancing;
+        (*self.inner.state.borrow_mut()) = State::Rebalancing;
 
-        let client = self.client.clone();
-        let group_id: Cow<'a, str> = self.group_id.clone().into();
-        let session_timeout = self.session_timeout;
-        let rebalance_timeout = self.rebalance_timeout;
-        let group_protocols = self.group_protocols();
-        let state = self.state.clone();
+        let inner = self.inner.clone();
+        let client = self.inner.client.clone();
+        let group_id: Cow<'a, str> = self.inner.group_id.clone().into();
+        let session_timeout = self.inner.session_timeout;
+        let rebalance_timeout = self.inner.rebalance_timeout;
+        let group_protocols = self.inner.group_protocols();
+        let state = self.inner.state.clone();
 
-        let future = self.client
+        let future = self.inner
+            .client
             .group_coordinator(group_id.clone())
             .and_then(move |coordinator| {
                 client
@@ -131,12 +166,16 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                         let generation = consumer_group.generation();
 
                         let group_assignment = if consumer_group.is_leader() {
-                            vec![]
+                            match inner.perform_assignment(&consumer_group.protocol,
+                                                           &consumer_group.members) {
+                                Ok(group_assignment) => group_assignment,
+                                Err(err) => return JoinGroup::err(err),
+                            }
                         } else {
-                            vec![]
+                            Vec::new()
                         };
 
-                        client
+                        let future = client
                             .sync_group(coordinator.as_ref(),
                                         consumer_group.group_id.clone().into(),
                                         generation.generation_id.into(),
@@ -154,7 +193,9 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                                 };
 
                                 result.map(|_| ())
-                            })
+                            });
+
+                        JoinGroup::new(future)
                     })
             });
 
@@ -165,17 +206,18 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
         if let State::Stable {
                    coordinator,
                    ref generation,
-               } = *self.state.borrow() {
+               } = *self.inner.state.borrow() {
             debug!("sending LeaveGroup request to coordinator {:?} for group `{}`",
                    coordinator,
-                   self.group_id);
+                   self.inner.group_id);
 
-            (*self.state.borrow_mut()) = State::Rebalancing;
+            (*self.inner.state.borrow_mut()) = State::Rebalancing;
 
-            let group_id = self.group_id.clone().into();
-            let state = self.state.clone();
+            let group_id = self.inner.group_id.clone().into();
+            let state = self.inner.state.clone();
 
-            LeaveGroup::new(self.client
+            LeaveGroup::new(self.inner
+                                .client
                                 .leave_group(coordinator,
                                              group_id,
                                              generation.member_id.clone().into())

@@ -1,6 +1,8 @@
+use std::str::FromStr;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
+use errors::{Error, ErrorKind, Result};
 use network::TopicPartition;
 use client::{Cluster, Metadata};
 
@@ -48,6 +50,19 @@ impl AssignmentStrategy {
             AssignmentStrategy::Range => Box::new(RangeAssignor::default()),
             AssignmentStrategy::RoundRobin => Box::new(RoundRobinAssignor::default()),
             AssignmentStrategy::Sticky => Box::new(StickyAssignor::default()),
+        }
+    }
+}
+
+impl FromStr for AssignmentStrategy {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "range" => Ok(AssignmentStrategy::Range),
+            "roundrobin" => Ok(AssignmentStrategy::RoundRobin),
+            "sticky" => Ok(AssignmentStrategy::Sticky),
+            _ => bail!(ErrorKind::UnsupportedAssignmentStrategy(s.to_owned())),
         }
     }
 }

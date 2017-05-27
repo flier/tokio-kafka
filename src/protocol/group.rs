@@ -65,7 +65,7 @@ pub struct JoinGroupResponse {
     /// The generation of the consumer group.
     pub generation_id: GenerationId,
     /// The group protocol selected by the coordinator
-    pub group_protocol: String,
+    pub protocol: String,
     /// The leader id assigned by the group coordinator.
     pub leader_id: String,
     /// The member id assigned by the group coordinator.
@@ -426,7 +426,7 @@ named!(parse_join_group_response<JoinGroupResponse>,
             header: parse_response_header
          >> error_code: be_i16
          >> generation_id: be_i32
-         >> group_protocol: parse_string
+         >> protocol: parse_string
          >> leader_id: parse_string
          >> member_id: parse_string
          >> members: length_count!(be_i32, parse_group_member)
@@ -434,7 +434,7 @@ named!(parse_join_group_response<JoinGroupResponse>,
                 header: header,
                 error_code: error_code,
                 generation_id: generation_id,
-                group_protocol: group_protocol,
+                protocol: protocol,
                 leader_id: leader_id,
                 member_id: member_id,
                 members: members,
@@ -782,7 +782,7 @@ mod tests {
             header: ResponseHeader { correlation_id: 123 },
             error_code: 1,
             generation_id: 2,
-            group_protocol: "protocol".to_owned(),
+            protocol: "protocol".to_owned(),
             leader_id: "leader".to_owned(),
             member_id: "member".to_owned(),
             members: vec![JoinGroupMember {
@@ -797,7 +797,7 @@ mod tests {
 
             0, 1,                                                   // error_code
             0, 0, 0, 2,                                             // generation_id
-            0, 8, b'p', b'r', b'o', b't', b'o', b'c', b'o', b'l',   // group_protocol
+            0, 8, b'p', b'r', b'o', b't', b'o', b'c', b'o', b'l',   // protocol
             0, 6, b'l', b'e', b'a', b'd', b'e', b'r',               // leader_id
             0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
             // members: [JoinGroupMember]
