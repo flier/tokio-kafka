@@ -47,11 +47,11 @@ pub trait Deserializer {
     type Error;
 
     /// Deserizalize data of topic from the given buffer
-    fn deserialize_from<B: Buf>(&self,
-                                topic_name: &str,
-                                buf: &mut B,
-                                data: &mut Self::Item)
-                                -> Result<(), Self::Error>;
+    fn deserialize_to<B: Buf>(&self,
+                              topic_name: &str,
+                              buf: &mut B,
+                              data: &mut Self::Item)
+                              -> Result<(), Self::Error>;
 
     fn deserialize<B: Buf>(&self,
                            topic_name: &str,
@@ -59,7 +59,7 @@ pub trait Deserializer {
                            -> Result<Self::Item, Self::Error> {
         let mut data = unsafe { mem::zeroed() };
 
-        self.deserialize_from(topic_name, buf, &mut data)?;
+        self.deserialize_to(topic_name, buf, &mut data)?;
 
         Ok(data)
     }

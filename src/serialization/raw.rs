@@ -49,11 +49,11 @@ impl<T> Deserializer for RawDeserializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn deserialize_from<B: Buf>(&self,
-                                _topic_name: &str,
-                                buf: &mut B,
-                                data: &mut Self::Item)
-                                -> Result<()> {
+    fn deserialize_to<B: Buf>(&self,
+                              _topic_name: &str,
+                              buf: &mut B,
+                              data: &mut Self::Item)
+                              -> Result<()> {
         let len = mem::size_of::<T>();
 
         if buf.remaining() < len {
@@ -65,5 +65,46 @@ impl<T> Deserializer for RawDeserializer<T> {
         buf.advance(len);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+    use serialization::Serializer;
+
+    #[test]
+    fn test_seraizlie() {
+        let serializer = RawSerializer::default();
+        let mut buf = Vec::new();
+        let v: u32 = 0x12345678;
+        let data = vec![0x78, 0x56, 0x34, 0x12];
+
+        serializer.serialize_to("topic", v, &mut buf).unwrap();
+
+        assert_eq!(buf, data);
+
+        assert_eq!(serializer.serialize("topic", v).unwrap(),
+                   Bytes::from(data.clone()));
+    }
+
+    #[test]
+    fn test_deserialize() {
+        let deserializer = RawDeserializer::default();
+        let mut cur = Cursor::new(vec![0x78, 0x56, 0x34, 0x12]);
+        let mut v = 0u32;
+
+        deserializer
+            .deserialize_to("topic", &mut cur, &mut v)
+            .unwrap();
+
+        assert_eq!(cur.position(), 4);
+        assert_eq!(v, 0x12345678);
+
+        cur.set_position(0);
+
+        assert_eq!(deserializer.deserialize("topic", &mut cur).unwrap(), v);
     }
 }

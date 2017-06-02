@@ -67,6 +67,17 @@ pub struct StrEncodingDeserializer<E, T> {
     phantom: PhantomData<T>,
 }
 
+impl<E, T> StrEncodingDeserializer<E, T>
+    where E: Encoding
+{
+    pub fn new(encoding: E) -> Self {
+        StrEncodingDeserializer {
+            encoding: encoding,
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<E, T> Deserializer for StrEncodingDeserializer<E, T>
     where E: Encoding,
           T: BufMut
@@ -74,15 +85,63 @@ impl<E, T> Deserializer for StrEncodingDeserializer<E, T>
     type Item = T;
     type Error = Error;
 
-    fn deserialize_from<B: Buf>(&self,
-                                _topic_name: &str,
-                                buf: &mut B,
-                                data: &mut Self::Item)
-                                -> Result<()> {
+    fn deserialize_to<B: Buf>(&self,
+                              _topic_name: &str,
+                              buf: &mut B,
+                              data: &mut Self::Item)
+                              -> Result<()> {
+        let len = buf.remaining();
         data.put_slice(self.encoding
                            .decode(buf.bytes(), DecoderTrap::Strict)?
                            .as_bytes());
-
+        buf.advance(len);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use bytes::Bytes;
+
+    use encoding::codec::simpchinese::GB18030_ENCODING;
+
+    use super::*;
+
+    #[test]
+    fn test_seraizlie() {
+        let serializer = StrEncodingSerializer::new(GB18030_ENCODING);
+        let mut buf = Vec::new();
+        let data = vec![178, 226, 202, 212];
+
+        serializer
+            .serialize_to("topic", "测试", &mut buf)
+            .unwrap();
+
+        assert_eq!(&buf, &data);
+
+        assert_eq!(serializer.serialize("topic", "测试").unwrap(),
+                   Bytes::from(data));
+    }
+
+    #[test]
+    fn test_deserialize() {
+        let deserializer = StrEncodingDeserializer::new(GB18030_ENCODING);
+        let data = vec![178, 226, 202, 212];
+        let mut cur = Cursor::new(data.clone());
+        let mut buf = Vec::new();
+
+        deserializer
+            .deserialize_to("topic", &mut cur, &mut buf)
+            .unwrap();
+
+        assert_eq!(cur.position(), 4);
+        assert_eq!(buf.as_slice(), "测试".as_bytes());
+
+        cur.set_position(0);
+
+        assert_eq!(deserializer.deserialize("topic", &mut cur).unwrap(),
+                   "测试".as_bytes());
     }
 }
