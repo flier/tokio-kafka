@@ -1,12 +1,15 @@
 mod noop;
 mod raw;
 mod bytes;
+#[cfg(feature = "encoding")]
 mod encoding;
 
 pub use self::noop::{NoopDeserializer, NoopSerializer};
 pub use self::raw::{RawDeserializer, RawSerializer};
 pub use self::bytes::{BytesDeserializer, BytesSerializer};
-pub use self::encoding::StrEncodingSerializer;
+
+#[cfg(feature = "encoding")]
+pub use self::encoding::{StrEncodingDeserializer, StrEncodingSerializer};
 
 use std::mem;
 use std::result::Result;

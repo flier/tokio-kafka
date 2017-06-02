@@ -69,8 +69,9 @@ pub use compression::Compression;
 pub use protocol::{ApiKey, ApiKeys, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId,
                    RequiredAcks, Timestamp, ToMilliseconds, UsableApiVersion, UsableApiVersions};
 pub use serialization::{BytesDeserializer, BytesSerializer, Deserializer, NoopDeserializer,
-                        NoopSerializer, RawDeserializer, RawSerializer, Serializer,
-                        StrEncodingSerializer};
+                        NoopSerializer, RawDeserializer, RawSerializer, Serializer};
+#[cfg(feature = "encoding")]
+pub use serialization::{StrEncodingDeserializer, StrEncodingSerializer};
 pub use network::TopicPartition;
 pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster,
                  DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,

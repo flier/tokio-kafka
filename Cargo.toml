@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Flier Lu <flier.lu@gmail.com>"]
 
 [features]
-default = ["snappy", "gzip", "lz4"]
+default = ["snappy", "gzip", "lz4", "encoding"]
 snappy = ["snap"]
 gzip = ["flate2"]
 lz4 = ["lz4-compress"]
@@ -20,7 +20,6 @@ twox-hash = "1.1"
 time = "0.1"
 rand = "0.3"
 hexplay = "0.1"
-encoding = "0.2"
 byteorder = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
@@ -41,6 +40,8 @@ native-tls = "0.1"
 flate2 = { version = "0.2", optional = true }
 snap = { version = "0.2", optional = true }
 lz4-compress = { version = "0.1", optional = true }
+
+encoding = { version = "0.2", optional = true }
 
 clippy = {version = "*", optional = true}
 
