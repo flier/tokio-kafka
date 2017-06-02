@@ -13,6 +13,8 @@ pub use self::bytes::{BytesDeserializer, BytesSerializer};
 pub use self::str::{StrDeserializer, StrSerializer};
 #[cfg(feature = "encoding")]
 pub use self::encoding::{StrEncodingDeserializer, StrEncodingSerializer};
+#[cfg(feature = "json")]
+pub use self::json::{JsonDeserializer, JsonSerializer};
 
 use std::mem;
 use std::result::Result;

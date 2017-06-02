@@ -75,6 +75,8 @@ pub use serialization::{BytesDeserializer, BytesSerializer, Deserializer, NoopDe
                         NoopSerializer, RawDeserializer, RawSerializer, Serializer};
 #[cfg(feature = "encoding")]
 pub use serialization::{StrEncodingDeserializer, StrEncodingSerializer};
+#[cfg(feature = "json")]
+pub use serialization::{JsonDeserializer, JsonSerializer};
 pub use network::TopicPartition;
 pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster,
                  DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,
