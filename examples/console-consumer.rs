@@ -107,8 +107,8 @@ fn run(config: Config) -> Result<()> {
     let handle = core.handle();
 
     let builder = ConsumerBuilder::from_hosts(hosts, handle)
-        .with_key_deserializer(BytesDeserializer::<String>::default())
-        .with_value_deserializer(BytesDeserializer::<String>::default());
+        .with_key_deserializer(BytesDeserializer::<Vec<u8>>::default())
+        .with_value_deserializer(BytesDeserializer::<Vec<u8>>::default());
 
     let mut consumer = builder.build()?;
 

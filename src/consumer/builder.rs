@@ -6,8 +6,9 @@ use tokio_core::reactor::Handle;
 
 use errors::{ErrorKind, Result};
 use protocol::ToMilliseconds;
+use serialization::{Deserializer, NoopDeserializer};
 use client::{KafkaClient, KafkaVersion};
-use consumer::{AssignmentStrategy, ConsumerConfig, Deserializer, KafkaConsumer, NoopDeserializer};
+use consumer::{AssignmentStrategy, ConsumerConfig, KafkaConsumer};
 
 /// A `KafkaConsumer` builder easing the process of setting up various configuration settings.
 pub struct ConsumerBuilder<'a, K, V> {

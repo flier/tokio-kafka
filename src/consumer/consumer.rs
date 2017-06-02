@@ -4,8 +4,9 @@ use std::hash::Hash;
 use futures::{Async, Future, Poll, Stream};
 
 use errors::{Error, ErrorKind};
+use serialization::Deserializer;
 use client::{Cluster, KafkaClient, StaticBoxFuture, TopicRecord};
-use consumer::{ConsumerConfig, ConsumerCoordinator, Coordinator, Deserializer, Subscriptions};
+use consumer::{ConsumerConfig, ConsumerCoordinator, Coordinator, Subscriptions};
 
 /// A trait for consuming records from a Kafka cluster.
 pub trait Consumer {

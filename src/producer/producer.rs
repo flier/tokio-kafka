@@ -14,10 +14,11 @@ use tokio_retry::Retry;
 
 use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, PartitionId, ToMilliseconds};
+use serialization::Serializer;
 use client::{Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, TopicRecord};
 use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,
-               RecordAccumulator, RecordMetadata, Sender, Serializer};
+               RecordAccumulator, RecordMetadata, Sender};
 
 /// A trait for publishing records to the Kafka cluster.
 pub trait Producer<'a> {
@@ -243,20 +244,10 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
                        &metadata)
             .unwrap_or_default();
 
-        let key = key.and_then(|key| {
-                                   self.key_serializer
-                                       .serialize(&topic_name, key)
-                                       .map_err(|err| warn!("fail to serialize key, {}", err))
-                                       .ok()
-                               });
+        let key = key.and_then(|key| self.key_serializer.serialize(&topic_name, key).ok());
 
-        let value =
-            value.and_then(|value| {
-                               self.value_serializer
-                                   .serialize(&topic_name, value)
-                                   .map_err(|err| warn!("fail to serialize value, {}", err))
-                                   .ok()
-                           });
+        let value = value
+            .and_then(|value| self.value_serializer.serialize(&topic_name, value).ok());
 
         let tp = topic_partition!(topic_name, partition);
 

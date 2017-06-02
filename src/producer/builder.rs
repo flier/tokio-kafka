@@ -10,9 +10,10 @@ use tokio_core::reactor::Handle;
 use errors::{ErrorKind, Result};
 use compression::Compression;
 use protocol::{RequiredAcks, ToMilliseconds};
+use serialization::{NoopSerializer, Serializer};
 use client::{KafkaClient, KafkaVersion};
-use producer::{DefaultPartitioner, Interceptors, KafkaProducer, NoopSerializer, ProducerConfig,
-               ProducerInterceptor, ProducerInterceptors, Serializer};
+use producer::{DefaultPartitioner, Interceptors, KafkaProducer, ProducerConfig,
+               ProducerInterceptor, ProducerInterceptors};
 
 /// A `KafkaProducer` builder easing the process of setting up various configuration settings.
 pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner>
@@ -271,8 +272,7 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
             client
         } else {
             KafkaClient::from_config(self.config.client.clone(),
-                                     self.handle
-                                         .ok_or(ErrorKind::ConfigError("missed handle"))?)
+                                     self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?)
         };
 
         Ok(KafkaProducer::new(client,
