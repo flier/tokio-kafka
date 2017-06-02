@@ -32,6 +32,27 @@ struct Inner<'a, K, V> {
     value_deserializer: V,
 }
 
+impl<'a, K, V> KafkaConsumer<'a, K, V>
+    where K: Deserializer,
+          V: Deserializer,
+          Self: 'static
+{
+    pub fn new(client: KafkaClient<'a>,
+               config: ConsumerConfig,
+               key_deserializer: K,
+               value_deserializer: V)
+               -> Self {
+        KafkaConsumer {
+            inner: Rc::new(Inner {
+                               client: client,
+                               config: config,
+                               key_deserializer: key_deserializer,
+                               value_deserializer: value_deserializer,
+                           }),
+        }
+    }
+}
+
 impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
     where K: Deserializer,
           K::Item: Hash,

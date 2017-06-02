@@ -5,6 +5,7 @@ use protocol::{PartitionId, Timestamp};
 /// A key/value pair to be sent to Kafka topic.
 ///
 /// This consists of an optional partition number, and an optional key and value.
+#[derive(Clone, Debug)]
 pub struct TopicRecord<K, V> {
     /// The partition to which the record will be sent (or `None` if no partition was specified)
     pub partition: Option<PartitionId>,
@@ -80,6 +81,7 @@ impl<K, V> TopicRecord<K, V>
 }
 
 /// A key/value pair to be sent to Kafka partition.
+#[derive(Clone, Debug)]
 pub struct PartitionRecord<K, V> {
     /// The key (or `None` if no key is specified)
     pub key: Option<K>,

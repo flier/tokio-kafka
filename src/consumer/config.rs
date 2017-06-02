@@ -1,5 +1,6 @@
 use std::time::Duration;
 use std::ops::{Deref, DerefMut};
+use std::net::SocketAddr;
 
 use client::ClientConfig;
 use consumer::AssignmentStrategy;
@@ -113,6 +114,15 @@ impl Default for ConsumerConfig {
 }
 
 impl ConsumerConfig {
+    pub fn from_hosts<I>(hosts: I) -> Self
+        where I: Iterator<Item = SocketAddr>
+    {
+        ConsumerConfig {
+            client: ClientConfig::from_hosts(hosts),
+            ..Default::default()
+        }
+    }
+
     /// The frequency in milliseconds that the consumer offsets are auto-committed to Kafka.
     pub fn auto_commit_interval(&self) -> Duration {
         Duration::from_millis(self.auto_commit_interval)

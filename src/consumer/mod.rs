@@ -17,5 +17,5 @@ pub use self::subscriptions::Subscriptions;
 pub use self::fetcher::Fetcher;
 pub use self::coordinator::{ConsumerCoordinator, Coordinator};
 pub use self::consumer::{Consumer, KafkaConsumer};
-pub use self::serialization::Deserializer;
+pub use self::serialization::{BytesDeserializer, Deserializer, NoopDeserializer, RawDeserializer};
 pub use self::builder::ConsumerBuilder;

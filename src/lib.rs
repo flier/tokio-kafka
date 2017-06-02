@@ -79,4 +79,5 @@ pub use producer::{BytesSerializer, DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SI
                    Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
                    ProducerPartition, ProducerRecord, ProducerTopic, RawSerializer,
                    RecordMetadata, SendRecord, Serializer, StrEncodingSerializer};
-pub use consumer::{Consumer, KafkaConsumer};
+pub use consumer::{BytesDeserializer, Consumer, ConsumerBuilder, Deserializer, KafkaConsumer,
+                   NoopDeserializer, RawDeserializer};
