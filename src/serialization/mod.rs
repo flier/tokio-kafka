@@ -4,6 +4,8 @@ mod bytes;
 mod str;
 #[cfg(feature = "encoding")]
 mod encoding;
+#[cfg(feature = "json")]
+mod json;
 
 pub use self::noop::{NoopDeserializer, NoopSerializer};
 pub use self::raw::{RawDeserializer, RawSerializer};

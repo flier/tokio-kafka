@@ -15,6 +15,7 @@ error_chain!{
         TlsError(::native_tls::Error);
         MetricsError(::prometheus::Error);
         SnappyError(::snap::Error) #[cfg(feature = "snappy")];
+        JsonError(::serde_json::Error) #[cfg(feature = "json")];
     }
 
     errors {

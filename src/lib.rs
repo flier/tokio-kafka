@@ -20,11 +20,14 @@ extern crate twox_hash;
 extern crate time;
 extern crate rand;
 extern crate hexplay;
+#[cfg(feature = "encoding")]
 extern crate encoding;
 extern crate byteorder;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+#[cfg(feature = "json")]
+extern crate serde_json;
 #[macro_use]
 extern crate prometheus;
 
