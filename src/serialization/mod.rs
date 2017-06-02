@@ -1,13 +1,14 @@
 mod noop;
 mod raw;
 mod bytes;
+mod str;
 #[cfg(feature = "encoding")]
 mod encoding;
 
 pub use self::noop::{NoopDeserializer, NoopSerializer};
 pub use self::raw::{RawDeserializer, RawSerializer};
 pub use self::bytes::{BytesDeserializer, BytesSerializer};
-
+pub use self::str::{StrDeserializer, StrSerializer};
 #[cfg(feature = "encoding")]
 pub use self::encoding::{StrEncodingDeserializer, StrEncodingSerializer};
 
