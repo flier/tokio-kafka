@@ -59,11 +59,11 @@ impl<'de, T> Deserializer for JsonDeserializer<T>
     type Item = T;
     type Error = Error;
 
-    fn deserialize_to<'a, B: Buf>(&self,
-                                  _topic_name: &str,
-                                  buf: &mut B,
-                                  data: &mut Self::Item)
-                                  -> Result<()> {
+    fn deserialize_to<B: Buf>(&self,
+                              _topic_name: &str,
+                              buf: &mut B,
+                              data: &mut Self::Item)
+                              -> Result<()> {
         let len = buf.remaining();
         let v: Value = serde_json::from_slice(buf.bytes())?;
         *data = T::deserialize(v)?;
