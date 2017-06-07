@@ -1,6 +1,6 @@
+use std::mem;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::collections::{HashMap, HashSet};
 
@@ -10,7 +10,7 @@ use errors::{ErrorKind, Result};
 use protocol::{KafkaCode, Schema};
 use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
              ConsumerGroupProtocol, Generation, KafkaClient, Metadata, StaticBoxFuture};
-use consumer::{CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
+use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 
 /// Manages the coordination process with the consumer coordinator.
 pub trait Coordinator {
@@ -33,7 +33,7 @@ pub struct ConsumerCoordinator<'a> {
 struct Inner<'a> {
     client: KafkaClient<'a>,
     group_id: String,
-    subscriptions: RefCell<Subscriptions>,
+    subscriptions: RefCell<Subscriptions<'a>>,
     session_timeout: i32,
     rebalance_timeout: i32,
     assignors: Vec<Box<PartitionAssignor>>,
@@ -60,12 +60,28 @@ impl State {
             None
         }
     }
+
+    pub fn rebalance(&mut self) -> Self {
+        mem::replace(self, State::Rebalancing)
+    }
+
+    pub fn joined(&mut self, coordinator: BrokerRef, generation: Generation) -> Self {
+        mem::replace(self,
+                     State::Stable {
+                         coordinator: coordinator,
+                         generation: generation,
+                     })
+    }
+
+    pub fn leave(&mut self) -> Self {
+        mem::replace(self, State::Unjoined)
+    }
 }
 
 impl<'a> ConsumerCoordinator<'a> {
     pub fn new(client: KafkaClient<'a>,
                group_id: String,
-               subscriptions: Subscriptions,
+               subscriptions: Subscriptions<'a>,
                session_timeout: i32,
                rebalance_timeout: i32,
                assignors: Vec<Box<PartitionAssignor>>)
@@ -193,43 +209,72 @@ impl<'a> Inner<'a>
 
         Ok(group_assignment)
     }
+
+    fn synced_group(&self,
+                    assignment: Assignment<'a>,
+                    coordinator: BrokerRef,
+                    generation: Generation)
+                    -> Result<()> {
+        trace!("member `{}` synced up to generation # {} with {} partitions: {:?}",
+               generation.member_id,
+               generation.generation_id,
+               assignment.partitions.len(),
+               assignment.partitions);
+
+        self.subscriptions
+            .borrow_mut()
+            .assign_from_subscribed(assignment.partitions)?;
+
+        self.state.borrow_mut().joined(coordinator, generation);
+
+        Ok(())
+    }
 }
 
 impl<'a> Coordinator for ConsumerCoordinator<'a>
     where Self: 'static
 {
     fn join_group(&mut self) -> JoinGroup {
-        let member_id = self.inner.state.borrow().member_id().unwrap_or_default();
-
-        (*self.inner.state.borrow_mut()) = State::Rebalancing;
+        self.inner.state.borrow_mut().rebalance();
 
         let inner = self.inner.clone();
         let client = self.inner.client.clone();
-        let group_id: Cow<'a, str> = self.inner.group_id.clone().into();
+        let member_id = self.inner.state.borrow().member_id().unwrap_or_default();
+        let group_id = self.inner.group_id.clone();
         let session_timeout = self.inner.session_timeout;
         let rebalance_timeout = self.inner.rebalance_timeout;
         let group_protocols = self.inner.group_protocols();
         let state = self.inner.state.clone();
 
+        debug!("member `{}` is joining the `{}` group", member_id, group_id);
+
         let future = self.inner
             .client
             .metadata()
-            .join(self.inner.client.group_coordinator(group_id.clone()))
+            .join(self.inner.client.group_coordinator(group_id.clone().into()))
             .and_then(move |(metadata, coordinator)| {
                 client
                     .join_group(coordinator.as_ref(),
-                                group_id,
+                                group_id.clone().into(),
                                 session_timeout,
                                 rebalance_timeout,
-                                member_id.into(),
+                                member_id.clone().into(),
                                 CONSUMER_PROTOCOL.into(),
                                 group_protocols)
                     .and_then(move |consumer_group| {
                         let generation = consumer_group.generation();
 
                         let group_assignment = if !consumer_group.is_leader() {
+                            debug!("member `{}` joined group `{}` as follower",
+                                   member_id,
+                                   group_id);
+
                             None
                         } else {
+                            debug!("member `{}` joined group `{}` as leader",
+                                   member_id,
+                                   group_id);
+
                             match inner.perform_assignment(&metadata,
                                                            &consumer_group.protocol,
                                                            &consumer_group.members) {
@@ -240,54 +285,53 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
 
                         let future = client
                             .sync_group(coordinator.as_ref(),
-                                        consumer_group.group_id.clone().into(),
+                                        consumer_group.group_id.into(),
                                         generation.generation_id.into(),
                                         generation.member_id.clone().into(),
                                         group_assignment)
-                            .then(move |result| {
-                                *state.borrow_mut() = match result {
-                                    Ok(_) => {
-                                        State::Stable {
-                                            coordinator: coordinator.as_ref(),
-                                            generation: generation,
-                                        }
-                                    }
-                                    Err(_) => State::Unjoined,
-                                };
+                            .and_then(move |assignment| {
+                                          debug!("group `{}` synced up", group_id);
 
-                                result.map(|_| ())
-                            });
+                                          inner.synced_group(Schema::deserialize(&assignment[..])?,
+                                                             coordinator.as_ref(),
+                                                             generation)
+                                      });
 
                         JoinGroup::new(future)
                     })
-            });
+            })
+            .map_err(move |err| {
+                         warn!("fail to join group, {}", err);
+
+                         state.borrow_mut().leave();
+
+                         err
+                     });
 
         JoinGroup::new(future)
     }
 
     fn leave_group(&mut self) -> LeaveGroup {
+        let state = self.inner.state.borrow_mut().leave();
+
         if let State::Stable {
                    coordinator,
-                   ref generation,
-               } = *self.inner.state.borrow() {
-            debug!("sending LeaveGroup request to coordinator {:?} for group `{}`",
-                   coordinator,
-                   self.inner.group_id);
+                   generation,
+               } = state {
+            let member_id = generation.member_id;
+            let group_id = self.inner.group_id.clone();
 
-            (*self.inner.state.borrow_mut()) = State::Rebalancing;
-
-            let group_id = self.inner.group_id.clone().into();
-            let state = self.inner.state.clone();
+            debug!("member `{}` is leaving the `{}` group", member_id, group_id);
 
             LeaveGroup::new(self.inner
                                 .client
                                 .leave_group(coordinator,
-                                             group_id,
-                                             generation.member_id.clone().into())
+                                             group_id.into(),
+                                             member_id.clone().into())
                                 .map(move |group_id| {
-                                         debug!("leaved group {}", group_id);
-
-                                         *state.borrow_mut() = State::Unjoined;
+                                         debug!("member `{}` has leaved the `{}` group",
+                                                member_id,
+                                                group_id);
                                      }))
         } else {
             LeaveGroup::err(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress).into())
