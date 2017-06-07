@@ -82,7 +82,7 @@ pub trait Client<'a>: 'static {
                   group_id: Cow<'a, str>,
                   group_generation_id: GenerationId,
                   member_id: Cow<'a, str>,
-                  group_assignment: Vec<ConsumerGroupAssignment<'a>>)
+                  group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
                   -> SyncGroup;
 }
 
@@ -417,7 +417,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                   group_id: Cow<'a, str>,
                   group_generation_id: GenerationId,
                   member_id: Cow<'a, str>,
-                  group_assignment: Vec<ConsumerGroupAssignment<'a>>)
+                  group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
                   -> SyncGroup {
         let inner = self.inner.clone();
         let future = self.metadata()
@@ -894,7 +894,7 @@ impl<'a> Inner<'a>
                   group_id: Cow<'a, str>,
                   group_generation_id: GenerationId,
                   member_id: Cow<'a, str>,
-                  group_assignment: Vec<ConsumerGroupAssignment<'a>>)
+                  group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
                   -> SyncGroup {
         debug!("sync group `{}` # {} with member `{}`",
                group_id,
@@ -913,7 +913,7 @@ impl<'a> Inner<'a>
                                                group_id,
                                                group_generation_id,
                                                member_id,
-                                               group_assignment);
+                                               group_assignment.unwrap_or_default());
 
         let response = self.service
             .call((addr, request))

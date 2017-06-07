@@ -227,15 +227,15 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                     .and_then(move |consumer_group| {
                         let generation = consumer_group.generation();
 
-                        let group_assignment = if consumer_group.is_leader() {
+                        let group_assignment = if !consumer_group.is_leader() {
+                            None
+                        } else {
                             match inner.perform_assignment(&metadata,
                                                            &consumer_group.protocol,
                                                            &consumer_group.members) {
-                                Ok(group_assignment) => group_assignment,
+                                Ok(group_assignment) => Some(group_assignment),
                                 Err(err) => return JoinGroup::err(err),
                             }
-                        } else {
-                            Vec::new()
                         };
 
                         let future = client
