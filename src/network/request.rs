@@ -13,21 +13,7 @@ use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId,
                OffsetFetchRequest, PartitionId, ProducePartitionData, ProduceRequest,
                ProduceTopicData, Record, RequestHeader, RequiredAck, RequiredAcks,
                SyncGroupAssignment, SyncGroupRequest, ToMilliseconds};
-
-/// A topic name and partition number
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TopicPartition<'a> {
-    pub topic_name: Cow<'a, str>,
-    pub partition: PartitionId,
-}
-
-#[macro_export]
-macro_rules! topic_partition {
-    ($topic_name:expr, $partition:expr) => ($crate::network::TopicPartition {
-        topic_name: $topic_name.into(),
-        partition: $partition,
-    })
-}
+use network::TopicPartition;
 
 #[derive(Debug)]
 pub enum KafkaRequest<'a> {
