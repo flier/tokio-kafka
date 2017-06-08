@@ -73,7 +73,6 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
         let session_timeout = self.inner.config.session_timeout();
         let rebalance_timeout = self.inner.config.rebalance_timeout();
         let heartbeat_interval = self.inner.config.heartbeat_interval();
-        let retry_backoff = self.inner.config.retry_backoff();
         let timer = self.inner.client.timer().clone();
         let assignors = self.inner
             .config
@@ -105,7 +104,6 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                                                                  session_timeout,
                                                                  rebalance_timeout,
                                                                  heartbeat_interval,
-                                                                 retry_backoff,
                                                                  assignors,
                                                                  timer),
                        })

@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use futures::{Future, Stream};
 use tokio_timer::Timer;
+use tokio_retry::Retry;
 
 use errors::{Error, ErrorKind, Result};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
@@ -39,7 +40,6 @@ struct Inner<'a> {
     session_timeout: Duration,
     rebalance_timeout: Duration,
     heartbeat_interval: Duration,
-    retry_backoff: Duration,
     assignors: Vec<Box<PartitionAssignor>>,
     state: Rc<RefCell<State>>,
     timer: Rc<Timer>,
@@ -90,7 +90,6 @@ impl<'a> ConsumerCoordinator<'a> {
                session_timeout: Duration,
                rebalance_timeout: Duration,
                heartbeat_interval: Duration,
-               retry_backoff: Duration,
                assignors: Vec<Box<PartitionAssignor>>,
                timer: Rc<Timer>)
                -> Self {
@@ -102,7 +101,6 @@ impl<'a> ConsumerCoordinator<'a> {
                                session_timeout: session_timeout,
                                rebalance_timeout: rebalance_timeout,
                                heartbeat_interval: heartbeat_interval,
-                               retry_backoff: retry_backoff,
                                assignors: assignors,
                                timer: timer,
                                state: Rc::new(RefCell::new(State::Unjoined)),
@@ -241,17 +239,26 @@ impl<'a> Inner<'a>
             .joined(coordinator, generation.clone());
 
         let client = self.client.clone();
+        let handle = self.client.handle().clone();
+        let heartbeat = self.timer
+            .interval_at(Instant::now() + self.heartbeat_interval,
+                         self.heartbeat_interval)
+            .map_err(Error::from)
+            .for_each(move |_| {
+                let client = client.clone();
+                let retry_strategy = client.retry_strategy();
+                let generation = generation.clone();
 
-        self.client
-            .handle()
-            .spawn(self.timer
-                       .interval_at(Instant::now() + self.heartbeat_interval,
-                                    self.heartbeat_interval)
-                       .map_err(Error::from)
-                       .for_each(move |_| client.heartbeat(coordinator, generation.clone()))
-                       .map_err(|err| {
-                                    warn!("fail to send heartbeat, {}", err);
-                                }));
+                Retry::spawn(handle.clone(),
+                             retry_strategy,
+                             move || client.heartbeat(coordinator, generation.clone()))
+                        .map_err(Error::from)
+            })
+            .map_err(|err| {
+                         warn!("fail to send heartbeat, {}", err);
+                     });
+
+        self.client.handle().spawn(heartbeat);
 
         Ok(())
     }
