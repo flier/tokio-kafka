@@ -138,7 +138,7 @@ impl ConsumerGroup {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Generation {
     /// The group id.
     pub group_id: String,

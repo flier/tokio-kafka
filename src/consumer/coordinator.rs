@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 use std::iter::FromIterator;
 use std::collections::{HashMap, HashSet};
 
-use futures::{Future, Stream};
+use futures::{Future, Stream, future};
+use futures::future::Either;
 use tokio_timer::Timer;
 use tokio_retry::Retry;
 
@@ -45,6 +46,7 @@ struct Inner<'a> {
     timer: Rc<Timer>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 enum State {
     /// the client is not part of a group
     Unjoined,
@@ -240,21 +242,33 @@ impl<'a> Inner<'a>
 
         let client = self.client.clone();
         let handle = self.client.handle().clone();
+        let state = self.state.clone();
         let heartbeat = self.timer
             .interval_at(Instant::now() + self.heartbeat_interval,
                          self.heartbeat_interval)
             .map_err(Error::from)
             .for_each(move |_| {
                 let client = client.clone();
-                let retry_strategy = client.retry_strategy();
                 let generation = generation.clone();
 
-                Retry::spawn(handle.clone(),
-                             retry_strategy,
-                             move || client.heartbeat(coordinator, generation.clone()))
-                        .map_err(Error::from)
+                if *state.borrow() ==
+                   (State::Stable {
+                        coordinator: coordinator,
+                        generation: generation.clone(),
+                    }) {
+                    let send_heartbeat =
+                        Retry::spawn(handle.clone(),
+                                     client.retry_strategy(),
+                                     move || client.heartbeat(coordinator, generation.clone()));
+
+                    Either::A(send_heartbeat.map_err(Error::from))
+                } else {
+                    Either::B(future::err(ErrorKind::Canceled("group generation outdated").into()))
+                }
             })
-            .map_err(|err| {
+            .map_err(|err| if let Error(ErrorKind::Canceled(reason), _) = err {
+                         trace!("heartbeat canceled, {}", reason);
+                     } else {
                          warn!("fail to send heartbeat, {}", err);
                      });
 
