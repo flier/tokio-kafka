@@ -19,6 +19,7 @@ use futures::unsync::oneshot;
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_service::Service;
 use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
+use tokio_timer::Timer;
 
 use errors::{Error, ErrorKind, Result};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, GenerationId,
@@ -62,26 +63,15 @@ pub trait Client<'a>: 'static {
                   -> JoinGroup;
 
     /// Send heartbeat to the consumer group
-    fn heartbeat(&self,
-                 coordinator: BrokerRef,
-                 group_id: Cow<'a, str>,
-                 group_generation_id: GenerationId,
-                 member_id: Cow<'a, str>)
-                 -> Heartbeat;
+    fn heartbeat(&self, coordinator: BrokerRef, generation: Generation) -> Heartbeat;
 
     /// Leave the current consumer group
-    fn leave_group(&self,
-                   coordinator: BrokerRef,
-                   group_id: Cow<'a, str>,
-                   member_id: Cow<'a, str>)
-                   -> LeaveGroup;
+    fn leave_group(&self, coordinator: BrokerRef, generation: Generation) -> LeaveGroup;
 
     /// Sync the current consumer group
     fn sync_group(&self,
                   coordinator: BrokerRef,
-                  group_id: Cow<'a, str>,
-                  group_generation_id: GenerationId,
-                  member_id: Cow<'a, str>,
+                  generation: Generation,
                   group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
                   -> SyncGroup;
 }
@@ -140,6 +130,7 @@ impl ConsumerGroup {
 
     pub fn generation(&self) -> Generation {
         Generation {
+            group_id: self.group_id.clone(),
             generation_id: self.generation_id,
             member_id: self.member_id.clone(),
             protocol: self.protocol.clone(),
@@ -147,7 +138,11 @@ impl ConsumerGroup {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Generation {
+    /// The group id.
+    pub group_id: String,
+
     /// The generation of the consumer group.
     pub generation_id: GenerationId,
 
@@ -156,16 +151,6 @@ pub struct Generation {
 
     /// The group protocol selected by the coordinator
     pub protocol: String,
-}
-
-impl Default for Generation {
-    fn default() -> Self {
-        Generation {
-            generation_id: -1,
-            member_id: "".to_owned(),
-            protocol: "".to_owned(),
-        }
-    }
 }
 
 /// The consumer group member
@@ -189,6 +174,7 @@ struct Inner<'a> {
     config: ClientConfig,
     handle: Handle,
     service: InFlightMiddleware<LogMiddleware<TimeoutMiddleware<KafkaService<'a>>>>,
+    timer: Rc<Timer>,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
 }
@@ -244,10 +230,12 @@ impl<'a> KafkaClient<'a>
                                       config.timer(),
                                       config.request_timeout())));
 
+        let timer = Rc::new(config.timer());
         let inner = Rc::new(Inner {
                                 config: config,
                                 handle: handle.clone(),
                                 service: service,
+                                timer: timer,
                                 metrics: metrics,
                                 state: Rc::new(RefCell::new(State::default())),
                             });
@@ -261,6 +249,10 @@ impl<'a> KafkaClient<'a>
 
     pub fn handle(&self) -> &Handle {
         &self.inner.handle
+    }
+
+    pub fn timer(&self) -> Rc<Timer> {
+        self.inner.timer.clone()
     }
 
     pub fn metrics(&self) -> Option<Rc<Metrics>> {
@@ -376,47 +368,42 @@ impl<'a> Client<'a> for KafkaClient<'a>
         JoinGroup::new(future)
     }
 
-    fn heartbeat(&self,
-                 coordinator: BrokerRef,
-                 group_id: Cow<'a, str>,
-                 group_generation_id: GenerationId,
-                 member_id: Cow<'a, str>)
-                 -> Heartbeat {
+    fn heartbeat(&self, coordinator: BrokerRef, generation: Generation) -> Heartbeat {
         let inner = self.inner.clone();
         let future = self.metadata()
             .and_then(move |metadata| {
                 metadata
                     .find_broker(coordinator)
                     .map(move |coordinator| {
-                             inner.heartbeat(coordinator, group_id, group_generation_id, member_id)
+                             inner.heartbeat(coordinator,
+                                             generation.group_id.into(),
+                                             generation.generation_id,
+                                             generation.member_id.into())
                          })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
             });
         Heartbeat::new(future)
     }
 
-    fn leave_group(&self,
-                   coordinator: BrokerRef,
-                   group_id: Cow<'a, str>,
-                   member_id: Cow<'a, str>)
-                   -> LeaveGroup {
+    fn leave_group(&self, coordinator: BrokerRef, generation: Generation) -> LeaveGroup {
         let inner = self.inner.clone();
-        let future =
-            self.metadata()
-                .and_then(move |metadata| {
-                    metadata
-                        .find_broker(coordinator)
-                        .map(move |coordinator| inner.leave_group(coordinator, group_id, member_id))
-                        .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
-                });
+        let future = self.metadata()
+            .and_then(move |metadata| {
+                metadata
+                    .find_broker(coordinator)
+                    .map(move |coordinator| {
+                             inner.leave_group(coordinator,
+                                               generation.group_id.into(),
+                                               generation.member_id.into())
+                         })
+                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+            });
         LeaveGroup::new(future)
     }
 
     fn sync_group(&self,
                   coordinator: BrokerRef,
-                  group_id: Cow<'a, str>,
-                  group_generation_id: GenerationId,
-                  member_id: Cow<'a, str>,
+                  generation: Generation,
                   group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
                   -> SyncGroup {
         let inner = self.inner.clone();
@@ -426,9 +413,9 @@ impl<'a> Client<'a> for KafkaClient<'a>
                     .find_broker(coordinator)
                     .map(move |coordinator| {
                              inner.sync_group(coordinator,
-                                              group_id,
-                                              group_generation_id,
-                                              member_id,
+                                              generation.group_id.into(),
+                                              generation.generation_id,
+                                              generation.member_id.into(),
                                               group_assignment)
                          })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())

@@ -1,13 +1,15 @@
 use std::mem;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::time::{Duration, Instant};
 use std::iter::FromIterator;
 use std::collections::{HashMap, HashSet};
 
-use futures::Future;
+use futures::{Future, Stream};
+use tokio_timer::Timer;
 
-use errors::{ErrorKind, Result};
-use protocol::{KafkaCode, Schema};
+use errors::{Error, ErrorKind, Result};
+use protocol::{KafkaCode, Schema, ToMilliseconds};
 use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
              ConsumerGroupProtocol, Generation, KafkaClient, Metadata, StaticBoxFuture};
 use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
@@ -34,10 +36,13 @@ struct Inner<'a> {
     client: KafkaClient<'a>,
     group_id: String,
     subscriptions: RefCell<Subscriptions<'a>>,
-    session_timeout: i32,
-    rebalance_timeout: i32,
+    session_timeout: Duration,
+    rebalance_timeout: Duration,
+    heartbeat_interval: Duration,
+    retry_backoff: Duration,
     assignors: Vec<Box<PartitionAssignor>>,
     state: Rc<RefCell<State>>,
+    timer: Rc<Timer>,
 }
 
 enum State {
@@ -55,7 +60,7 @@ enum State {
 impl State {
     pub fn member_id(&self) -> Option<String> {
         if let State::Stable { ref generation, .. } = *self {
-            Some(generation.member_id.clone())
+            Some(String::from(generation.member_id.to_owned()))
         } else {
             None
         }
@@ -65,7 +70,7 @@ impl State {
         mem::replace(self, State::Rebalancing)
     }
 
-    pub fn joined(&mut self, coordinator: BrokerRef, generation: Generation) -> Self {
+    pub fn joined(&mut self, coordinator: BrokerRef, generation: Generation) -> State {
         mem::replace(self,
                      State::Stable {
                          coordinator: coordinator,
@@ -82,9 +87,12 @@ impl<'a> ConsumerCoordinator<'a> {
     pub fn new(client: KafkaClient<'a>,
                group_id: String,
                subscriptions: Subscriptions<'a>,
-               session_timeout: i32,
-               rebalance_timeout: i32,
-               assignors: Vec<Box<PartitionAssignor>>)
+               session_timeout: Duration,
+               rebalance_timeout: Duration,
+               heartbeat_interval: Duration,
+               retry_backoff: Duration,
+               assignors: Vec<Box<PartitionAssignor>>,
+               timer: Rc<Timer>)
                -> Self {
         ConsumerCoordinator {
             inner: Rc::new(Inner {
@@ -93,7 +101,10 @@ impl<'a> ConsumerCoordinator<'a> {
                                subscriptions: RefCell::new(subscriptions),
                                session_timeout: session_timeout,
                                rebalance_timeout: rebalance_timeout,
+                               heartbeat_interval: heartbeat_interval,
+                               retry_backoff: retry_backoff,
                                assignors: assignors,
+                               timer: timer,
                                state: Rc::new(RefCell::new(State::Unjoined)),
                            }),
         }
@@ -225,7 +236,22 @@ impl<'a> Inner<'a>
             .borrow_mut()
             .assign_from_subscribed(assignment.partitions)?;
 
-        self.state.borrow_mut().joined(coordinator, generation);
+        self.state
+            .borrow_mut()
+            .joined(coordinator, generation.clone());
+
+        let client = self.client.clone();
+
+        self.client
+            .handle()
+            .spawn(self.timer
+                       .interval_at(Instant::now() + self.heartbeat_interval,
+                                    self.heartbeat_interval)
+                       .map_err(Error::from)
+                       .for_each(move |_| client.heartbeat(coordinator, generation.clone()))
+                       .map_err(|err| {
+                                    warn!("fail to send heartbeat, {}", err);
+                                }));
 
         Ok(())
     }
@@ -256,8 +282,8 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                 client
                     .join_group(coordinator.as_ref(),
                                 group_id.clone().into(),
-                                session_timeout,
-                                rebalance_timeout,
+                                session_timeout.as_millis() as i32,
+                                rebalance_timeout.as_millis() as i32,
                                 member_id.clone().into(),
                                 CONSUMER_PROTOCOL.into(),
                                 group_protocols)
@@ -284,11 +310,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                         };
 
                         let future = client
-                            .sync_group(coordinator.as_ref(),
-                                        consumer_group.group_id.into(),
-                                        generation.generation_id.into(),
-                                        generation.member_id.clone().into(),
-                                        group_assignment)
+                            .sync_group(coordinator.as_ref(), generation.clone(), group_assignment)
                             .and_then(move |assignment| {
                                           debug!("group `{}` synced up", group_id);
 
@@ -318,20 +340,17 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                    coordinator,
                    generation,
                } = state {
-            let member_id = generation.member_id;
             let group_id = self.inner.group_id.clone();
 
-            debug!("member `{}` is leaving the `{}` group", member_id, group_id);
+            debug!("member `{}` is leaving the `{}` group",
+                   generation.member_id,
+                   group_id);
 
             LeaveGroup::new(self.inner
                                 .client
-                                .leave_group(coordinator,
-                                             group_id.into(),
-                                             member_id.clone().into())
-                                .map(move |group_id| {
-                                         debug!("member `{}` has leaved the `{}` group",
-                                                member_id,
-                                                group_id);
+                                .leave_group(coordinator, generation)
+                                .map(|group_id| {
+                                         debug!("member has leaved the `{}` group", group_id);
                                      }))
         } else {
             LeaveGroup::err(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress).into())

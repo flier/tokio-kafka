@@ -70,8 +70,11 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
         let topic_names: Vec<String> = topic_names.iter().map(|s| s.as_ref().to_owned()).collect();
         let inner = self.inner.clone();
         let group_id = self.inner.config.group_id.clone();
-        let session_timeout = self.inner.config.session_timeout;
-        let rebalance_timeout = self.inner.config.rebalance_timeout;
+        let session_timeout = self.inner.config.session_timeout();
+        let rebalance_timeout = self.inner.config.rebalance_timeout();
+        let heartbeat_interval = self.inner.config.heartbeat_interval();
+        let retry_backoff = self.inner.config.retry_backoff();
+        let timer = self.inner.client.timer().clone();
         let assignors = self.inner
             .config
             .assignment_strategy
@@ -99,9 +102,12 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                            coordinator: ConsumerCoordinator::new(client,
                                                                  group_id,
                                                                  subscriptions,
-                                                                 session_timeout as i32,
-                                                                 rebalance_timeout as i32,
-                                                                 assignors),
+                                                                 session_timeout,
+                                                                 rebalance_timeout,
+                                                                 heartbeat_interval,
+                                                                 retry_backoff,
+                                                                 assignors,
+                                                                 timer),
                        })
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
