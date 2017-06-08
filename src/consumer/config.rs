@@ -176,7 +176,9 @@ mod tests {
     "api.version.request": false,
     "broker.version.fallback": "0.9.0",
     "metadata.max.age.ms": 300000,
-    "metrics": false
+    "metrics": false,
+    "retries": 0,
+    "retry.backoff.ms": 100
   },
   "group.id": "",
   "enable.auto.commit": true,

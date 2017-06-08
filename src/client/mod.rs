@@ -10,7 +10,8 @@ mod builder;
 
 pub use self::version::KafkaVersion;
 pub use self::config::{ClientConfig, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
-                       DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_REQUEST_TIMEOUT_MILLS};
+                       DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_REQUEST_TIMEOUT_MILLS,
+                       DEFAULT_RETRY_BACKOFF_MILLIS};
 pub use self::cluster::{Broker, BrokerRef, Cluster, PartitionInfo};
 pub use self::metadata::{Metadata, TopicPartitions};
 pub use self::metrics::Metrics;

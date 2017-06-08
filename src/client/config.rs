@@ -2,6 +2,7 @@ use std::time::Duration;
 use std::net::SocketAddr;
 
 use tokio_timer::{Timer, wheel};
+use tokio_retry::strategy::{ExponentialBackoff, jitter};
 
 use client::KafkaVersion;
 
@@ -24,6 +25,11 @@ pub const DEFAULT_METADATA_MAX_AGE_MILLS: u64 = 5 * 60 * 1000;
 ///
 /// Defaults to 100 ms
 pub const DEFAULT_TIMER_TICK_MILLS: u64 = 100;
+
+/// The default time to wait before attempting to retry a failed request to a given topic partition.
+///
+/// Defaults to 100 ms, see [`ClientConfig::retry_backoff`](struct.ClientConfig.html#retry_backoff.v)
+pub const DEFAULT_RETRY_BACKOFF_MILLIS: u64 = 100;
 
 /// Configuration for the Kafka Client.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -67,6 +73,15 @@ pub struct ClientConfig {
 
     /// Record metrics for client operations
     pub metrics: bool,
+
+    /// Setting a value greater than zero will cause the client to resend any record
+    /// whose send fails with a potentially transient error.
+    pub retries: usize,
+
+    /// The amount of time to wait before attempting to retry a failed request to a given topic partition.
+    /// This avoids repeatedly sending requests in a tight loop under some failure scenarios.
+    #[serde(rename="retry.backoff.ms")]
+    pub retry_backoff: u64,
 }
 
 impl Default for ClientConfig {
@@ -80,6 +95,8 @@ impl Default for ClientConfig {
             broker_version_fallback: KafkaVersion::default(),
             metadata_max_age: DEFAULT_METADATA_MAX_AGE_MILLS,
             metrics: false,
+            retries: 0,
+            retry_backoff: DEFAULT_RETRY_BACKOFF_MILLIS,
         }
     }
 }
@@ -119,6 +136,19 @@ impl ClientConfig {
                        usize)
             .build()
     }
+
+    /// The amount of time to wait before attempting to retry a failed request to a given topic partition.
+    pub fn retry_backoff(&self) -> Duration {
+        Duration::from_millis(self.retry_backoff)
+    }
+
+    /// The retry strategy when request failed
+    pub fn retry_strategy(&self) -> Vec<Duration> {
+        ExponentialBackoff::from_millis(self.retry_backoff)
+            .map(jitter)
+            .take(self.retries)
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -129,7 +159,10 @@ mod tests {
 
     #[test]
     fn test_properties() {
-        let config = ClientConfig::default();
+        let config = ClientConfig {
+            retries: 3,
+            ..Default::default()
+        };
 
         assert_eq!(config.max_connection_idle(),
                    Duration::from_millis(DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS));
@@ -137,6 +170,7 @@ mod tests {
                    Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MILLS));
         assert_eq!(config.metadata_max_age(),
                    Duration::from_millis(DEFAULT_METADATA_MAX_AGE_MILLS));
+        assert_eq!(config.retry_strategy().len(), 3);
     }
 
     #[test]
@@ -156,7 +190,9 @@ mod tests {
   "api.version.request": false,
   "broker.version.fallback": "0.9.0",
   "metadata.max.age.ms": 300000,
-  "metrics": false
+  "metrics": false,
+  "retries": 0,
+  "retry.backoff.ms": 100
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);

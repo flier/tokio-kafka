@@ -2,8 +2,6 @@ use std::time::Duration;
 use std::ops::{Deref, DerefMut};
 use std::net::SocketAddr;
 
-use tokio_retry::strategy::{ExponentialBackoff, jitter};
-
 use compression::Compression;
 use protocol::RequiredAcks;
 use client::ClientConfig;
@@ -28,11 +26,6 @@ pub const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
 ///
 /// Defaults to 0 ms, see [`ProducerConfig::linger`](struct.ProducerConfig.html#linger.v)
 pub const DEFAULT_LINGER_MILLIS: u64 = 0;
-
-/// The default time to wait before attempting to retry a failed request to a given topic partition.
-///
-/// Defaults to 100 ms, see [`ProducerConfig::retry_backoff`](struct.ProducerConfig.html#retry_backoff.v)
-pub const DEFAULT_RETRY_BACKOFF_MILLIS: u64 = 100;
 
 /// Configuration for the `KafkaProducer`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -66,15 +59,6 @@ pub struct ProducerConfig {
     /// that arrive in between request transmissions into a single batched request.
     #[serde(rename="linger.ms")]
     pub linger: u64,
-
-    /// Setting a value greater than zero will cause the client to resend any record
-    /// whose send fails with a potentially transient error.
-    pub retries: usize,
-
-    /// The amount of time to wait before attempting to retry a failed request to a given topic partition.
-    /// This avoids repeatedly sending requests in a tight loop under some failure scenarios.
-    #[serde(rename="retry.backoff.ms")]
-    pub retry_backoff: u64,
 }
 
 impl Deref for ProducerConfig {
@@ -101,8 +85,6 @@ impl Default for ProducerConfig {
             batch_size: DEFAULT_BATCH_SIZE,
             max_request_size: DEFAULT_MAX_REQUEST_SIZE,
             linger: DEFAULT_LINGER_MILLIS,
-            retries: 0,
-            retry_backoff: DEFAULT_RETRY_BACKOFF_MILLIS,
         }
     }
 }
@@ -128,14 +110,6 @@ impl ProducerConfig {
     pub fn ack_timeout(&self) -> Duration {
         Duration::from_millis(self.ack_timeout)
     }
-
-    /// The retry strategy when request failed
-    pub fn retry_strategy(&self) -> Vec<Duration> {
-        ExponentialBackoff::from_millis(self.retry_backoff)
-            .map(jitter)
-            .take(self.retries)
-            .collect()
-    }
 }
 
 #[cfg(test)]
@@ -146,16 +120,12 @@ mod tests {
 
     #[test]
     fn test_properties() {
-        let config = ProducerConfig {
-            retries: 3,
-            ..Default::default()
-        };
+        let config = ProducerConfig::default();
 
         assert_eq!(config.linger(),
                    Duration::from_millis(DEFAULT_LINGER_MILLIS));
         assert_eq!(config.ack_timeout(),
                    Duration::from_millis(DEFAULT_ACK_TIMEOUT_MILLIS));
-        assert_eq!(config.retry_strategy().len(), 3);
     }
 
     #[test]
@@ -170,16 +140,16 @@ mod tests {
     "api.version.request": false,
     "broker.version.fallback": "0.9.0",
     "metadata.max.age.ms": 300000,
-    "metrics": false
+    "metrics": false,
+    "retries": 0,
+    "retry.backoff.ms": 100
   },
   "acks": "one",
   "timeout.ms": 30000,
   "compression.type": "none",
   "batch.size": 16384,
   "max.request.size": 1048576,
-  "linger.ms": 0,
-  "retries": 0,
-  "retry.backoff.ms": 100
+  "linger.ms": 0
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);
