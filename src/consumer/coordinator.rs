@@ -10,7 +10,7 @@ use futures::future::Either;
 use tokio_timer::Timer;
 use tokio_retry::Retry;
 
-use errors::{Error, ErrorKind, Result};
+use errors::{Error, ErrorKind, Result, ResultExt};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
 use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
              ConsumerGroupProtocol, Generation, KafkaClient, Metadata, StaticBoxFuture};
@@ -132,7 +132,7 @@ impl<'a> Inner<'a>
                                               .collect());
 
                 Schema::serialize(&subscription)
-                    .map_err(|err| warn!("fail to serialize subscription, {}", err))
+                    .map_err(|err| warn!("fail to serialize subscription schema, {}", err))
                     .ok()
                     .map(|metadata| {
                              ConsumerGroupProtocol {
@@ -149,7 +149,10 @@ impl<'a> Inner<'a>
                           group_protocol: &str,
                           members: &[ConsumerGroupMember])
                           -> Result<Vec<ConsumerGroupAssignment<'a>>> {
-        let strategy = group_protocol.parse()?;
+        let strategy =
+            group_protocol
+                .parse()
+                .chain_err(|| format!("fail to parse group protocol: {}", group_protocol))?;
         let assignor = self.assignors
             .iter()
             .find(|assigner| assigner.strategy() == strategy)
@@ -159,7 +162,9 @@ impl<'a> Inner<'a>
         let mut subscriptions = HashMap::new();
 
         for member in members {
-            let subscription: Subscription = Schema::deserialize(member.member_metadata.as_ref())?;
+            let subscription: Subscription =
+                Schema::deserialize(member.member_metadata.as_ref())
+                    .chain_err(|| "fail to deserialize member metadata schema")?;
 
             subscripbed_topics.extend(subscription.topics.iter().cloned());
             subscriptions.insert(member.member_id.as_str().into(), subscription);
@@ -214,7 +219,9 @@ impl<'a> Inner<'a>
         for (member_id, assignment) in assignment {
             group_assignment.push(ConsumerGroupAssignment {
                                       member_id: String::from(member_id).into(),
-                                      member_assignment: Schema::serialize(&assignment)?.into(),
+                                      member_assignment: Schema::serialize(&assignment)
+                                          .chain_err(|| "fail to serialize assignment schema")?
+                                          .into(),
                                   })
         }
 
@@ -234,7 +241,8 @@ impl<'a> Inner<'a>
 
         self.subscriptions
             .borrow_mut()
-            .assign_from_subscribed(assignment.partitions)?;
+            .assign_from_subscribed(assignment.partitions)
+            .chain_err(|| "fail to assign subscribed partitions")?;
 
         self.state
             .borrow_mut()
@@ -335,7 +343,8 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                             .and_then(move |assignment| {
                                           debug!("group `{}` synced up", group_id);
 
-                                          inner.synced_group(Schema::deserialize(&assignment[..])?,
+                                          inner.synced_group(Schema::deserialize(&assignment[..])
+                                                                 .chain_err(||"fail to deserialize assignment")?,
                                                              coordinator.as_ref(),
                                                              generation)
                                       });
