@@ -51,7 +51,7 @@ enum State {
     /// the client is not part of a group
     Unjoined,
     /// the client has begun rebalancing
-    Rebalancing,
+    Rebalancing { coordinator: BrokerRef },
     /// the client has joined and is sending heartbeats
     Stable {
         coordinator: BrokerRef,
@@ -68,8 +68,8 @@ impl State {
         }
     }
 
-    pub fn rebalance(&mut self) -> Self {
-        mem::replace(self, State::Rebalancing)
+    pub fn rebalance(&mut self, coordinator: BrokerRef) -> Self {
+        mem::replace(self, State::Rebalancing { coordinator: coordinator })
     }
 
     pub fn joined(&mut self, coordinator: BrokerRef, generation: Generation) -> State {
@@ -254,30 +254,57 @@ impl<'a> Inner<'a>
         let heartbeat = self.timer
             .interval_at(Instant::now() + self.heartbeat_interval,
                          self.heartbeat_interval)
-            .map_err(Error::from)
+            .from_err()
             .for_each(move |_| {
                 let client = client.clone();
+                let state = state.clone();
                 let generation = generation.clone();
+                let matched = *state.borrow() ==
+                              (State::Stable {
+                                   coordinator: coordinator,
+                                   generation: generation.clone(),
+                               });
 
-                if *state.borrow() ==
-                   (State::Stable {
-                        coordinator: coordinator,
-                        generation: generation.clone(),
-                    }) {
+                if matched {
                     let send_heartbeat =
                         Retry::spawn(handle.clone(),
                                      client.retry_strategy(),
                                      move || client.heartbeat(coordinator, generation.clone()));
 
-                    Either::A(send_heartbeat.map_err(Error::from))
+                    Either::A(send_heartbeat
+                                  .from_err()
+                                  .map_err(move |err| {
+                        match err {
+                            Error(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress), _) |
+                            Error(ErrorKind::KafkaError(KafkaCode::RebalanceInProgress), _) => {
+                                info!("group is loading or rebalancing, {}", err);
+
+                                state.borrow_mut().rebalance(coordinator);
+                            }
+                            Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _) |
+                            Error(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup), _) |
+                            Error(ErrorKind::KafkaError(KafkaCode::IllegalGeneration), _) |
+                            Error(ErrorKind::KafkaError(KafkaCode::UnknownMemberId), _) => {
+                                info!("group has outdated, need to rejoin, {}", err);
+
+                                state.borrow_mut().leave();
+                            }
+                            _ => warn!("unknown"),
+                        };
+
+                        err
+                    }))
                 } else {
                     Either::B(future::err(ErrorKind::Canceled("group generation outdated").into()))
                 }
             })
-            .map_err(|err| if let Error(ErrorKind::Canceled(reason), _) = err {
-                         trace!("heartbeat canceled, {}", reason);
-                     } else {
-                         warn!("fail to send heartbeat, {}", err);
+            .map_err(move |err| match err {
+                         Error(ErrorKind::Canceled(reason), _) => {
+                             trace!("heartbeat canceled, {}", reason);
+                         }
+                         _ => {
+                             warn!("heartbeat failed, {}", err);
+                         }
                      });
 
         self.client.handle().spawn(heartbeat);
@@ -290,8 +317,6 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
     where Self: 'static
 {
     fn join_group(&mut self) -> JoinGroup {
-        self.inner.state.borrow_mut().rebalance();
-
         let inner = self.inner.clone();
         let client = self.inner.client.clone();
         let member_id = self.inner.state.borrow().member_id().unwrap_or_default();
@@ -303,13 +328,26 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
 
         debug!("member `{}` is joining the `{}` group", member_id, group_id);
 
+        let group_coordinator = match *state.borrow() {
+            State::Stable { .. } => {
+                return JoinGroup::new(future::ok(()));
+            }
+            State::Rebalancing { coordinator } => Either::A(future::ok(coordinator)),
+            State::Unjoined => {
+                Either::B(self.inner
+                              .client
+                              .group_coordinator(group_id.clone().into())
+                              .map(|coordinator| coordinator.as_ref()))
+            }
+        };
+
         let future = self.inner
             .client
             .metadata()
-            .join(self.inner.client.group_coordinator(group_id.clone().into()))
+            .join(group_coordinator)
             .and_then(move |(metadata, coordinator)| {
                 client
-                    .join_group(coordinator.as_ref(),
+                    .join_group(coordinator,
                                 group_id.clone().into(),
                                 session_timeout.as_millis() as i32,
                                 rebalance_timeout.as_millis() as i32,
@@ -339,13 +377,13 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                         };
 
                         let future = client
-                            .sync_group(coordinator.as_ref(), generation.clone(), group_assignment)
+                            .sync_group(coordinator, generation.clone(), group_assignment)
                             .and_then(move |assignment| {
                                           debug!("group `{}` synced up", group_id);
 
                                           inner.synced_group(Schema::deserialize(&assignment[..])
                                                                  .chain_err(||"fail to deserialize assignment")?,
-                                                             coordinator.as_ref(),
+                                                             coordinator,
                                                              generation)
                                       });
 
