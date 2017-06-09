@@ -19,5 +19,5 @@ pub use self::service::{FutureResponse, KafkaService};
 pub use self::record::{PartitionRecord, TopicRecord};
 pub use self::client::{Client, ConsumerGroup, ConsumerGroupAssignment, ConsumerGroupMember,
                        ConsumerGroupProtocol, Generation, KafkaClient, ListOffsets, LoadMetadata,
-                       PartitionOffset, ProduceRecords, StaticBoxFuture};
+                       PartitionOffset, ProduceRecords, StaticBoxFuture, ToStaticBoxFuture};
 pub use self::builder::ClientBuilder;

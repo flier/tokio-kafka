@@ -21,7 +21,7 @@ use tokio_service::Service;
 use errors::Error;
 use network::{ConnectionId, KafkaCodec, KafkaConnection, KafkaConnector, KafkaRequest,
               KafkaResponse, Pool, Pooled};
-use client::{Metrics, StaticBoxFuture};
+use client::{Metrics, StaticBoxFuture, ToStaticBoxFuture};
 
 #[derive(Debug, Default)]
 struct State {
@@ -109,7 +109,7 @@ impl<'a> Service for KafkaService<'a>
 
         let metrics = self.metrics.clone();
 
-        let response = race.and_then(move |client| client.call(Message::WithoutBody(request)))
+        race.and_then(move |client| client.call(Message::WithoutBody(request)))
             .map(|msg| {
                      debug!("received message: {:?}", msg);
 
@@ -123,9 +123,8 @@ impl<'a> Service for KafkaService<'a>
 
                      response
                  })
-            .map_err(Error::from);
-
-        FutureResponse::new(response)
+            .map_err(Error::from)
+            .static_boxed()
     }
 }
 

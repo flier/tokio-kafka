@@ -8,6 +8,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::time::Duration;
+use std::error::Error as StdError;
 
 use bytes::Bytes;
 
@@ -283,23 +284,23 @@ impl<'a> Client<'a> for KafkaClient<'a>
                        records: Vec<Cow<'a, MessageSet>>)
                        -> ProduceRecords {
         let inner = self.inner.clone();
-        let future = self.metadata()
+        self.metadata()
             .and_then(move |metadata| {
                           inner.produce_records(metadata, required_acks, timeout, tp, records)
-                      });
-        ProduceRecords::new(future)
+                      })
+            .static_boxed()
     }
 
     fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets {
         let inner = self.inner.clone();
-        let future = self.metadata()
+        self.metadata()
             .and_then(move |metadata| {
                           inner
                               .topics_by_broker(metadata, partitions)
                               .into_future()
                               .and_then(move |topics| inner.list_offsets(topics))
-                      });
-        ListOffsets::new(future)
+                      })
+            .static_boxed()
     }
 
     fn load_metadata(&mut self) -> LoadMetadata<'a> {
@@ -330,9 +331,9 @@ impl<'a> Client<'a> for KafkaClient<'a>
 
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
         let inner = self.inner.clone();
-        let future = self.metadata()
-            .and_then(move |metadata| inner.group_coordinator(metadata, group_id));
-        GroupCoordinator::new(future)
+        self.metadata()
+            .and_then(move |metadata| inner.group_coordinator(metadata, group_id))
+            .static_boxed()
     }
 
     fn join_group(&self,
@@ -345,7 +346,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                   group_protocols: Vec<ConsumerGroupProtocol<'a>>)
                   -> JoinGroup {
         let inner = self.inner.clone();
-        let future = self.metadata()
+        self.metadata()
             .and_then(move |metadata| {
                 metadata
                     .find_broker(coordinator)
@@ -359,13 +360,13 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                          group_protocols)
                     })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
-            });
-        JoinGroup::new(future)
+            })
+            .static_boxed()
     }
 
     fn heartbeat(&self, coordinator: BrokerRef, generation: Generation) -> Heartbeat {
         let inner = self.inner.clone();
-        let future = self.metadata()
+        self.metadata()
             .and_then(move |metadata| {
                 metadata
                     .find_broker(coordinator)
@@ -376,13 +377,13 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                              generation.member_id.into())
                          })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
-            });
-        Heartbeat::new(future)
+            })
+            .static_boxed()
     }
 
     fn leave_group(&self, coordinator: BrokerRef, generation: Generation) -> LeaveGroup {
         let inner = self.inner.clone();
-        let future = self.metadata()
+        self.metadata()
             .and_then(move |metadata| {
                 metadata
                     .find_broker(coordinator)
@@ -392,8 +393,8 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                                generation.member_id.into())
                          })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
-            });
-        LeaveGroup::new(future)
+            })
+            .static_boxed()
     }
 
     fn sync_group(&self,
@@ -402,7 +403,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                   group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
                   -> SyncGroup {
         let inner = self.inner.clone();
-        let future = self.metadata()
+        self.metadata()
             .and_then(move |metadata| {
                 metadata
                     .find_broker(coordinator)
@@ -414,8 +415,8 @@ impl<'a> Client<'a> for KafkaClient<'a>
                                               group_assignment)
                          })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
-            });
-        SyncGroup::new(future)
+            })
+            .static_boxed()
     }
 }
 
@@ -520,7 +521,9 @@ impl<'a> Inner<'a>
             responses
         };
 
-        FetchMetadata::new(future::select_ok(responses).map(|(metadata, _)| metadata))
+        future::select_ok(responses)
+            .map(|(metadata, _)| metadata)
+            .static_boxed()
     }
 
     fn fetch_api_versions(&self, broker: &Broker) -> FetchApiVersions {
@@ -530,15 +533,14 @@ impl<'a> Inner<'a>
 
         let request = KafkaRequest::api_versions(self.next_correlation_id(), self.client_id());
 
-        let response = self.service
+        self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
                           future::ok(UsableApiVersions::new(res.api_versions))
                       } else {
                           future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
-
-        FetchApiVersions::new(response)
+                      })
+            .static_boxed()
     }
 
     fn load_api_versions(&self, metadata: Rc<Metadata>) -> LoadApiVersions {
@@ -557,9 +559,10 @@ impl<'a> Inner<'a>
 
             responses
         };
-        let responses = future::join_all(responses).map(HashMap::from_iter);
 
-        LoadApiVersions::new(StaticBoxFuture::new(responses))
+        future::join_all(responses)
+            .map(HashMap::from_iter)
+            .static_boxed()
     }
 
     fn produce_records(&self,
@@ -585,7 +588,7 @@ impl<'a> Inner<'a>
                                                     &tp,
                                                     records);
 
-        let response = self.service
+        self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
                           let produce = res.topics
@@ -605,9 +608,8 @@ impl<'a> Inner<'a>
                           future::ok(produce)
                       } else {
                           future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
-
-        ProduceRecords::new(response)
+                      })
+            .static_boxed()
     }
 
     fn topics_by_broker(&self,
@@ -693,21 +695,21 @@ impl<'a> Inner<'a>
             responses
         };
 
-        let offsets = future::join_all(responses).map(|responses| {
-            responses
-                .iter()
-                .fold(HashMap::new(), |mut offsets, topics| {
-                    for &(ref topic_name, ref partitions) in topics {
+        future::join_all(responses)
+            .map(|responses| {
+                responses
+                    .iter()
+                    .fold(HashMap::new(), |mut offsets, topics| {
+                        for &(ref topic_name, ref partitions) in topics {
+                            offsets
+                                .entry(topic_name.clone())
+                                .or_insert_with(Vec::new)
+                                .extend(partitions.iter().cloned())
+                        }
                         offsets
-                            .entry(topic_name.clone())
-                            .or_insert_with(Vec::new)
-                            .extend(partitions.iter().cloned())
-                    }
-                    offsets
-                })
-        });
-
-        ListOffsets::new(offsets)
+                    })
+            })
+            .static_boxed()
     }
 
     fn group_coordinator(&self,
@@ -730,7 +732,7 @@ impl<'a> Inner<'a>
                                                       self.client_id(),
                                                       group_id);
 
-        let response = self.service
+        self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::GroupCoordinator(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
@@ -742,9 +744,8 @@ impl<'a> Inner<'a>
                           }
                       } else {
                           future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
-
-        GroupCoordinator::new(response)
+                      })
+            .static_boxed()
     }
 
     fn join_group(&self,
@@ -781,7 +782,7 @@ impl<'a> Inner<'a>
                                                protocol_type,
                                                group_protocols);
 
-        let response = self.service
+        self.service
             .call((addr, request))
             .and_then(move |res| if let KafkaResponse::JoinGroup(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
@@ -798,9 +799,8 @@ impl<'a> Inner<'a>
                           }
                       } else {
                           future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
-
-        JoinGroup::new(response)
+                      })
+            .static_boxed()
     }
 
     fn heartbeat(&self,
@@ -826,7 +826,7 @@ impl<'a> Inner<'a>
                                               group_generation_id,
                                               member_id);
 
-        let response = self.service
+        self.service
             .call((addr, request))
             .and_then(move |res| if let KafkaResponse::Heartbeat(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
@@ -836,9 +836,8 @@ impl<'a> Inner<'a>
                           }
                       } else {
                           future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
-
-        Heartbeat::new(response)
+                      })
+            .static_boxed()
     }
 
     fn leave_group(&self,
@@ -862,7 +861,7 @@ impl<'a> Inner<'a>
                                                 group_id,
                                                 member_id);
 
-        let response = self.service
+        self.service
             .call((addr, request))
             .and_then(move |res| if let KafkaResponse::LeaveGroup(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
@@ -872,9 +871,8 @@ impl<'a> Inner<'a>
                           }
                       } else {
                           future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
-
-        LeaveGroup::new(response)
+                      })
+            .static_boxed()
     }
 
     fn sync_group(&self,
@@ -903,7 +901,7 @@ impl<'a> Inner<'a>
                                                member_id,
                                                group_assignment.unwrap_or_default());
 
-        let response = self.service
+        self.service
             .call((addr, request))
             .and_then(move |res| if let KafkaResponse::SyncGroup(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
@@ -913,9 +911,8 @@ impl<'a> Inner<'a>
                           }
                       } else {
                           future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
-                      });
-
-        SyncGroup::new(response)
+                      })
+            .static_boxed()
     }
 }
 
@@ -936,7 +933,9 @@ impl State {
             MetadataStatus::Loaded(ref metadata) => drop(sender.send(metadata.clone())),
         }
 
-        GetMetadata::new(receiver.map_err(|_| ErrorKind::Canceled("load metadata canceled").into()))
+        receiver
+            .map_err(|_| ErrorKind::Canceled("load metadata canceled").into())
+            .static_boxed()
     }
 
     pub fn refresh_metadata(&mut self) {
@@ -1076,12 +1075,32 @@ impl<T, E> From<ErrorKind> for StaticBoxFuture<T, E>
     }
 }
 
+impl<T> From<Error> for StaticBoxFuture<T, Error> {
+    fn from(err: Error) -> Self {
+        Self::err(err)
+    }
+}
+
 impl<T, E> Future for StaticBoxFuture<T, E> {
     type Item = T;
     type Error = E;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         self.0.poll()
+    }
+}
+
+pub trait ToStaticBoxFuture<T, E> {
+    fn static_boxed(self) -> StaticBoxFuture<T, E>;
+}
+
+impl<T, E, F> ToStaticBoxFuture<T, E> for F
+    where F: IntoFuture<Item = T, Error = E> + 'static,
+          T: 'static,
+          E: 'static + StdError
+{
+    fn static_boxed(self) -> StaticBoxFuture<T, E> {
+        StaticBoxFuture::new(self)
     }
 }
 

@@ -6,7 +6,7 @@ use futures::{Future, future};
 use errors::ErrorKind;
 use protocol::FetchOffset;
 use network::TopicPartition;
-use client::{Client, KafkaClient, StaticBoxFuture};
+use client::{Client, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{OffsetResetStrategy, Subscriptions};
 
 pub struct Fetcher<'a> {
@@ -81,11 +81,10 @@ impl<'a> Fetcher<'a>
             }
         }
 
-        let future = self.client
+        self.client
             .list_offsets(offset_resets)
-            .and_then(|offsets| future::ok(()));
-
-        ResetOffsets::new(future)
+            .and_then(|offsets| future::ok(()))
+            .static_boxed()
     }
 }
 

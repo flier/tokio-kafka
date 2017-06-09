@@ -15,7 +15,8 @@ use tokio_retry::Retry;
 use errors::{Error, ErrorKind};
 use protocol::{ApiKeys, PartitionId, ToMilliseconds};
 use serialization::Serializer;
-use client::{Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, TopicRecord};
+use client::{Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, ToStaticBoxFuture,
+             TopicRecord};
 use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,
                RecordAccumulator, RecordMetadata, Sender};
@@ -133,7 +134,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     fn send(&mut self, record: ProducerRecord<Self::Key, Self::Value>) -> SendRecord {
         let inner = self.inner.clone();
 
-        let future = self.inner
+        self.inner
             .client
             .metadata()
             .and_then(move |metadata| {
@@ -173,9 +174,8 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                 }
 
                 push_record
-            });
-
-        SendRecord::new(future)
+            })
+            .static_boxed()
     }
 
     fn flush(&mut self) -> Flush {
@@ -185,7 +185,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
     fn topic(&self, topic_name: &str) -> GetTopic<Self::Topic> {
         let topic_name = topic_name.to_owned();
         let inner = self.inner.clone();
-        let get_topic = self.inner
+        self.inner
             .client
             .metadata()
             .and_then(move |metadata| if let Some(partitions) = metadata
@@ -199,8 +199,8 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                              })
                       } else {
                           bail!(ErrorKind::TopicNotFound(topic_name))
-                      });
-        GetTopic::new(get_topic)
+                      })
+            .static_boxed()
     }
 }
 
@@ -275,30 +275,32 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
         let ack_timeout = self.config.ack_timeout();
         let retry_strategy = self.config.retry_strategy();
 
-        Flush::new(self.accumulator
-                       .batches(force)
-                       .for_each(move |(tp, batch)| {
-            let sender = Sender::new(client.clone(),
-                                     interceptor.clone(),
-                                     acks,
-                                     ack_timeout,
-                                     tp,
-                                     batch);
+        self.accumulator
+            .batches(force)
+            .for_each(move |(tp, batch)| {
+                let sender = Sender::new(client.clone(),
+                                         interceptor.clone(),
+                                         acks,
+                                         ack_timeout,
+                                         tp,
+                                         batch);
 
-            match sender {
-                Ok(sender) => {
-                    StaticBoxFuture::new(Retry::spawn(handle.clone(),
-                                                      retry_strategy.clone(),
-                                                      move || sender.send_batch())
-                                                 .map_err(Error::from))
-                }
-                Err(err) => {
-                    warn!("fail to create sender, {}", err);
+                match sender {
+                    Ok(sender) => {
+                        Retry::spawn(handle.clone(),
+                                     retry_strategy.clone(),
+                                     move || sender.send_batch())
+                                .map_err(Error::from)
+                                .static_boxed()
+                    }
+                    Err(err) => {
+                        warn!("fail to create sender, {}", err);
 
-                    StaticBoxFuture::err(err)
+                        err.into()
+                    }
                 }
-            }
-        }))
+            })
+            .static_boxed()
     }
 }
 
@@ -321,7 +323,7 @@ impl Pending {
         } else {
             let sending = mem::replace(&mut self.sending, Vec::new());
 
-            Some(Flush::new(future::join_all(sending).map(|_| ())))
+            Some(future::join_all(sending).map(|_| ()).static_boxed())
         }
     }
 }
@@ -338,7 +340,7 @@ impl Sink for Pending {
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
         let mut flushing = match (self.flushing.take(), self.pending()) {
-            (Some(flushing), Some(pending)) => Flush::new(flushing.join(pending).map(|_| ())),
+            (Some(flushing), Some(pending)) => flushing.join(pending).map(|_| ()).static_boxed(),
             (Some(flushing), None) => flushing,
             (None, Some(pending)) => pending,
             (None, None) => return Ok(Async::Ready(())),

@@ -13,7 +13,8 @@ use tokio_retry::Retry;
 use errors::{Error, ErrorKind, Result, ResultExt};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
 use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
-             ConsumerGroupProtocol, Generation, KafkaClient, Metadata, StaticBoxFuture};
+             ConsumerGroupProtocol, Generation, KafkaClient, Metadata, StaticBoxFuture,
+             ToStaticBoxFuture};
 use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 
 /// Manages the coordination process with the consumer coordinator.
@@ -330,7 +331,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
 
         let group_coordinator = match *state.borrow() {
             State::Stable { .. } => {
-                return JoinGroup::new(future::ok(()));
+                return JoinGroup::ok(());
             }
             State::Rebalancing { coordinator } => Either::A(future::ok(coordinator)),
             State::Unjoined => {
@@ -341,7 +342,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
             }
         };
 
-        let future = self.inner
+        self.inner
             .client
             .metadata()
             .join(group_coordinator)
@@ -376,7 +377,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                             }
                         };
 
-                        let future = client
+                        client
                             .sync_group(coordinator, generation.clone(), group_assignment)
                             .and_then(move |assignment| {
                                           debug!("group `{}` synced up", group_id);
@@ -385,9 +386,8 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                                                                  .chain_err(||"fail to deserialize assignment")?,
                                                              coordinator,
                                                              generation)
-                                      });
-
-                        JoinGroup::new(future)
+                                      })
+                            .static_boxed()
                     })
             })
             .map_err(move |err| {
@@ -396,9 +396,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                          state.borrow_mut().leave();
 
                          err
-                     });
-
-        JoinGroup::new(future)
+                     }).static_boxed()
     }
 
     fn leave_group(&mut self) -> LeaveGroup {
@@ -414,14 +412,15 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                    generation.member_id,
                    group_id);
 
-            LeaveGroup::new(self.inner
-                                .client
-                                .leave_group(coordinator, generation)
-                                .map(|group_id| {
-                                         debug!("member has leaved the `{}` group", group_id);
-                                     }))
+            self.inner
+                .client
+                .leave_group(coordinator, generation)
+                .map(|group_id| {
+                         debug!("member has leaved the `{}` group", group_id);
+                     })
+                .static_boxed()
         } else {
-            LeaveGroup::err(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress).into())
+            ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress).into()
         }
     }
 }

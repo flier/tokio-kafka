@@ -82,7 +82,7 @@ pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster
                  DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,
                  DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS, KafkaClient,
                  KafkaVersion, ListOffsets, LoadMetadata, Metadata, PartitionOffset,
-                 PartitionRecord, ProduceRecords, TopicRecord};
+                 PartitionRecord, ProduceRecords, ToStaticBoxFuture, TopicRecord};
 pub use producer::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
                    DEFAULT_MAX_REQUEST_SIZE, DefaultPartitioner, GetTopic, KafkaProducer,
                    Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,

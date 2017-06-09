@@ -6,7 +6,7 @@ use futures::{Async, Future, Poll, Stream};
 
 use errors::{Error, ErrorKind};
 use serialization::Deserializer;
-use client::{Cluster, KafkaClient, StaticBoxFuture, TopicRecord};
+use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture, TopicRecord};
 use consumer::{ConsumerConfig, ConsumerCoordinator, Coordinator, Fetcher, Subscriptions};
 
 /// A trait for consuming records from a Kafka cluster.
@@ -83,7 +83,7 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
             .collect();
         let timer = self.inner.client.timer().clone();
 
-        let topics = self.inner
+        self.inner
             .client
             .metadata()
             .and_then(move |metadata| {
@@ -116,8 +116,8 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
                 }
-            });
-        Subscriber::new(topics)
+            })
+            .static_boxed()
     }
 }
 
@@ -141,7 +141,7 @@ impl<'a, K, V> ConsumerTopics<'a, K, V>
 
     /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
     pub fn unsubscribe(mut self) -> Unsubscribe {
-        Unsubscribe::new(self.coordinator.leave_group())
+        self.coordinator.leave_group().static_boxed()
     }
 }
 

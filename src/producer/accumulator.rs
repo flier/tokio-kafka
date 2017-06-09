@@ -11,7 +11,7 @@ use errors::Error;
 use compression::Compression;
 use protocol::{ApiVersion, Timestamp};
 use network::TopicPartition;
-use client::StaticBoxFuture;
+use client::{StaticBoxFuture, ToStaticBoxFuture};
 use producer::{ProducerBatch, RecordMetadata};
 
 /// Accumulator acts as a queue that accumulates records
@@ -116,9 +116,8 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
             let api_version = batches.back().map(|batch| batch.api_version());
 
             if let Some(api_version) = api_version {
-                batches.push_back(ProducerBatch::new(api_version,
-                                                     self.compression,
-                                                     self.batch_size))
+                batches
+                    .push_back(ProducerBatch::new(api_version, self.compression, self.batch_size))
             }
         }
     }
@@ -135,7 +134,7 @@ impl PushRecord {
         where F: Future<Item = RecordMetadata, Error = Error> + 'static
     {
         PushRecord {
-            future: StaticBoxFuture::new(future),
+            future: future.static_boxed(),
             is_full: is_full,
             new_batch: new_batch,
         }
