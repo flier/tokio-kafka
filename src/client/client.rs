@@ -40,10 +40,7 @@ pub trait Client<'a>: 'static {
                        -> ProduceRecords;
 
     /// Search the offsets by target times for the specified topics and return a future which will eventually contain the partition offset information.
-    fn fetch_offsets(&self,
-                     partitions: Vec<TopicPartition<'a>>,
-                     offset: FetchOffset)
-                     -> FetchOffsets;
+    fn fetch_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> FetchOffsets;
 
     /// Load metadata of the Kafka cluster and return a future which will eventually contain the metadata information.
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
@@ -293,16 +290,13 @@ impl<'a> Client<'a> for KafkaClient<'a>
         ProduceRecords::new(future)
     }
 
-    fn fetch_offsets(&self,
-                     partitions: Vec<TopicPartition<'a>>,
-                     offset: FetchOffset)
-                     -> FetchOffsets {
+    fn fetch_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> FetchOffsets {
         let inner = self.inner.clone();
         let future = self.metadata()
             .and_then(move |metadata| {
                           let topics = inner.topics_by_broker(metadata, partitions);
 
-                          inner.fetch_offsets(topics, offset)
+                          inner.fetch_offsets(topics)
                       });
         FetchOffsets::new(future)
     }
@@ -617,27 +611,27 @@ impl<'a> Inner<'a>
 
     fn topics_by_broker(&self,
                         metadata: Rc<Metadata>,
-                        topic_partitions: Vec<TopicPartition<'a>>)
+                        partitions: Vec<(TopicPartition<'a>, FetchOffset)>)
                         -> Topics<'a> {
         let mut topics = HashMap::new();
 
-        for topic_partition in topic_partitions {
-            if let Some(broker) = metadata.leader_for(&topic_partition) {
+        for (tp, offset) in partitions {
+            if let Some(broker) = metadata.leader_for(&tp) {
                 let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
                 let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
                 topics
                     .entry((addr, api_version))
                     .or_insert_with(HashMap::new)
-                    .entry(topic_partition.topic_name)
+                    .entry(tp.topic_name)
                     .or_insert_with(Vec::new)
-                    .push(topic_partition.partition);
+                    .push((tp.partition, offset));
             }
         }
 
         topics
     }
 
-    fn fetch_offsets(&self, topics: Topics<'a>, offset: FetchOffset) -> FetchOffsets {
+    fn fetch_offsets(&self, topics: Topics<'a>) -> FetchOffsets {
         let responses = {
             let mut responses = Vec::new();
 
@@ -645,8 +639,7 @@ impl<'a> Inner<'a>
                 let request = KafkaRequest::list_offsets(api_version,
                                                          self.next_correlation_id(),
                                                          self.client_id(),
-                                                         topics,
-                                                         offset);
+                                                         topics);
                 let response = self.service
                     .call((addr, request))
                     .and_then(|res| {
@@ -918,7 +911,8 @@ impl<'a> Inner<'a>
     }
 }
 
-type Topics<'a> = HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<PartitionId>>>;
+type Topics<'a> = HashMap<(SocketAddr, ApiVersion),
+                          HashMap<Cow<'a, str>, Vec<(PartitionId, FetchOffset)>>>;
 
 impl State {
     pub fn next_correlation_id(&mut self) -> CorrelationId {

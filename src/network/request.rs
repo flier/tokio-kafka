@@ -90,8 +90,7 @@ impl<'a> KafkaRequest<'a> {
     pub fn list_offsets(api_version: ApiVersion,
                         correlation_id: CorrelationId,
                         client_id: Option<Cow<'a, str>>,
-                        topics: HashMap<Cow<'a, str>, Vec<PartitionId>>,
-                        offset: FetchOffset)
+                        topics: HashMap<Cow<'a, str>, Vec<(PartitionId, FetchOffset)>>)
                         -> KafkaRequest<'a> {
         let topics = topics
             .iter()
@@ -100,7 +99,7 @@ impl<'a> KafkaRequest<'a> {
                     topic_name: topic_name.clone(),
                     partitions: partitions
                         .iter()
-                        .map(|&id| {
+                        .map(|&(id, offset)| {
                                  ListPartitionOffset {
                                      partition: id,
                                      timestamp: offset.into(),
