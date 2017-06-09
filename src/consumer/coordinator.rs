@@ -331,7 +331,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
 
         let group_coordinator = match *state.borrow() {
             State::Stable { .. } => {
-                return JoinGroup::ok(());
+                return Ok(()).static_boxed();
             }
             State::Rebalancing { coordinator } => Either::A(future::ok(coordinator)),
             State::Unjoined => {
@@ -373,7 +373,7 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                                                            &consumer_group.protocol,
                                                            &consumer_group.members) {
                                 Ok(group_assignment) => Some(group_assignment),
-                                Err(err) => return JoinGroup::err(err),
+                                Err(err) => return err.into(),
                             }
                         };
 

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 
-use futures::{Future, future};
+use futures::Future;
 
 use errors::ErrorKind;
 use protocol::FetchOffset;
@@ -73,9 +73,8 @@ impl<'a> Fetcher<'a>
                         offset_resets.push((tp, FetchOffset::Latest));
                     }
                     _ => {
-                        let err = ErrorKind::NoOffsetForPartition(tp.topic_name.into(),
-                                                                  tp.partition);
-                        return ResetOffsets::err(err.into());
+                        return ErrorKind::NoOffsetForPartition(tp.topic_name.into(), tp.partition)
+                                   .into();
                     }
                 }
             }
@@ -83,7 +82,7 @@ impl<'a> Fetcher<'a>
 
         self.client
             .list_offsets(offset_resets)
-            .and_then(|offsets| future::ok(()))
+            .and_then(|offsets| Ok(()))
             .static_boxed()
     }
 }

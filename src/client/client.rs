@@ -510,9 +510,9 @@ impl<'a> Inner<'a>
                 let response = self.service
                     .call((*addr, request))
                     .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                                  future::ok(Rc::new(Metadata::from(res)))
+                                  Ok(Rc::new(Metadata::from(res)))
                               } else {
-                                  future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                                  bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                               });
 
                 responses.push(response);
@@ -536,9 +536,9 @@ impl<'a> Inner<'a>
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
-                          future::ok(UsableApiVersions::new(res.api_versions))
+                          Ok(UsableApiVersions::new(res.api_versions))
                       } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                       })
             .static_boxed()
     }
@@ -605,9 +605,9 @@ impl<'a> Inner<'a>
                 })
                               .collect();
 
-                          future::ok(produce)
+                          Ok(produce)
                       } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                       })
             .static_boxed()
     }
@@ -722,7 +722,7 @@ impl<'a> Inner<'a>
             match self.least_loaded_broker(metadata) {
                 Ok((addr, _)) => addr,
                 Err(err) => {
-                    return GroupCoordinator::err(err);
+                    return err.into();
                 }
             }
         };
@@ -736,14 +736,14 @@ impl<'a> Inner<'a>
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::GroupCoordinator(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
-                              future::ok(Broker::new(res.coordinator_id,
-                                                     &res.coordinator_host,
-                                                     res.coordinator_port as u16))
+                              Ok(Broker::new(res.coordinator_id,
+                                             &res.coordinator_host,
+                                             res.coordinator_port as u16))
                           } else {
-                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                              bail!(ErrorKind::KafkaError(res.error_code.into()))
                           }
                       } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                       })
             .static_boxed()
     }
@@ -786,19 +786,19 @@ impl<'a> Inner<'a>
             .call((addr, request))
             .and_then(move |res| if let KafkaResponse::JoinGroup(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
-                              future::ok(ConsumerGroup {
-                                             group_id: joined_group_id,
-                                             generation_id: res.generation_id,
-                                             protocol: res.protocol,
-                                             leader_id: res.leader_id,
-                                             member_id: res.member_id,
-                                             members: res.members,
-                                         })
+                              Ok(ConsumerGroup {
+                                     group_id: joined_group_id,
+                                     generation_id: res.generation_id,
+                                     protocol: res.protocol,
+                                     leader_id: res.leader_id,
+                                     member_id: res.member_id,
+                                     members: res.members,
+                                 })
                           } else {
-                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                              bail!(ErrorKind::KafkaError(res.error_code.into()))
                           }
                       } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                       })
             .static_boxed()
     }
@@ -830,12 +830,12 @@ impl<'a> Inner<'a>
             .call((addr, request))
             .and_then(move |res| if let KafkaResponse::Heartbeat(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
-                              future::ok(())
+                              Ok(())
                           } else {
-                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                              bail!(ErrorKind::KafkaError(res.error_code.into()))
                           }
                       } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                       })
             .static_boxed()
     }
@@ -865,12 +865,12 @@ impl<'a> Inner<'a>
             .call((addr, request))
             .and_then(move |res| if let KafkaResponse::LeaveGroup(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
-                              future::ok(leaved_group_id)
+                              Ok(leaved_group_id)
                           } else {
-                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                              bail!(ErrorKind::KafkaError(res.error_code.into()))
                           }
                       } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                       })
             .static_boxed()
     }
@@ -905,12 +905,12 @@ impl<'a> Inner<'a>
             .call((addr, request))
             .and_then(move |res| if let KafkaResponse::SyncGroup(res) = res {
                           if res.error_code == KafkaCode::None as ErrorCode {
-                              future::ok(res.member_assignment)
+                              Ok(res.member_assignment)
                           } else {
-                              future::err(ErrorKind::KafkaError(res.error_code.into()).into())
+                              bail!(ErrorKind::KafkaError(res.error_code.into()))
                           }
                       } else {
-                          future::err(ErrorKind::UnexpectedResponse(res.api_key()).into())
+                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                       })
             .static_boxed()
     }

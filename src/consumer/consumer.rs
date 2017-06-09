@@ -136,7 +136,7 @@ impl<'a, K, V> ConsumerTopics<'a, K, V>
           Self: 'static
 {
     pub fn commit(&mut self) -> Commit {
-        Commit::ok(())
+        Ok(()).static_boxed()
     }
 
     /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`

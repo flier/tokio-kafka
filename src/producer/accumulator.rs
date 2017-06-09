@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 
 use bytes::Bytes;
 
-use futures::{Async, Future, Poll, Stream, future};
+use futures::{Async, Future, IntoFuture, Poll, Stream};
 
 use errors::Error;
 use compression::Compression;
@@ -104,7 +104,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
             Err(err) => {
                 warn!("fail to push record, {}", err);
 
-                PushRecord::new(future::err(err), false, true)
+                PushRecord::new(Err(err), false, true)
             }
         }
     }
@@ -131,7 +131,7 @@ pub struct PushRecord {
 
 impl PushRecord {
     pub fn new<F>(future: F, is_full: bool, new_batch: bool) -> Self
-        where F: Future<Item = RecordMetadata, Error = Error> + 'static
+        where F: IntoFuture<Item = RecordMetadata, Error = Error> + 'static
     {
         PushRecord {
             future: future.static_boxed(),
