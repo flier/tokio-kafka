@@ -18,6 +18,6 @@ pub use self::metrics::Metrics;
 pub use self::service::{FutureResponse, KafkaService};
 pub use self::record::{PartitionRecord, TopicRecord};
 pub use self::client::{Client, ConsumerGroup, ConsumerGroupAssignment, ConsumerGroupMember,
-                       ConsumerGroupProtocol, FetchOffsets, Generation, KafkaClient, LoadMetadata,
+                       ConsumerGroupProtocol, Generation, KafkaClient, ListOffsets, LoadMetadata,
                        PartitionOffset, ProduceRecords, StaticBoxFuture};
 pub use self::builder::ClientBuilder;

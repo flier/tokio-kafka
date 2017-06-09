@@ -95,22 +95,23 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                     .collect();
 
                 if not_found.is_empty() {
-                    let client = inner.client.clone();
                     let subscriptions =
                         Rc::new(RefCell::new(Subscriptions::with_topics(topic_names.iter(),
                                                                         default_reset_strategy)));
+                    let coordinator = ConsumerCoordinator::new(inner.client.clone(),
+                                                               group_id,
+                                                               subscriptions.clone(),
+                                                               session_timeout,
+                                                               rebalance_timeout,
+                                                               heartbeat_interval,
+                                                               assignors,
+                                                               timer);
+                    let fetcher = Fetcher::new(inner.client.clone(), subscriptions);
 
                     Ok(ConsumerTopics {
                            consumer: KafkaConsumer { inner: inner },
-                           coordinator: ConsumerCoordinator::new(client,
-                                                                 group_id,
-                                                                 subscriptions.clone(),
-                                                                 session_timeout,
-                                                                 rebalance_timeout,
-                                                                 heartbeat_interval,
-                                                                 assignors,
-                                                                 timer),
-                           fetcher: Fetcher::new(subscriptions),
+                           coordinator: coordinator,
+                           fetcher: fetcher,
                        })
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))

@@ -154,14 +154,14 @@ fn main() {
                 .collect();
 
             let requests =
-                vec![client.fetch_offsets(topics
-                                              .iter()
-                                              .map(|tp| (tp.clone(), FetchOffset::Earliest))
-                                              .collect()),
-                     client.fetch_offsets(topics
-                                              .iter()
-                                              .map(|tp| (tp.clone(), FetchOffset::Latest))
-                                              .collect())];
+                vec![client.list_offsets(topics
+                                             .iter()
+                                             .map(|tp| (tp.clone(), FetchOffset::Earliest))
+                                             .collect()),
+                     client.list_offsets(topics
+                                             .iter()
+                                             .map(|tp| (tp.clone(), FetchOffset::Latest))
+                                             .collect())];
 
             let topic_names = topics
                 .iter()

@@ -40,7 +40,7 @@ pub trait Client<'a>: 'static {
                        -> ProduceRecords;
 
     /// Search the offsets by target times for the specified topics and return a future which will eventually contain the partition offset information.
-    fn fetch_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> FetchOffsets;
+    fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets;
 
     /// Load metadata of the Kafka cluster and return a future which will eventually contain the metadata information.
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
@@ -77,7 +77,7 @@ pub trait Client<'a>: 'static {
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
 
 /// The future of partition offsets information.
-pub type FetchOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
+pub type ListOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 
 /// The partition and offset
 #[derive(Clone, Debug)]
@@ -290,15 +290,16 @@ impl<'a> Client<'a> for KafkaClient<'a>
         ProduceRecords::new(future)
     }
 
-    fn fetch_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> FetchOffsets {
+    fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets {
         let inner = self.inner.clone();
         let future = self.metadata()
             .and_then(move |metadata| {
-                          let topics = inner.topics_by_broker(metadata, partitions);
-
-                          inner.fetch_offsets(topics)
+                          inner
+                              .topics_by_broker(metadata, partitions)
+                              .into_future()
+                              .and_then(move |topics| inner.list_offsets(topics))
                       });
-        FetchOffsets::new(future)
+        ListOffsets::new(future)
     }
 
     fn load_metadata(&mut self) -> LoadMetadata<'a> {
@@ -612,26 +613,33 @@ impl<'a> Inner<'a>
     fn topics_by_broker(&self,
                         metadata: Rc<Metadata>,
                         partitions: Vec<(TopicPartition<'a>, FetchOffset)>)
-                        -> Topics<'a> {
+                        -> Result<Topics<'a>> {
         let mut topics = HashMap::new();
 
         for (tp, offset) in partitions {
-            if let Some(broker) = metadata.leader_for(&tp) {
-                let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
-                let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
-                topics
-                    .entry((addr, api_version))
-                    .or_insert_with(HashMap::new)
-                    .entry(tp.topic_name)
-                    .or_insert_with(Vec::new)
-                    .push((tp.partition, offset));
-            }
+            let broker =
+                metadata
+                    .leader_for(&tp)
+                    .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::NotLeaderForPartition))?;
+            let addr = broker
+                .addr()
+                .to_socket_addrs()?
+                .next()
+                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::LeaderNotAvailable))?;
+            let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
+
+            topics
+                .entry((addr, api_version))
+                .or_insert_with(HashMap::new)
+                .entry(tp.topic_name)
+                .or_insert_with(Vec::new)
+                .push((tp.partition, offset));
         }
 
-        topics
+        Ok(topics)
     }
 
-    fn fetch_offsets(&self, topics: Topics<'a>) -> FetchOffsets {
+    fn list_offsets(&self, topics: Topics<'a>) -> ListOffsets {
         let responses = {
             let mut responses = Vec::new();
 
@@ -699,7 +707,7 @@ impl<'a> Inner<'a>
                 })
         });
 
-        FetchOffsets::new(offsets)
+        ListOffsets::new(offsets)
     }
 
     fn group_coordinator(&self,

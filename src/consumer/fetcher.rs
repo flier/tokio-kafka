@@ -1,23 +1,31 @@
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
-use errors::{ErrorKind, Result};
+use futures::{Future, future};
+
+use errors::ErrorKind;
 use protocol::FetchOffset;
 use network::TopicPartition;
+use client::{Client, KafkaClient, StaticBoxFuture};
 use consumer::{OffsetResetStrategy, Subscriptions};
 
 pub struct Fetcher<'a> {
+    client: KafkaClient<'a>,
     subscriptions: Rc<RefCell<Subscriptions<'a>>>,
 }
 
-impl<'a> Fetcher<'a> {
-    pub fn new(subscriptions: Rc<RefCell<Subscriptions<'a>>>) -> Self {
-        Fetcher { subscriptions: subscriptions }
+impl<'a> Fetcher<'a>
+    where Self: 'static
+{
+    pub fn new(client: KafkaClient<'a>, subscriptions: Rc<RefCell<Subscriptions<'a>>>) -> Self {
+        Fetcher {
+            client: client,
+            subscriptions: subscriptions,
+        }
     }
 
     /// Update the fetch positions for the provided partitions.
-    pub fn update_fetch_positions(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+    pub fn update_positions(&self, partitions: &[TopicPartition<'a>]) -> UpdatePositions {
         let default_reset_strategy = self.subscriptions.borrow().default_reset_strategy();
 
         self.reset_offsets(partitions
@@ -50,27 +58,37 @@ impl<'a> Fetcher<'a> {
     }
 
     /// Reset offsets for the given partition using the offset reset strategy.
-    fn reset_offsets<I>(&self, partitions: I) -> Result<()>
+    fn reset_offsets<I>(&self, partitions: I) -> ResetOffsets
         where I: Iterator<Item = TopicPartition<'a>>
     {
-        let mut offset_resets = HashMap::new();
+        let mut offset_resets = Vec::new();
 
         for tp in partitions {
             if let Some(state) = self.subscriptions.borrow().assigned_state(&tp) {
                 match state.reset_strategy {
                     Some(OffsetResetStrategy::Earliest) => {
-                        offset_resets.insert(tp, FetchOffset::Earliest);
+                        offset_resets.push((tp, FetchOffset::Earliest));
                     }
                     Some(OffsetResetStrategy::Latest) => {
-                        offset_resets.insert(tp, FetchOffset::Latest);
+                        offset_resets.push((tp, FetchOffset::Latest));
                     }
                     _ => {
-                        bail!(ErrorKind::NoOffsetForPartition(tp.topic_name.into(), tp.partition));
+                        let err = ErrorKind::NoOffsetForPartition(tp.topic_name.into(),
+                                                                  tp.partition);
+                        return ResetOffsets::err(err.into());
                     }
                 }
             }
         }
 
-        Ok(())
+        let future = self.client
+            .list_offsets(offset_resets)
+            .and_then(|offsets| future::ok(()));
+
+        ResetOffsets::new(future)
     }
 }
+
+pub type ResetOffsets = StaticBoxFuture;
+
+pub type UpdatePositions = StaticBoxFuture;
