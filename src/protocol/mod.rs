@@ -36,8 +36,8 @@ pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncode
                         MessageTimestamp, parse_message_set};
 pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
 pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic};
-pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListOffsetResponse,
-                            ListPartitionOffset, ListTopicOffset};
+pub use self::list_offset::{EARLIEST_TIMESTAMP, FetchOffset, LATEST_TIMESTAMP, ListOffsetRequest,
+                            ListOffsetResponse, ListPartitionOffset, ListTopicOffset};
 pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
                          TopicMetadata};
 pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse};

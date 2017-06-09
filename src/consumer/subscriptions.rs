@@ -1,13 +1,17 @@
+use std::mem;
 use std::hash::Hash;
+use std::str::FromStr;
 use std::iter::FromIterator;
 use std::collections::{HashMap, HashSet};
 
-use errors::{ErrorKind, Result};
+use errors::{Error, ErrorKind, Result};
 use protocol::Offset;
 use network::{OffsetAndMetadata, TopicPartition};
 
 #[derive(Debug, Default)]
 pub struct Subscriptions<'a> {
+    default_reset_strategy: OffsetResetStrategy,
+
     /// the list of topics the user has requested
     subscription: HashSet<String>,
 
@@ -21,22 +25,31 @@ pub struct Subscriptions<'a> {
 }
 
 impl<'a> Subscriptions<'a> {
-    pub fn new() -> Self {
+    pub fn new(default_reset_strategy: OffsetResetStrategy) -> Self {
         Subscriptions {
+            default_reset_strategy: default_reset_strategy,
             subscription: HashSet::new(),
             group_subscription: HashSet::new(),
             assignment: HashMap::new(),
         }
     }
 
-    pub fn with_topics<I: Iterator<Item = S>, S: AsRef<str> + Hash + Eq>(topic_names: I) -> Self {
+    pub fn with_topics<I, S>(topic_names: I, default_reset_strategy: OffsetResetStrategy) -> Self
+        where I: Iterator<Item = S>,
+              S: AsRef<str> + Hash + Eq
+    {
         let topic_names: Vec<String> = topic_names.map(|s| s.as_ref().to_owned()).collect();
 
         Subscriptions {
+            default_reset_strategy: default_reset_strategy,
             subscription: HashSet::from_iter(topic_names.iter().cloned()),
             group_subscription: HashSet::from_iter(topic_names.iter().cloned()),
             assignment: HashMap::new(),
         }
+    }
+
+    pub fn default_reset_strategy(&self) -> OffsetResetStrategy {
+        self.default_reset_strategy
     }
 
     pub fn subscribe<I: Iterator<Item = S>, S: AsRef<str> + Hash + Eq>(&mut self, topic_names: I) {
@@ -79,6 +92,24 @@ impl<'a> Subscriptions<'a> {
 
         Ok(())
     }
+
+    pub fn missing_positions(&self) -> Vec<&TopicPartition<'a>> {
+        self.assignment
+            .iter()
+            .filter(|&(_, state)| state.position.is_none())
+            .map(|(tp, _)| tp)
+            .collect()
+    }
+
+    pub fn assigned_state(&self, tp: &TopicPartition<'a>) -> Option<&TopicPartitionState<'a>> {
+        self.assignment.get(tp)
+    }
+
+    pub fn assigned_state_mut(&mut self,
+                              tp: &TopicPartition<'a>)
+                              -> Option<&mut TopicPartitionState<'a>> {
+        self.assignment.get_mut(tp)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -86,7 +117,7 @@ pub struct TopicPartitionState<'a> {
     /// whether this partition has been paused by the user
     pub paused: bool,
     /// last consumed position
-    pub position: Offset,
+    pub position: Option<Offset>,
     /// the high watermark from last fetch
     pub hight_watermark: Offset,
     /// last committed position
@@ -95,8 +126,54 @@ pub struct TopicPartitionState<'a> {
     pub reset_strategy: Option<OffsetResetStrategy>,
 }
 
-#[derive(Debug, Clone)]
+impl<'a> TopicPartitionState<'a> {
+    pub fn has_valid_position(&self) -> bool {
+        self.position.is_some()
+    }
+
+    pub fn is_offset_reset_needed(&self) -> bool {
+        self.reset_strategy.is_some()
+    }
+
+    pub fn has_committed(&self) -> bool {
+        self.committed.is_some()
+    }
+
+    pub fn need_offset_reset(&mut self,
+                             reset_strategy: OffsetResetStrategy)
+                             -> Option<OffsetResetStrategy> {
+        mem::replace(&mut self.reset_strategy, Some(reset_strategy))
+    }
+
+    pub fn seek(&mut self, offset: Offset) {
+        self.position = Some(offset);
+        self.reset_strategy = None;
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OffsetResetStrategy {
     Latest,
     Earliest,
+    None,
+}
+
+impl Default for OffsetResetStrategy {
+    fn default() -> Self {
+        OffsetResetStrategy::Latest
+    }
+}
+
+impl FromStr for OffsetResetStrategy {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "latest" => Ok(OffsetResetStrategy::Latest),
+            "earliest" => Ok(OffsetResetStrategy::Earliest),
+            "none" => Ok(OffsetResetStrategy::None),
+            _ => bail!(ErrorKind::UnsupportedOffsetResetStrategy(s.to_owned())),
+        }
+    }
 }

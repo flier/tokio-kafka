@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::cell::RefCell;
 use std::hash::Hash;
 
 use futures::{Async, Future, Poll, Stream};
@@ -6,7 +7,7 @@ use futures::{Async, Future, Poll, Stream};
 use errors::{Error, ErrorKind};
 use serialization::Deserializer;
 use client::{Cluster, KafkaClient, StaticBoxFuture, TopicRecord};
-use consumer::{ConsumerConfig, ConsumerCoordinator, Coordinator, Subscriptions};
+use consumer::{ConsumerConfig, ConsumerCoordinator, Coordinator, Fetcher, Subscriptions};
 
 /// A trait for consuming records from a Kafka cluster.
 pub trait Consumer {
@@ -69,17 +70,18 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
     {
         let topic_names: Vec<String> = topic_names.iter().map(|s| s.as_ref().to_owned()).collect();
         let inner = self.inner.clone();
+        let default_reset_strategy = self.inner.config.auto_offset_reset;
         let group_id = self.inner.config.group_id.clone();
         let session_timeout = self.inner.config.session_timeout();
         let rebalance_timeout = self.inner.config.rebalance_timeout();
         let heartbeat_interval = self.inner.config.heartbeat_interval();
-        let timer = self.inner.client.timer().clone();
         let assignors = self.inner
             .config
             .assignment_strategy
             .iter()
             .map(|strategy| strategy.assignor())
             .collect();
+        let timer = self.inner.client.timer().clone();
 
         let topics = self.inner
             .client
@@ -94,18 +96,21 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
 
                 if not_found.is_empty() {
                     let client = inner.client.clone();
-                    let subscriptions = Subscriptions::with_topics(topic_names.iter());
+                    let subscriptions =
+                        Rc::new(RefCell::new(Subscriptions::with_topics(topic_names.iter(),
+                                                                        default_reset_strategy)));
 
                     Ok(ConsumerTopics {
                            consumer: KafkaConsumer { inner: inner },
                            coordinator: ConsumerCoordinator::new(client,
                                                                  group_id,
-                                                                 subscriptions,
+                                                                 subscriptions.clone(),
                                                                  session_timeout,
                                                                  rebalance_timeout,
                                                                  heartbeat_interval,
                                                                  assignors,
                                                                  timer),
+                           fetcher: Fetcher::new(subscriptions),
                        })
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
@@ -120,6 +125,7 @@ pub type Subscriber<T> = StaticBoxFuture<T>;
 pub struct ConsumerTopics<'a, K, V> {
     consumer: KafkaConsumer<'a, K, V>,
     coordinator: ConsumerCoordinator<'a>,
+    fetcher: Fetcher<'a>,
 }
 
 impl<'a, K, V> ConsumerTopics<'a, K, V>

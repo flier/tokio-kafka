@@ -15,6 +15,7 @@ pub use self::stream::{Connect, KafkaConnector, KafkaStream};
 pub use self::conn::{KafkaConnection, KeepAlive, Status};
 pub use self::pool::{Pool, Pooled};
 
+use std::fmt;
 use std::borrow::Cow;
 
 use protocol::{Offset, PartitionId};
@@ -26,6 +27,12 @@ pub type ConnectionId = u32;
 pub struct TopicPartition<'a> {
     pub topic_name: Cow<'a, str>,
     pub partition: PartitionId,
+}
+
+impl<'a> fmt::Display for TopicPartition<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}#{}", self.topic_name, self.partition)
+    }
 }
 
 #[macro_export]

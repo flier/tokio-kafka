@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::net::SocketAddr;
 
 use client::ClientConfig;
-use consumer::AssignmentStrategy;
+use consumer::{AssignmentStrategy, OffsetResetStrategy};
 
 /// The default milliseconds that the consumer offsets are auto-committed to Kafka.
 ///
@@ -81,6 +81,14 @@ pub struct ConsumerConfig {
     /// and the group will rebalance in order to reassign the partitions to another member.
     #[serde(rename = "max.poll.interval.ms")]
     pub rebalance_timeout: u64,
+
+    /// What to do when there is no initial offset in Kafka or if the current offset does not exist any more on the server (e.g. because that data has been deleted)
+    /// - earliest: automatically reset the offset to the earliest offset
+    /// - latest: automatically reset the offset to the latest offset
+    /// - none: throw exception to the consumer if no previous offset is found for the consumer's group
+    /// anything else: throw exception to the consumer.
+    #[serde(rename = "auto.offset.reset")]
+    pub auto_offset_reset: OffsetResetStrategy,
 }
 
 impl Deref for ConsumerConfig {
@@ -109,6 +117,7 @@ impl Default for ConsumerConfig {
             assignment_strategy: vec![AssignmentStrategy::Range, AssignmentStrategy::RoundRobin],
             session_timeout: DEFAULT_SESSION_TIMEOUT_MILLIS,
             rebalance_timeout: DEFAULT_REBALANCE_TIMEOUT_MILLIS,
+            auto_offset_reset: OffsetResetStrategy::default(),
         }
     }
 }
@@ -190,7 +199,8 @@ mod tests {
     "roundrobin"
   ],
   "session.timeout.ms": 10000,
-  "max.poll.interval.ms": 300000
+  "max.poll.interval.ms": 300000,
+  "auto.offset.reset": "latest"
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);

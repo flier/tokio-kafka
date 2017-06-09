@@ -37,7 +37,7 @@ pub struct ConsumerCoordinator<'a> {
 struct Inner<'a> {
     client: KafkaClient<'a>,
     group_id: String,
-    subscriptions: RefCell<Subscriptions<'a>>,
+    subscriptions: Rc<RefCell<Subscriptions<'a>>>,
     session_timeout: Duration,
     rebalance_timeout: Duration,
     heartbeat_interval: Duration,
@@ -88,7 +88,7 @@ impl State {
 impl<'a> ConsumerCoordinator<'a> {
     pub fn new(client: KafkaClient<'a>,
                group_id: String,
-               subscriptions: Subscriptions<'a>,
+               subscriptions: Rc<RefCell<Subscriptions<'a>>>,
                session_timeout: Duration,
                rebalance_timeout: Duration,
                heartbeat_interval: Duration,
@@ -99,7 +99,7 @@ impl<'a> ConsumerCoordinator<'a> {
             inner: Rc::new(Inner {
                                client: client,
                                group_id: group_id,
-                               subscriptions: RefCell::new(subscriptions),
+                               subscriptions: subscriptions,
                                session_timeout: session_timeout,
                                rebalance_timeout: rebalance_timeout,
                                heartbeat_interval: heartbeat_interval,

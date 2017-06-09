@@ -4,7 +4,7 @@ use std::borrow::{Borrow, Cow};
 
 use serde::{de, ser};
 
-use protocol::{ApiKeys, KafkaCode};
+use protocol::{ApiKeys, KafkaCode, PartitionId};
 use client::BrokerRef;
 
 error_chain!{
@@ -66,6 +66,14 @@ error_chain!{
         UnsupportedAssignmentStrategy(name: String) {
             description("unsupported assignment strategy")
             display("unsupported assignment strategy, {}", name)
+        }
+        UnsupportedOffsetResetStrategy(name: String) {
+            description("unsupported offset reset strategy")
+            display("unsupported offset reset strategy, {}", name)
+        }
+        NoOffsetForPartition(topic_name: String, partition: PartitionId) {
+            description("Undefined offset with no reset policy for partition")
+            display("Undefined offset with no reset policy for partition, {}:{}", topic_name, partition)
         }
         UnexpectedEOF {
             description("Unexpected EOF")
