@@ -8,7 +8,7 @@ use std::result::Result as StdResult;
 use serde::ser::{self, Serialize, SerializeSeq};
 use serde::de::{self, Deserialize, Visitor};
 
-use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ByteOrder, NativeEndian, ReadBytesExt, WriteBytesExt};
 
 use errors::{Error, ErrorKind, Result};
 
@@ -346,7 +346,8 @@ impl<'de> de::Visitor<'de> for NullableVisitor<Vec<u8>> {
     }
 }
 
-struct SchemaSerializer<O> {
+#[derive(Debug, Clone, Default)]
+struct SchemaSerializer<O = NativeEndian> {
     buf: Vec<u8>,
     phantom: PhantomData<O>,
 }
@@ -586,7 +587,7 @@ impl<'a, O: ByteOrder> ser::SerializeStruct for &'a mut SchemaSerializer<O> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, Default)]
 pub struct SchemaDeserializer<O, R> {
     input: R,
     phantom: PhantomData<O>,

@@ -47,9 +47,15 @@ impl<K, V> DerefMut for ProducerInterceptors<K, V> {
     }
 }
 
+impl<K, V> Default for ProducerInterceptors<K, V> {
+    fn default() -> Self {
+        ProducerInterceptors { interceptors: Vec::new() }
+    }
+}
+
 impl<K, V> ProducerInterceptors<K, V> {
     pub fn new() -> Self {
-        ProducerInterceptors { interceptors: vec![] }
+        ProducerInterceptors::default()
     }
 }
 
