@@ -656,7 +656,7 @@ impl<'a> Inner<'a>
     fn topics_by_broker<T>(&self,
                            metadata: Rc<Metadata>,
                            partitions: Vec<(TopicPartition<'a>, T)>)
-                           -> Result<Topics<'a, T>> {
+                           -> Result<TopicsByBroker<'a, T>> {
         let mut topics = HashMap::new();
 
         for (tp, value) in partitions {
@@ -686,7 +686,7 @@ impl<'a> Inner<'a>
                      fetch_max_wait: Duration,
                      fetch_min_bytes: usize,
                      fetch_max_bytes: usize,
-                     topics: Topics<'a, PartitionData>)
+                     topics: TopicsByBroker<'a, PartitionData>)
                      -> FetchRecords {
         let requests = {
             let mut requests = Vec::new();
@@ -738,7 +738,7 @@ impl<'a> Inner<'a>
             .static_boxed()
     }
 
-    fn list_offsets(&self, topics: Topics<'a, FetchOffset>) -> ListOffsets {
+    fn list_offsets(&self, topics: TopicsByBroker<'a, FetchOffset>) -> ListOffsets {
         let requests = {
             let mut requests = Vec::new();
 
@@ -1014,8 +1014,8 @@ impl<'a> Inner<'a>
     }
 }
 
-type Topics<'a, T> = HashMap<(SocketAddr, ApiVersion),
-                             HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>>;
+type TopicsByBroker<'a, T> = HashMap<(SocketAddr, ApiVersion),
+                                     HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>>;
 
 impl State {
     pub fn next_correlation_id(&mut self) -> CorrelationId {
