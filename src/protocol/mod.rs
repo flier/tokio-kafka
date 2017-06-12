@@ -35,7 +35,8 @@ pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
 pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
                         MessageTimestamp, parse_message_set};
 pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
-pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic};
+pub use self::fetch::{DEFAULT_RESPONSE_MAX_BYTES, FetchPartition, FetchRequest, FetchResponse,
+                      FetchTopic};
 pub use self::list_offset::{EARLIEST_TIMESTAMP, FetchOffset, LATEST_TIMESTAMP, ListOffsetRequest,
                             ListOffsetResponse, ListPartitionOffset, ListTopicOffset};
 pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
@@ -50,6 +51,9 @@ pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordi
 pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
                              UsableApiVersions};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
+
+pub const CONSUMER_REPLICA_ID: ReplicaId = -1;
+pub const DEBUGGING_REPLICA_ID: ReplicaId = -2;
 
 /// This is a numeric version number for this api.
 ///

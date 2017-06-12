@@ -1,3 +1,4 @@
+use std::i32;
 use std::borrow::Cow;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
@@ -10,11 +11,13 @@ use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, MessageSet, OFF
                RequestHeader, ResponseHeader, STR_LEN_SIZE, WriteExt, parse_message_set,
                parse_response_header, parse_string};
 
+pub const DEFAULT_RESPONSE_MAX_BYTES: i32 = i32::MAX;
+
 const MAX_WAIT_TIME: usize = 4;
 const MIN_BYTES_SIZE: usize = 4;
+const MAX_BYTES_SIZE: usize = 4;
 const REQUEST_OVERHEAD: usize = REPLICA_ID_SIZE + MAX_WAIT_TIME + MIN_BYTES_SIZE;
 const FETCH_OFFSET_SIZE: usize = OFFSET_SIZE;
-const MAX_BYTES_SIZE: usize = 4;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchRequest<'a> {
@@ -25,6 +28,12 @@ pub struct FetchRequest<'a> {
     pub max_wait_time: i32,
     /// This is the minimum number of bytes of messages that must be available to give a response.
     pub min_bytes: i32,
+    /// Maximum bytes to accumulate in the response.
+    ///
+    /// Note that this is not an absolute maximum, if the first message in the first non-empty partition of
+    /// the fetch is larger than this value, the message will still be returned to ensure that progress can be made.
+    pub max_bytes: i32,
+    /// Topics to fetch in the order provided.
     pub topics: Vec<FetchTopic<'a>>,
 }
 
@@ -32,6 +41,7 @@ pub struct FetchRequest<'a> {
 pub struct FetchTopic<'a> {
     /// The name of the topic.
     pub topic_name: Cow<'a, str>,
+    /// Partitions to fetch.
     pub partitions: Vec<FetchPartition>,
 }
 
@@ -48,6 +58,7 @@ pub struct FetchPartition {
 impl<'a> Record for FetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REQUEST_OVERHEAD +
+        if api_version > 2 { MAX_BYTES_SIZE } else { 0 } +
         self.topics
             .iter()
             .fold(ARRAY_LEN_SIZE, |size, topic| {
@@ -63,11 +74,16 @@ impl<'a> Record for FetchRequest<'a> {
 
 impl<'a> Encodable for FetchRequest<'a> {
     fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+        let api_version = self.header.api_version;
+
         self.header.encode::<T>(dst)?;
 
         dst.put_i32::<T>(self.replica_id);
         dst.put_i32::<T>(self.max_wait_time);
         dst.put_i32::<T>(self.min_bytes);
+        if api_version > 2 {
+            dst.put_i32::<T>(self.max_bytes);
+        }
         dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
                 buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
                 buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
@@ -179,6 +195,7 @@ mod tests {
             replica_id: 2,
             max_wait_time: 3,
             min_bytes: 4,
+            max_bytes: 0,
             topics: vec![FetchTopic {
                 topic_name: "topic".into(),
                 partitions: vec![FetchPartition {
@@ -199,6 +216,61 @@ mod tests {
             0, 0, 0, 2,                             // replica_id
             0, 0, 0, 3,                             // max_wait_time
             0, 0, 0, 4,                             // max_bytes
+                // topics: [FetchTopicData]
+                0, 0, 0, 1,
+                    // FetchTopicData
+                    0, 5, 116, 111, 112, 105, 99,   // topic_name
+                    // partitions: [FetchPartitionData]
+                    0, 0, 0, 1,
+                        // FetchPartitionData
+                        0, 0, 0, 5,                 // partition
+                        0, 0, 0, 0, 0, 0, 0, 6,     // fetch_offset
+                        0, 0, 0, 7,                 // max_bytes
+        ];
+
+        let mut buf = BytesMut::with_capacity(128);
+
+        request.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(request.size(request.header.api_version), buf.len());
+
+        assert_eq!(&buf[..], &data[..]);
+    }
+
+    #[test]
+    fn test_encode_fetch_request_v3() {
+        let request = FetchRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Fetch as ApiKey,
+                api_version: 3,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+            replica_id: 2,
+            max_wait_time: 3,
+            min_bytes: 4,
+            max_bytes: 1024,
+            topics: vec![FetchTopic {
+                topic_name: "topic".into(),
+                partitions: vec![FetchPartition {
+                    partition: 5,
+                    fetch_offset: 6,
+                    max_bytes: 7
+                }],
+            }],
+        };
+
+        let data = vec![
+            // FetchRequest
+                // RequestHeader
+                0, 1,                               // api_key
+                0, 3,                               // api_version
+                0, 0, 0, 123,                       // correlation_id
+                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
+            0, 0, 0, 2,                             // replica_id
+            0, 0, 0, 3,                             // max_wait_time
+            0, 0, 0, 4,                             // min_bytes
+            0, 0, 4, 0,                             // max_bytes
                 // topics: [FetchTopicData]
                 0, 0, 0, 1,
                     // FetchTopicData

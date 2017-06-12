@@ -75,6 +75,9 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
         let session_timeout = self.inner.config.session_timeout();
         let rebalance_timeout = self.inner.config.rebalance_timeout();
         let heartbeat_interval = self.inner.config.heartbeat_interval();
+        let fetch_min_bytes = self.inner.config.fetch_min_bytes;
+        let fetch_max_bytes = self.inner.config.fetch_max_bytes;
+        let fetch_max_wait = self.inner.config.fetch_max_wait();
         let assignors = self.inner
             .config
             .assignment_strategy
@@ -106,7 +109,11 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                                                                heartbeat_interval,
                                                                assignors,
                                                                timer);
-                    let fetcher = Fetcher::new(inner.client.clone(), subscriptions);
+                    let fetcher = Fetcher::new(inner.client.clone(),
+                                               subscriptions,
+                                               fetch_min_bytes,
+                                               fetch_max_bytes,
+                                               fetch_max_wait);
 
                     Ok(ConsumerTopics {
                            consumer: KafkaConsumer { inner: inner },

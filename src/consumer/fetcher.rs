@@ -1,5 +1,6 @@
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::time::Duration;
 
 use futures::Future;
 
@@ -12,15 +13,26 @@ use consumer::{OffsetResetStrategy, Subscriptions};
 pub struct Fetcher<'a> {
     client: KafkaClient<'a>,
     subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+    fetch_min_bytes: usize,
+    fetch_max_bytes: usize,
+    fetch_max_wait: Duration,
 }
 
 impl<'a> Fetcher<'a>
     where Self: 'static
 {
-    pub fn new(client: KafkaClient<'a>, subscriptions: Rc<RefCell<Subscriptions<'a>>>) -> Self {
+    pub fn new(client: KafkaClient<'a>,
+               subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+               fetch_min_bytes: usize,
+               fetch_max_bytes: usize,
+               fetch_max_wait: Duration)
+               -> Self {
         Fetcher {
             client: client,
             subscriptions: subscriptions,
+            fetch_min_bytes: fetch_min_bytes,
+            fetch_max_bytes: fetch_max_bytes,
+            fetch_max_wait: fetch_max_wait,
         }
     }
 
@@ -93,6 +105,9 @@ impl<'a> Fetcher<'a>
                  })
             .static_boxed()
     }
+
+    /// Set-up a fetch request for any node that we have assigned partitions.
+    pub fn fetch_records(&self) {}
 }
 
 pub type ResetOffsets = StaticBoxFuture;

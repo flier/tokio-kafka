@@ -31,6 +31,21 @@ pub const DEFAULT_SESSION_TIMEOUT_MILLIS: u64 = 10_000;
 /// Defaults to 5 mintues, see [`ConsumerConfig::rebalance_timeout`](struct.ConsumerConfig.html#rebalance_timeout.v)
 pub const DEFAULT_REBALANCE_TIMEOUT_MILLIS: u64 = 300_000;
 
+/// The minimum amount of data the server should return for a fetch request.
+///
+/// Defaults to 1 byte, see [`ConsumerConfig::fetch_min_bytes`](struct.ConsumerConfig.html#fetch_min_bytes.v)
+pub const DEFAULT_FETCH_MIN_BYTES: usize = 1;
+
+/// The maximum amount of data the server should return for a fetch request.
+///
+/// Defaults to 50 `MBytes`, see [`ConsumerConfig::fetch_max_bytes`](struct.ConsumerConfig.html#fetch_max_bytes.v)
+pub const DEFAULT_FETCH_MAX_BYTES: usize = 50 * 1024 * 1024;
+
+/// The maximum amount of time the server will block before answering the fetch request
+///
+/// Defaults to 500 ms, see [`ConsumerConfig::fetch_max_wait`](struct.ConsumerConfig.html#fetch_max_wait.v)
+pub const DEFAULT_FETCH_MAX_WAIT_MILLIS: u64 = 500;
+
 /// Configuration for the `KafkaConsumer`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -82,13 +97,39 @@ pub struct ConsumerConfig {
     #[serde(rename = "max.poll.interval.ms")]
     pub rebalance_timeout: u64,
 
-    /// What to do when there is no initial offset in Kafka or if the current offset does not exist any more on the server (e.g. because that data has been deleted)
+    /// What to do when there is no initial offset in Kafka or
+    /// if the current offset does not exist any more on the server (e.g. because that data has been deleted)
+    ///
     /// - earliest: automatically reset the offset to the earliest offset
     /// - latest: automatically reset the offset to the latest offset
     /// - none: throw exception to the consumer if no previous offset is found for the consumer's group
     /// anything else: throw exception to the consumer.
     #[serde(rename = "auto.offset.reset")]
     pub auto_offset_reset: OffsetResetStrategy,
+
+    /// The minimum amount of data the server should return for a fetch request.
+    ///
+    /// If insufficient data is available the request will wait for that much data to accumulate
+    /// before answering the request. The default setting of 1 byte means that fetch requests are answered
+    /// as soon as a single byte of data is available or the fetch request times out waiting for data to arrive.
+    /// Setting this to something greater than 1 will cause the server to wait for larger amounts of data
+    /// to accumulate which can improve server throughput a bit at the cost of some additional latency.
+    #[serde(rename = "fetch.min.bytes")]
+    pub fetch_min_bytes: usize,
+
+    /// The maximum amount of data the server should return for a fetch request.
+    ///
+    /// This is not an absolute maximum, if the first message in the first non-empty partition of the fetch
+    /// is larger than this value, the message will still be returned to ensure that the consumer can make progress.
+    /// The maximum message size accepted by the broker is defined via `message.max.bytes` (broker config) or
+    /// `max.message.bytes` (topic config). Note that the consumer performs multiple fetches in parallel.
+    #[serde(rename = "fetch.max.bytes")]
+    pub fetch_max_bytes: usize,
+
+    /// The maximum amount of time the server will block before answering the fetch request
+    /// if there isn't sufficient data to immediately satisfy the requirement given by `fetch.min.bytes`.
+    #[serde(rename = "fetch.max.wait.ms")]
+    pub fetch_max_wait: u64,
 }
 
 impl Deref for ConsumerConfig {
@@ -118,6 +159,9 @@ impl Default for ConsumerConfig {
             session_timeout: DEFAULT_SESSION_TIMEOUT_MILLIS,
             rebalance_timeout: DEFAULT_REBALANCE_TIMEOUT_MILLIS,
             auto_offset_reset: OffsetResetStrategy::default(),
+            fetch_min_bytes: DEFAULT_FETCH_MIN_BYTES,
+            fetch_max_bytes: DEFAULT_FETCH_MAX_BYTES,
+            fetch_max_wait: DEFAULT_FETCH_MAX_WAIT_MILLIS,
         }
     }
 }
@@ -151,6 +195,12 @@ impl ConsumerConfig {
     pub fn rebalance_timeout(&self) -> Duration {
         Duration::from_millis(self.rebalance_timeout)
     }
+
+    /// The maximum amount of time the server will block before answering the fetch request
+    /// if there isn't sufficient data to immediately satisfy the requirement given by `fetch.min.bytes`.
+    pub fn fetch_max_wait(&self) -> Duration {
+        Duration::from_millis(self.fetch_max_wait)
+    }
 }
 
 #[cfg(test)]
@@ -171,6 +221,8 @@ mod tests {
                    Duration::from_millis(DEFAULT_SESSION_TIMEOUT_MILLIS));
         assert_eq!(config.rebalance_timeout(),
                    Duration::from_millis(DEFAULT_REBALANCE_TIMEOUT_MILLIS));
+        assert_eq!(config.fetch_max_wait(),
+                   Duration::from_millis(DEFAULT_FETCH_MAX_WAIT_MILLIS));
     }
 
     #[test]
@@ -200,7 +252,10 @@ mod tests {
   ],
   "session.timeout.ms": 10000,
   "max.poll.interval.ms": 300000,
-  "auto.offset.reset": "latest"
+  "auto.offset.reset": "latest",
+  "fetch.min.bytes": 1,
+  "fetch.max.bytes": 52428800,
+  "fetch.max.wait.ms": 500
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);

@@ -5,14 +5,14 @@ use std::collections::HashMap;
 use bytes::{ByteOrder, BytesMut};
 
 use errors::Result;
-use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId,
-               DescribeGroupsRequest, Encodable, FetchOffset, FetchRequest, GenerationId,
-               GroupCoordinatorRequest, HeartbeatRequest, JoinGroupProtocol, JoinGroupRequest,
-               LeaveGroupRequest, ListGroupsRequest, ListOffsetRequest, ListPartitionOffset,
-               ListTopicOffset, MessageSet, MetadataRequest, OffsetCommitRequest,
-               OffsetFetchRequest, PartitionId, ProducePartitionData, ProduceRequest,
-               ProduceTopicData, Record, RequestHeader, RequiredAck, RequiredAcks,
-               SyncGroupAssignment, SyncGroupRequest, ToMilliseconds};
+use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CONSUMER_REPLICA_ID,
+               CorrelationId, DescribeGroupsRequest, Encodable, FetchOffset, FetchRequest,
+               FetchTopic, GenerationId, GroupCoordinatorRequest, HeartbeatRequest,
+               JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest,
+               ListOffsetRequest, ListPartitionOffset, ListTopicOffset, MessageSet,
+               MetadataRequest, OffsetCommitRequest, OffsetFetchRequest, PartitionId,
+               ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
+               RequiredAck, RequiredAcks, SyncGroupAssignment, SyncGroupRequest, ToMilliseconds};
 use network::TopicPartition;
 
 #[derive(Debug)]
@@ -85,6 +85,31 @@ impl<'a> KafkaRequest<'a> {
         };
 
         KafkaRequest::Produce(request)
+    }
+
+    pub fn fetch_records(api_version: ApiVersion,
+                         correlation_id: CorrelationId,
+                         client_id: Option<Cow<'a, str>>,
+                         max_wait_time: Duration,
+                         min_bytes: i32,
+                         max_bytes: i32,
+                         topics: Vec<FetchTopic<'a>>)
+                         -> KafkaRequest<'a> {
+        let request = FetchRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::ListOffsets as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            replica_id: CONSUMER_REPLICA_ID,
+            max_wait_time: max_wait_time.as_millis() as i32,
+            min_bytes: min_bytes,
+            max_bytes: max_bytes,
+            topics,
+        };
+
+        KafkaRequest::Fetch(request)
     }
 
     pub fn list_offsets(api_version: ApiVersion,

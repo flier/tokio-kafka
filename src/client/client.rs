@@ -1,4 +1,5 @@
 use std::mem;
+use std::usize;
 use std::rc::Rc;
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -23,9 +24,10 @@ use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 use tokio_timer::Timer;
 
 use errors::{Error, ErrorKind, Result};
-use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, GenerationId,
-               JoinGroupMember, JoinGroupProtocol, KafkaCode, MessageSet, Offset, PartitionId,
-               RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions};
+use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
+               FetchOffset, FetchPartition, FetchTopic, GenerationId, JoinGroupMember,
+               JoinGroupProtocol, KafkaCode, MessageSet, Offset, PartitionId, RequiredAcks,
+               SyncGroupAssignment, Timestamp, UsableApiVersions};
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
              Metrics};
@@ -39,6 +41,14 @@ pub trait Client<'a> {
                        topic_partition: TopicPartition<'a>,
                        records: Vec<Cow<'a, MessageSet>>)
                        -> ProduceRecords;
+
+    /// Fetch records of partitions for all nodes for which we have assigned partitions.
+    fn fetch_records(&self,
+                     fetch_max_wait: Duration,
+                     fetch_min_bytes: usize,
+                     fetch_max_bytes: usize,
+                     partitions: Vec<(TopicPartition<'a>, PartitionData)>)
+                     -> FetchRecords;
 
     /// Search the offsets by target times for the specified topics and return a future which will eventually contain the partition offset information.
     fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets;
@@ -80,6 +90,9 @@ pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, Erro
 /// The future of partition offsets information.
 pub type ListOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 
+/// The future of fetch records of partitions.
+pub type FetchRecords = StaticBoxFuture;
+
 /// The partition and offset
 #[derive(Clone, Debug)]
 pub struct PartitionOffset {
@@ -90,6 +103,9 @@ pub struct PartitionOffset {
     /// The timestamp associated with the returned offset
     pub timestamp: Option<Timestamp>,
 }
+
+/// The fetch partition data
+pub type PartitionData = (Offset, Option<i32>);
 
 /// The future of discover group coodinator
 pub type GroupCoordinator = StaticBoxFuture<Broker>;
@@ -293,6 +309,29 @@ impl<'a> Client<'a> for KafkaClient<'a>
             .static_boxed()
     }
 
+    fn fetch_records(&self,
+                     fetch_max_wait: Duration,
+                     fetch_min_bytes: usize,
+                     fetch_max_bytes: usize,
+                     partitions: Vec<(TopicPartition<'a>, PartitionData)>)
+                     -> FetchRecords {
+        let inner = self.inner.clone();
+        self.metadata()
+            .and_then(move |metadata| {
+                inner
+                    .topics_by_broker(metadata, partitions)
+                    .into_future()
+                    .and_then(move |topics| {
+                                  inner.fetch_records(fetch_max_wait,
+                                                      fetch_min_bytes,
+                                                      fetch_max_bytes,
+                                                      topics)
+                              })
+
+            })
+            .static_boxed()
+    }
+
     fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets {
         let inner = self.inner.clone();
         self.metadata()
@@ -443,7 +482,7 @@ impl<'a> Inner<'a>
 
         rand::thread_rng().shuffle(&mut brokers);
 
-        let mut in_flight_requests = usize::max_value();
+        let mut in_flight_requests = usize::MAX;
         let mut found = None;
 
         for broker in brokers {
@@ -614,13 +653,13 @@ impl<'a> Inner<'a>
             .static_boxed()
     }
 
-    fn topics_by_broker(&self,
-                        metadata: Rc<Metadata>,
-                        partitions: Vec<(TopicPartition<'a>, FetchOffset)>)
-                        -> Result<Topics<'a>> {
+    fn topics_by_broker<T>(&self,
+                           metadata: Rc<Metadata>,
+                           partitions: Vec<(TopicPartition<'a>, T)>)
+                           -> Result<Topics<'a, T>> {
         let mut topics = HashMap::new();
 
-        for (tp, offset) in partitions {
+        for (tp, value) in partitions {
             let broker =
                 metadata
                     .leader_for(&tp)
@@ -637,22 +676,78 @@ impl<'a> Inner<'a>
                 .or_insert_with(HashMap::new)
                 .entry(tp.topic_name)
                 .or_insert_with(Vec::new)
-                .push((tp.partition, offset));
+                .push((tp.partition, value));
         }
 
         Ok(topics)
     }
 
-    fn list_offsets(&self, topics: Topics<'a>) -> ListOffsets {
-        let responses = {
-            let mut responses = Vec::new();
+    fn fetch_records(&self,
+                     fetch_max_wait: Duration,
+                     fetch_min_bytes: usize,
+                     fetch_max_bytes: usize,
+                     topics: Topics<'a, PartitionData>)
+                     -> FetchRecords {
+        let requests = {
+            let mut requests = Vec::new();
+
+            for ((addr, api_version), topics) in topics {
+                let topics = topics
+                    .iter()
+                    .map(|(topic_name, partitions)| {
+                        FetchTopic {
+                            topic_name: topic_name.to_owned(),
+                            partitions: partitions
+                                .iter()
+                                .map(|&(partition, (offset, max_bytes))| {
+                                         FetchPartition {
+                                             partition: partition,
+                                             fetch_offset: offset,
+                                             max_bytes: max_bytes
+                                                 .unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
+                                         }
+                                     })
+                                .collect(),
+                        }
+                    })
+                    .collect();
+
+                let request = KafkaRequest::fetch_records(api_version,
+                                                          self.next_correlation_id(),
+                                                          self.client_id(),
+                                                          fetch_max_wait,
+                                                          fetch_min_bytes as i32,
+                                                          fetch_max_bytes as i32,
+                                                          topics);
+                let request = self.service
+                    .call((addr, request))
+                    .and_then(|res| if let KafkaResponse::Fetch(res) = res {
+                                  Ok(())
+                              } else {
+                                  bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                              });
+
+                requests.push(request);
+            }
+
+            requests
+        };
+
+        future::join_all(requests)
+            .map(|responses| ())
+            .static_boxed()
+    }
+
+    fn list_offsets(&self, topics: Topics<'a, FetchOffset>) -> ListOffsets {
+        let requests = {
+            let mut requests = Vec::new();
 
             for ((addr, api_version), topics) in topics {
                 let request = KafkaRequest::list_offsets(api_version,
                                                          self.next_correlation_id(),
                                                          self.client_id(),
                                                          topics);
-                let response = self.service
+                let request = self.service
                     .call((addr, request))
                     .and_then(|res| {
                         if let KafkaResponse::ListOffsets(res) = res {
@@ -692,13 +787,13 @@ impl<'a> Inner<'a>
                         }
                     });
 
-                responses.push(response);
+                requests.push(request);
             }
 
-            responses
+            requests
         };
 
-        future::join_all(responses)
+        future::join_all(requests)
             .map(|responses| {
                 responses
                     .iter()
@@ -919,8 +1014,8 @@ impl<'a> Inner<'a>
     }
 }
 
-type Topics<'a> = HashMap<(SocketAddr, ApiVersion),
-                          HashMap<Cow<'a, str>, Vec<(PartitionId, FetchOffset)>>>;
+type Topics<'a, T> = HashMap<(SocketAddr, ApiVersion),
+                             HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>>;
 
 impl State {
     pub fn next_correlation_id(&mut self) -> CorrelationId {

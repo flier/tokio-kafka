@@ -16,9 +16,6 @@ const MAX_NUMBER_OF_OFFSETS_SIZE: usize = 4;
 pub const LATEST_TIMESTAMP: Timestamp = -1;
 pub const EARLIEST_TIMESTAMP: Timestamp = -2;
 
-pub const CONSUMER_REPLICA_ID: ReplicaId = -1;
-pub const DEBUGGING_REPLICA_ID: ReplicaId = -2;
-
 /// Possible values when querying a topic's offset.
 /// See `KafkaClient::fetch_offsets`.
 #[derive(Debug, Copy, Clone)]
