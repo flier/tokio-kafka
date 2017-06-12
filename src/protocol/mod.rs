@@ -52,7 +52,9 @@ pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiV
                              UsableApiVersions};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
 
+/// Normal client consumers should always specify this as -1 as they have no node id.
 pub const CONSUMER_REPLICA_ID: ReplicaId = -1;
+///  The value -2 is accepted to allow a non-broker to issue fetch requests as if it were a replica broker for debugging purposes.
 pub const DEBUGGING_REPLICA_ID: ReplicaId = -2;
 
 /// This is a numeric version number for this api.
