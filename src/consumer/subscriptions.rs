@@ -110,6 +110,10 @@ impl<'a> Subscriptions<'a> {
                               -> Option<&mut TopicPartitionState<'a>> {
         self.assignment.get_mut(tp)
     }
+
+    pub fn seek(&mut self, tp: &TopicPartition<'a>, offset: Offset) -> Option<Offset> {
+        self.assignment.get_mut(tp).map(|state| state.seek(offset))
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -145,9 +149,10 @@ impl<'a> TopicPartitionState<'a> {
         mem::replace(&mut self.reset_strategy, Some(reset_strategy))
     }
 
-    pub fn seek(&mut self, offset: Offset) {
+    pub fn seek(&mut self, offset: Offset) -> Offset {
         self.position = Some(offset);
         self.reset_strategy = None;
+        offset
     }
 }
 

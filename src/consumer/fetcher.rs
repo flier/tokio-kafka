@@ -80,9 +80,17 @@ impl<'a> Fetcher<'a>
             }
         }
 
+        let subscriptions = self.subscriptions.clone();
+
         self.client
             .list_offsets(offset_resets)
-            .and_then(|offsets| Ok(()))
+            .map(move |offsets| for (topic_name, partitions) in offsets {
+                     for partition in partitions {
+                         let tp = topic_partition!(topic_name.clone(), partition.partition);
+
+                         subscriptions.borrow_mut().seek(&tp, partition.offset);
+                     }
+                 })
             .static_boxed()
     }
 }

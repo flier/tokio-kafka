@@ -31,7 +31,7 @@ use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaServi
              Metrics};
 
 /// A trait for communicating with the Kafka cluster.
-pub trait Client<'a>: 'static {
+pub trait Client<'a> {
     /// Send the given record asynchronously and return a future which will eventually contain the response information.
     fn produce_records(&self,
                        acks: RequiredAcks,
@@ -680,7 +680,7 @@ impl<'a> Inner<'a>
                                                                               .into()))
                                             }
                                         })
-                                        .collect();
+                                        .collect::<Vec<PartitionOffset>>();
 
                                     (topic.topic_name.clone(), partitions)
                                 })
