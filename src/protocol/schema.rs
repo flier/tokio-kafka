@@ -1,3 +1,6 @@
+use std::i16;
+use std::i32;
+use std::isize;
 use std::fmt;
 use std::str;
 use std::io::prelude::*;
@@ -437,7 +440,7 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
     fn serialize_str(mut self, v: &str) -> Result<()> {
         trace!("serialize str, len={}", v.len());
 
-        if v.len() > i16::max_value() as usize {
+        if v.len() > i16::MAX as usize {
             bail!(ErrorKind::SchemaError(format!("string length {} is larger than the maximum string length.",
                                                  v.len())))
         }
@@ -494,7 +497,7 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
         trace!("serialize seq with {} elements", len.unwrap_or_default());
 
         if let Some(len) = len {
-            if len > i32::max_value() as usize {
+            if len > i32::MAX as usize {
                 bail!(ErrorKind::SchemaError(format!("bytes length {} is larger than the maximum bytes length.",
                                                      len)));
             }
@@ -803,7 +806,7 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
     {
         trace!("deserialize new type struct `{}`", name);
 
-        visitor.visit_seq(SeqVisitor::<O, R>::new(self, isize::max_value()))
+        visitor.visit_seq(SeqVisitor::<O, R>::new(self, isize::MAX))
     }
     fn deserialize_seq<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
         where V: Visitor<'de>

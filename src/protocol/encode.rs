@@ -1,4 +1,6 @@
 use std::str;
+use std::i16;
+use std::i32;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
 
@@ -19,7 +21,7 @@ pub trait Encodable {
 pub trait WriteExt: BufMut + Sized {
     fn put_str<T: ByteOrder, S: AsRef<str>>(&mut self, s: Option<S>) -> Result<()> {
         match s.as_ref() {
-            Some(v) if v.as_ref().len() > i16::max_value() as usize => {
+            Some(v) if v.as_ref().len() > i16::MAX as usize => {
                 bail!(ErrorKind::EncodeError("string exceeds the maximum size."))
             }
             Some(v) if !v.as_ref().is_empty() => {
@@ -36,7 +38,7 @@ pub trait WriteExt: BufMut + Sized {
 
     fn put_bytes<T: ByteOrder, D: AsRef<[u8]>>(&mut self, d: Option<D>) -> Result<()> {
         match d.as_ref() {
-            Some(v) if v.as_ref().len() > i32::max_value() as usize => {
+            Some(v) if v.as_ref().len() > i32::MAX as usize => {
                 bail!(ErrorKind::EncodeError("bytes exceeds the maximum size."))
             }
             Some(v) if !v.as_ref().is_empty() => {
@@ -55,7 +57,7 @@ pub trait WriteExt: BufMut + Sized {
         where T: ByteOrder,
               F: FnMut(&mut Self, &E) -> Result<()>
     {
-        if items.len() > i32::max_value() as usize {
+        if items.len() > i32::MAX as usize {
             bail!(ErrorKind::EncodeError("array exceeds the maximum size."))
         }
 
@@ -114,9 +116,7 @@ mod tests {
         buf.clear();
 
         // write too long nullable string
-        let s = repeat(20)
-            .take(i16::max_value() as usize + 1)
-            .collect::<Vec<u8>>();
+        let s = repeat(20).take(i16::MAX as usize + 1).collect::<Vec<u8>>();
 
         assert!(buf.put_str::<BigEndian, _>(Some(String::from_utf8(s).unwrap()))
                     .err()
@@ -142,15 +142,14 @@ mod tests {
         buf.clear();
 
         // write nullable bytes
-        buf.put_bytes::<BigEndian, _>(Some(&b"test"[..]))
-            .unwrap();
+        buf.put_bytes::<BigEndian, _>(Some(&b"test"[..])).unwrap();
 
         assert_eq!(buf.as_slice(), &[0, 0, 0, 4, 116, 101, 115, 116]);
 
         buf.clear();
 
         // write too long nullable bytes
-        let s = unsafe { slice::from_raw_parts(buf.as_ptr(), i32::max_value() as usize + 1) };
+        let s = unsafe { slice::from_raw_parts(buf.as_ptr(), i32::MAX as usize + 1) };
 
         assert!(buf.put_bytes::<BigEndian, _>(Some(s)).err().is_some());
     }
