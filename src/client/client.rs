@@ -25,7 +25,7 @@ use tokio_timer::Timer;
 use errors::{Error, ErrorKind, Result};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, GenerationId,
                JoinGroupMember, JoinGroupProtocol, KafkaCode, MessageSet, Offset, PartitionId,
-               RequiredAcks, SyncGroupAssignment, UsableApiVersions};
+               RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions};
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
              Metrics};
@@ -87,6 +87,8 @@ pub struct PartitionOffset {
     pub partition: PartitionId,
     /// The offset found in the partition
     pub offset: Offset,
+    /// The timestamp associated with the returned offset
+    pub timestamp: Option<Timestamp>,
 }
 
 /// The future of discover group coodinator
@@ -670,6 +672,7 @@ impl<'a> Inner<'a>
                                                                     .iter()
                                                                     .next()
                                                                     .unwrap(), // TODO
+                                                       timestamp: partition.timestamp,
                                                    })
                                             } else {
                                                 Err(ErrorKind::KafkaError(partition
