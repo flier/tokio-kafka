@@ -117,7 +117,7 @@ pub struct PartitionRecords {
     /// The offset found in the partition
     pub offset: Offset,
     /// The offset at the end of the log for this partition.
-    pub highwater_mark_offset: Offset,
+    pub highwater_mark: Offset,
     /// The message data fetched from this partition, in the format described above.
     pub message_set: MessageSet,
 }
@@ -648,7 +648,12 @@ impl<'a> Inner<'a>
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
-                let produce = res.topics
+                          Ok(res.topics)
+                      } else {
+                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                      })
+            .map(|topics| {
+                topics
                     .iter()
                     .map(|topic| {
                         (topic.topic_name.to_owned(),
@@ -660,11 +665,7 @@ impl<'a> Inner<'a>
                                   })
                              .collect())
                     })
-                    .collect();
-
-                Ok(produce)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    .collect()
             })
             .static_boxed()
     }
@@ -742,8 +743,8 @@ impl<'a> Inner<'a>
                               } else {
                                   bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                               })
-                    .map(move |records_by_topics| {
-                        records_by_topics
+                    .map(|records| {
+                        records
                             .into_iter()
                             .map(move |topic| {
                                 let topic_name = topic.topic_name;
@@ -754,13 +755,14 @@ impl<'a> Inner<'a>
                                     offsets_by_topic
                                         .get(&topic_name)
                                         .map(move |offsets| {
-                                            offsets
-                                                .iter()
-                                                .fold(HashMap::new(), move |mut offsets, &(partition, (offset, _))| {
-                                                    let tp = topic_partition!(topic_name.clone(), partition);
-                                                    offsets.insert(tp, offset);
-                                                    offsets
-                                                })
+                                            offsets.iter().fold(HashMap::new(), move |mut offsets,
+                                                  &(partition,
+                                                    (offset, _))| {
+                                                let tp = topic_partition!(topic_name.clone(),
+                                                                          partition);
+                                                offsets.insert(tp, offset);
+                                                offsets
+                                            })
                                         })
                                         .unwrap_or_default()
                                 };
@@ -768,19 +770,24 @@ impl<'a> Inner<'a>
                                 let records = {
                                     let topic_name = Cow::from(topic_name.as_str());
 
-                                    topic.partitions.into_iter().flat_map(move |data| {
-                                        let tp = topic_partition!(topic_name.clone(), data.partition);
+                                    topic
+                                        .partitions
+                                        .into_iter()
+                                        .flat_map(move |data| {
+                                            let tp = topic_partition!(topic_name.clone(),
+                                                                      data.partition);
 
-                                        offsets_by_topic_partition.get(&tp).map(|&offset| {
-                                            PartitionRecords {
-                                                partition: data.partition,
-                                                error_code: data.error_code,
-                                                offset: offset,
-                                                highwater_mark_offset: data.highwater_mark_offset,
-                                                message_set: data.message_set.clone(), // TODO
-                                            }
+                                            offsets_by_topic_partition.get(&tp).map(|&offset| {
+                                                PartitionRecords {
+                                                    partition: data.partition,
+                                                    error_code: data.error_code,
+                                                    offset: offset,
+                                                    highwater_mark: data.highwater_mark_offset,
+                                                    message_set: data.message_set.clone(), // TODO
+                                                }
+                                            })
                                         })
-                                    }).collect::<Vec<PartitionRecords>>()
+                                        .collect::<Vec<PartitionRecords>>()
                                 };
 
                                 (topic_name.clone(), records)
@@ -794,12 +801,22 @@ impl<'a> Inner<'a>
             requests
         };
 
-        future::join_all(requests).map(|responses| {
-            responses
-                .into_iter()
-                .flat_map(|records| records)
-                .collect()
-        }).static_boxed()
+        future::join_all(requests)
+            .map(|responses| {
+                responses
+                    .into_iter()
+                    .fold(HashMap::new(), |mut records, response| {
+                        for (topic_name, mut partitions) in response {
+                            records
+                                .entry(topic_name)
+                                .or_insert_with(Vec::new)
+                                .append(&mut partitions);
+                        }
+
+                        records
+                    })
+            })
+            .static_boxed()
     }
 
     fn list_offsets(&self, topics: TopicsByBroker<'a, FetchOffset>) -> ListOffsets {
@@ -811,9 +828,15 @@ impl<'a> Inner<'a>
                                                          self.next_correlation_id(),
                                                          self.client_id(),
                                                          topics);
-                let request = self.service.call((addr, request)).and_then(|res| {
-                    if let KafkaResponse::ListOffsets(res) = res {
-                        let topics = res.topics
+                let request = self.service
+                    .call((addr, request))
+                    .and_then(|res| if let KafkaResponse::ListOffsets(res) = res {
+                                  Ok(res.topics)
+                              } else {
+                                  bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                              })
+                    .map(|topics| {
+                        topics
                             .iter()
                             .map(|topic| {
                                 let partitions = topic
@@ -835,13 +858,8 @@ impl<'a> Inner<'a>
 
                                 (topic.topic_name.clone(), partitions)
                             })
-                            .collect::<Vec<(String, Vec<PartitionOffset>)>>();
-
-                        Ok(topics)
-                    } else {
-                        bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                    }
-                });
+                            .collect::<Vec<(String, Vec<PartitionOffset>)>>()
+                    });
 
                 requests.push(request);
             }
@@ -852,13 +870,13 @@ impl<'a> Inner<'a>
         future::join_all(requests)
             .map(|responses| {
                 responses
-                    .iter()
-                    .fold(HashMap::new(), |mut offsets, topics| {
-                        for &(ref topic_name, ref partitions) in topics {
+                    .into_iter()
+                    .fold(HashMap::new(), |mut offsets, response| {
+                        for (topic_name, mut partitions) in response {
                             offsets
-                                .entry(topic_name.clone())
+                                .entry(topic_name)
                                 .or_insert_with(Vec::new)
-                                .extend(partitions.iter().cloned())
+                                .append(&mut partitions)
                         }
                         offsets
                     })
@@ -889,15 +907,16 @@ impl<'a> Inner<'a>
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::GroupCoordinator(res) = res {
-                          if res.error_code == KafkaCode::None as ErrorCode {
-                              Ok(Broker::new(res.coordinator_id,
-                                             &res.coordinator_host,
-                                             res.coordinator_port as u16))
-                          } else {
-                              bail!(ErrorKind::KafkaError(res.error_code.into()))
-                          }
+                          Ok(res)
                       } else {
                           bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                      })
+            .and_then(|res| if res.error_code == KafkaCode::None as ErrorCode {
+                          Ok(Broker::new(res.coordinator_id,
+                                         &res.coordinator_host,
+                                         res.coordinator_port as u16))
+                      } else {
+                          bail!(ErrorKind::KafkaError(res.error_code.into()))
                       })
             .static_boxed()
     }
@@ -938,21 +957,22 @@ impl<'a> Inner<'a>
 
         self.service
             .call((addr, request))
-            .and_then(move |res| if let KafkaResponse::JoinGroup(res) = res {
-                          if res.error_code == KafkaCode::None as ErrorCode {
-                              Ok(ConsumerGroup {
-                                     group_id: joined_group_id,
-                                     generation_id: res.generation_id,
-                                     protocol: res.protocol,
-                                     leader_id: res.leader_id,
-                                     member_id: res.member_id,
-                                     members: res.members,
-                                 })
-                          } else {
-                              bail!(ErrorKind::KafkaError(res.error_code.into()))
-                          }
+            .and_then(|res| if let KafkaResponse::JoinGroup(res) = res {
+                          Ok(res)
                       } else {
                           bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                      })
+            .and_then(move |res| if res.error_code == KafkaCode::None as ErrorCode {
+                          Ok(ConsumerGroup {
+                                 group_id: joined_group_id,
+                                 generation_id: res.generation_id,
+                                 protocol: res.protocol,
+                                 leader_id: res.leader_id,
+                                 member_id: res.member_id,
+                                 members: res.members,
+                             })
+                      } else {
+                          bail!(ErrorKind::KafkaError(res.error_code.into()))
                       })
             .static_boxed()
     }
@@ -982,14 +1002,15 @@ impl<'a> Inner<'a>
 
         self.service
             .call((addr, request))
-            .and_then(move |res| if let KafkaResponse::Heartbeat(res) = res {
-                          if res.error_code == KafkaCode::None as ErrorCode {
-                              Ok(())
-                          } else {
-                              bail!(ErrorKind::KafkaError(res.error_code.into()))
-                          }
+            .and_then(|res| if let KafkaResponse::Heartbeat(res) = res {
+                          Ok(res.error_code)
                       } else {
                           bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                      })
+            .and_then(|error_code| if error_code == KafkaCode::None as ErrorCode {
+                          Ok(())
+                      } else {
+                          bail!(ErrorKind::KafkaError(error_code.into()))
                       })
             .static_boxed()
     }
@@ -1017,14 +1038,15 @@ impl<'a> Inner<'a>
 
         self.service
             .call((addr, request))
-            .and_then(move |res| if let KafkaResponse::LeaveGroup(res) = res {
-                          if res.error_code == KafkaCode::None as ErrorCode {
-                              Ok(leaved_group_id)
-                          } else {
-                              bail!(ErrorKind::KafkaError(res.error_code.into()))
-                          }
+            .and_then(|res| if let KafkaResponse::LeaveGroup(res) = res {
+                          Ok(res.error_code)
                       } else {
                           bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                      })
+            .and_then(|error_code| if error_code == KafkaCode::None as ErrorCode {
+                          Ok(leaved_group_id)
+                      } else {
+                          bail!(ErrorKind::KafkaError(error_code.into()))
                       })
             .static_boxed()
     }
@@ -1057,14 +1079,15 @@ impl<'a> Inner<'a>
 
         self.service
             .call((addr, request))
-            .and_then(move |res| if let KafkaResponse::SyncGroup(res) = res {
-                          if res.error_code == KafkaCode::None as ErrorCode {
-                              Ok(res.member_assignment)
-                          } else {
-                              bail!(ErrorKind::KafkaError(res.error_code.into()))
-                          }
+            .and_then(|res| if let KafkaResponse::SyncGroup(res) = res {
+                          Ok(res)
                       } else {
                           bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                      })
+            .and_then(|res| if res.error_code == KafkaCode::None as ErrorCode {
+                          Ok(res.member_assignment)
+                      } else {
+                          bail!(ErrorKind::KafkaError(res.error_code.into()))
                       })
             .static_boxed()
     }
