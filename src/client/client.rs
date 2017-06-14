@@ -1,15 +1,15 @@
-use std::mem;
-use std::usize;
-use std::rc::Rc;
 use std::borrow::Cow;
-use std::fmt::Debug;
 use std::cell::RefCell;
-use std::ops::Deref;
-use std::net::{SocketAddr, ToSocketAddrs};
 use std::collections::HashMap;
-use std::iter::FromIterator;
-use std::time::Duration;
 use std::error::Error as StdError;
+use std::fmt::Debug;
+use std::iter::FromIterator;
+use std::mem;
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::ops::Deref;
+use std::rc::Rc;
+use std::time::Duration;
+use std::usize;
 
 use bytes::Bytes;
 
@@ -19,22 +19,23 @@ use futures::{Async, IntoFuture, Poll};
 use futures::future::{self, Future};
 use futures::unsync::oneshot;
 use tokio_core::reactor::{Handle, Timeout};
-use tokio_service::Service;
 use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
+use tokio_service::Service;
 use tokio_timer::Timer;
 
+use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
+             Metrics};
 use errors::{Error, ErrorKind, Result};
+use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
                FetchOffset, FetchPartition, FetchTopic, GenerationId, JoinGroupMember,
                JoinGroupProtocol, KafkaCode, MessageSet, Offset, PartitionId, RequiredAcks,
                SyncGroupAssignment, Timestamp, UsableApiVersions};
-use network::{KafkaRequest, KafkaResponse, TopicPartition};
-use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
-             Metrics};
 
 /// A trait for communicating with the Kafka cluster.
-pub trait Client<'a> {
-    /// Send the given record asynchronously and return a future which will eventually contain the response information.
+pub trait Client<'a>: 'static {
+    /// Send the given record asynchronously and return a future which will eventually contain
+    /// the response information.
     fn produce_records(&self,
                        acks: RequiredAcks,
                        timeout: Duration,
@@ -48,12 +49,14 @@ pub trait Client<'a> {
                      fetch_min_bytes: usize,
                      fetch_max_bytes: usize,
                      partitions: Vec<(TopicPartition<'a>, PartitionData)>)
-                     -> FetchRecords;
+                     -> FetchRecords<'a>;
 
-    /// Search the offsets by target times for the specified topics and return a future which will eventually contain the partition offset information.
+    /// Search the offsets by target times for the specified topics and return a future which
+    /// will eventually contain the partition offset information.
     fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets;
 
-    /// Load metadata of the Kafka cluster and return a future which will eventually contain the metadata information.
+    /// Load metadata of the Kafka cluster and return a future which will eventually contain
+    /// the metadata information.
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
 
     /// Discover the current coordinator of the consumer group.
@@ -91,17 +94,32 @@ pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, Erro
 pub type ListOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
 
 /// The future of fetch records of partitions.
-pub type FetchRecords = StaticBoxFuture;
+pub type FetchRecords<'a> = StaticBoxFuture<HashMap<String, Vec<PartitionRecords>>>;
 
 /// The partition and offset
 #[derive(Clone, Debug)]
 pub struct PartitionOffset {
     /// The partition id
     pub partition: PartitionId,
+    /// The error code
+    pub error_code: ErrorCode,
     /// The offset found in the partition
     pub offset: Offset,
     /// The timestamp associated with the returned offset
     pub timestamp: Option<Timestamp>,
+}
+
+pub struct PartitionRecords {
+    /// The partition id
+    pub partition: PartitionId,
+    /// The error code
+    pub error_code: ErrorCode,
+    /// The offset found in the partition
+    pub offset: Offset,
+    /// The offset at the end of the log for this partition.
+    pub highwater_mark_offset: Offset,
+    /// The message data fetched from this partition, in the format described above.
+    pub message_set: MessageSet,
 }
 
 /// The fetch partition data
@@ -314,7 +332,7 @@ impl<'a> Client<'a> for KafkaClient<'a>
                      fetch_min_bytes: usize,
                      fetch_max_bytes: usize,
                      partitions: Vec<(TopicPartition<'a>, PartitionData)>)
-                     -> FetchRecords {
+                     -> FetchRecords<'a> {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
@@ -476,7 +494,8 @@ impl<'a> Inner<'a>
         (*self.state).borrow().metadata()
     }
 
-    /// Choose the node with the fewest outstanding requests which is at least eligible for connection.
+    /// Choose the node with the fewest outstanding requests which is at least eligible for
+    /// connection.
     pub fn least_loaded_broker(&self, metadata: Rc<Metadata>) -> Result<(SocketAddr, BrokerRef)> {
         let mut brokers = metadata.brokers().to_vec();
 
@@ -514,18 +533,15 @@ impl<'a> Inner<'a>
                      (addr, broker)
                  })
             .or_else(|| {
-                metadata
-                    .brokers()
-                    .first()
-                    .map(|broker| {
-                        let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap();
+                metadata.brokers().first().map(|broker| {
+                    let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap();
 
-                        trace!("not found any alive broker, use a random broker # {} @ {}",
-                               broker.id(),
-                               addr);
+                    trace!("not found any alive broker, use a random broker # {} @ {}",
+                           broker.id(),
+                           addr);
 
-                        (addr, broker.as_ref())
-                    })
+                    (addr, broker.as_ref())
+                })
             })
             .ok_or_else(|| {
                             warn!("not found any broker");
@@ -632,24 +648,24 @@ impl<'a> Inner<'a>
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
-                          let produce = res.topics
-                              .iter()
-                              .map(|topic| {
-                    (topic.topic_name.to_owned(),
-                     topic
-                         .partitions
-                         .iter()
-                         .map(|partition| {
-                                  (partition.partition, partition.error_code, partition.offset)
-                              })
-                         .collect())
-                })
-                              .collect();
+                let produce = res.topics
+                    .iter()
+                    .map(|topic| {
+                        (topic.topic_name.to_owned(),
+                         topic
+                             .partitions
+                             .iter()
+                             .map(|partition| {
+                                      (partition.partition, partition.error_code, partition.offset)
+                                  })
+                             .collect())
+                    })
+                    .collect();
 
-                          Ok(produce)
-                      } else {
-                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                      })
+                Ok(produce)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
             .static_boxed()
     }
 
@@ -687,12 +703,12 @@ impl<'a> Inner<'a>
                      fetch_min_bytes: usize,
                      fetch_max_bytes: usize,
                      topics: TopicsByBroker<'a, PartitionData>)
-                     -> FetchRecords {
+                     -> FetchRecords<'a> {
         let requests = {
             let mut requests = Vec::new();
 
-            for ((addr, api_version), topics) in topics {
-                let topics = topics
+            for ((addr, api_version), offsets_by_topic) in topics {
+                let fetch_topics = offsets_by_topic
                     .iter()
                     .map(|(topic_name, partitions)| {
                         FetchTopic {
@@ -718,14 +734,59 @@ impl<'a> Inner<'a>
                                                           fetch_max_wait,
                                                           fetch_min_bytes as i32,
                                                           fetch_max_bytes as i32,
-                                                          topics);
+                                                          fetch_topics);
                 let request = self.service
                     .call((addr, request))
                     .and_then(|res| if let KafkaResponse::Fetch(res) = res {
-                                  Ok(())
+                                  Ok(res.topics)
                               } else {
                                   bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                              });
+                              })
+                    .map(move |records_by_topics| {
+                        records_by_topics
+                            .into_iter()
+                            .map(move |topic| {
+                                let topic_name = topic.topic_name;
+
+                                let offsets_by_topic_partition = {
+                                    let topic_name = Cow::from(topic_name.as_str());
+
+                                    offsets_by_topic
+                                        .get(&topic_name)
+                                        .map(move |offsets| {
+                                            offsets
+                                                .iter()
+                                                .fold(HashMap::new(), move |mut offsets, &(partition, (offset, _))| {
+                                                    let tp = topic_partition!(topic_name.clone(), partition);
+                                                    offsets.insert(tp, offset);
+                                                    offsets
+                                                })
+                                        })
+                                        .unwrap_or_default()
+                                };
+
+                                let records = {
+                                    let topic_name = Cow::from(topic_name.as_str());
+
+                                    topic.partitions.into_iter().flat_map(move |data| {
+                                        let tp = topic_partition!(topic_name.clone(), data.partition);
+
+                                        offsets_by_topic_partition.get(&tp).map(|&offset| {
+                                            PartitionRecords {
+                                                partition: data.partition,
+                                                error_code: data.error_code,
+                                                offset: offset,
+                                                highwater_mark_offset: data.highwater_mark_offset,
+                                                message_set: data.message_set.clone(), // TODO
+                                            }
+                                        })
+                                    }).collect::<Vec<PartitionRecords>>()
+                                };
+
+                                (topic_name.clone(), records)
+                            })
+                            .collect::<Vec<(String, Vec<PartitionRecords>)>>()
+                    });
 
                 requests.push(request);
             }
@@ -733,9 +794,12 @@ impl<'a> Inner<'a>
             requests
         };
 
-        future::join_all(requests)
-            .map(|responses| ())
-            .static_boxed()
+        future::join_all(requests).map(|responses| {
+            responses
+                .into_iter()
+                .flat_map(|records| records)
+                .collect()
+        }).static_boxed()
     }
 
     fn list_offsets(&self, topics: TopicsByBroker<'a, FetchOffset>) -> ListOffsets {
@@ -747,45 +811,37 @@ impl<'a> Inner<'a>
                                                          self.next_correlation_id(),
                                                          self.client_id(),
                                                          topics);
-                let request = self.service
-                    .call((addr, request))
-                    .and_then(|res| {
-                        if let KafkaResponse::ListOffsets(res) = res {
-                            let topics = res.topics
-                                .iter()
-                                .map(|topic| {
-                                    let partitions = topic
-                                        .partitions
-                                        .iter()
-                                        .flat_map(|partition| {
-                                            if partition.error_code ==
-                                               KafkaCode::None as ErrorCode {
-                                                Ok(PartitionOffset {
-                                                       partition: partition.partition,
-                                                       offset: *partition
-                                                                    .offsets
-                                                                    .iter()
-                                                                    .next()
-                                                                    .unwrap(), // TODO
-                                                       timestamp: partition.timestamp,
-                                                   })
-                                            } else {
-                                                Err(ErrorKind::KafkaError(partition
-                                                                              .error_code
-                                                                              .into()))
-                                            }
-                                        })
-                                        .collect::<Vec<PartitionOffset>>();
+                let request = self.service.call((addr, request)).and_then(|res| {
+                    if let KafkaResponse::ListOffsets(res) = res {
+                        let topics = res.topics
+                            .iter()
+                            .map(|topic| {
+                                let partitions = topic
+                                    .partitions
+                                    .iter()
+                                    .map(|partition| {
+                                        PartitionOffset {
+                                            partition: partition.partition,
+                                            error_code: partition.error_code,
+                                            offset: *partition
+                                                .offsets
+                                                .iter()
+                                                .next()
+                                                .unwrap(), // TODO
+                                            timestamp: partition.timestamp,
+                                        }
+                                    })
+                                    .collect::<Vec<PartitionOffset>>();
 
-                                    (topic.topic_name.clone(), partitions)
-                                })
-                                .collect::<Vec<(String, Vec<PartitionOffset>)>>();
+                                (topic.topic_name.clone(), partitions)
+                            })
+                            .collect::<Vec<(String, Vec<PartitionOffset>)>>();
 
-                            Ok(topics)
-                        } else {
-                            bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                        }
-                    });
+                        Ok(topics)
+                    } else {
+                        bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    }
+                });
 
                 requests.push(request);
             }
@@ -1104,7 +1160,9 @@ impl<'a> Future for LoadMetadata<'a>
                                 let fallback_api_versions =
                                     inner.config.broker_version_fallback.api_versions();
 
-                                let metadata = Rc::new(metadata.with_fallback_api_versions(fallback_api_versions));
+                                let metadata =
+                                    Rc::new(metadata
+                                                .with_fallback_api_versions(fallback_api_versions));
 
                                 trace!("use fallback API versions from {:?}, {:?}",
                                        inner.config.broker_version_fallback,
