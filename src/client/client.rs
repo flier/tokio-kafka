@@ -29,8 +29,8 @@ use errors::{Error, ErrorKind, Result};
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
                FetchOffset, FetchPartition, FetchTopic, GenerationId, JoinGroupMember,
-               JoinGroupProtocol, KafkaCode, MessageSet, Offset, PartitionId, RequiredAcks,
-               SyncGroupAssignment, Timestamp, UsableApiVersions};
+               JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset, PartitionId,
+               RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions};
 
 /// A trait for communicating with the Kafka cluster.
 pub trait Client<'a>: 'static {
@@ -104,9 +104,15 @@ pub struct PartitionOffset {
     /// The error code
     pub error_code: ErrorCode,
     /// The offset found in the partition
-    pub offset: Offset,
+    pub offsets: Vec<Offset>,
     /// The timestamp associated with the returned offset
     pub timestamp: Option<Timestamp>,
+}
+
+impl PartitionOffset {
+    pub fn offset(&self) -> Option<Offset> {
+        self.offsets.first().cloned()
+    }
 }
 
 pub struct PartitionRecords {
@@ -119,7 +125,7 @@ pub struct PartitionRecords {
     /// The offset at the end of the log for this partition.
     pub highwater_mark: Offset,
     /// The message data fetched from this partition, in the format described above.
-    pub message_set: MessageSet,
+    pub messages: Vec<Message>,
 }
 
 /// The fetch partition data
@@ -654,12 +660,12 @@ impl<'a> Inner<'a>
                       })
             .map(|topics| {
                 topics
-                    .iter()
+                    .into_iter()
                     .map(|topic| {
                         (topic.topic_name.to_owned(),
                          topic
                              .partitions
-                             .iter()
+                             .into_iter()
                              .map(|partition| {
                                       (partition.partition, partition.error_code, partition.offset)
                                   })
@@ -716,9 +722,9 @@ impl<'a> Inner<'a>
                             topic_name: topic_name.to_owned(),
                             partitions: partitions
                                 .iter()
-                                .map(|&(partition, (offset, max_bytes))| {
+                                .map(|&(partition_id, (offset, max_bytes))| {
                                          FetchPartition {
-                                             partition: partition,
+                                             partition: partition_id,
                                              fetch_offset: offset,
                                              max_bytes: max_bytes
                                                  .unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
@@ -755,14 +761,16 @@ impl<'a> Inner<'a>
                                     offsets_by_topic
                                         .get(&topic_name)
                                         .map(move |offsets| {
-                                            offsets.iter().fold(HashMap::new(), move |mut offsets,
-                                                  &(partition,
-                                                    (offset, _))| {
-                                                let tp = topic_partition!(topic_name.clone(),
-                                                                          partition);
-                                                offsets.insert(tp, offset);
-                                                offsets
-                                            })
+                                            offsets
+                                                .into_iter()
+                                                .fold(HashMap::new(), move |mut offsets,
+                                                      &(partition,
+                                                        (offset, _))| {
+                                                    let tp = topic_partition!(topic_name.clone(),
+                                                                              partition);
+                                                    offsets.insert(tp, offset);
+                                                    offsets
+                                                })
                                         })
                                         .unwrap_or_default()
                                 };
@@ -777,15 +785,17 @@ impl<'a> Inner<'a>
                                             let tp = topic_partition!(topic_name.clone(),
                                                                       data.partition);
 
-                                            offsets_by_topic_partition.get(&tp).map(|&offset| {
-                                                PartitionRecords {
-                                                    partition: data.partition,
-                                                    error_code: data.error_code,
-                                                    offset: offset,
-                                                    highwater_mark: data.highwater_mark_offset,
-                                                    message_set: data.message_set.clone(), // TODO
-                                                }
-                                            })
+                                            offsets_by_topic_partition
+                                                .get(&tp)
+                                                .map(move |&offset| {
+                                                    PartitionRecords {
+                                                        partition: data.partition,
+                                                        error_code: data.error_code,
+                                                        offset: offset,
+                                                        highwater_mark: data.highwater_mark_offset,
+                                                        messages: data.message_set.messages,
+                                                    }
+                                                })
                                         })
                                         .collect::<Vec<PartitionRecords>>()
                                 };
@@ -837,23 +847,19 @@ impl<'a> Inner<'a>
                               })
                     .map(|topics| {
                         topics
-                            .iter()
+                            .into_iter()
                             .map(|topic| {
                                 let partitions = topic
                                     .partitions
-                                    .iter()
+                                    .into_iter()
                                     .map(|partition| {
-                                        PartitionOffset {
-                                            partition: partition.partition,
-                                            error_code: partition.error_code,
-                                            offset: *partition
-                                                .offsets
-                                                .iter()
-                                                .next()
-                                                .unwrap(), // TODO
-                                            timestamp: partition.timestamp,
-                                        }
-                                    })
+                                             PartitionOffset {
+                                                 partition: partition.partition,
+                                                 error_code: partition.error_code,
+                                                 offsets: partition.offsets,
+                                                 timestamp: partition.timestamp,
+                                             }
+                                         })
                                     .collect::<Vec<PartitionOffset>>();
 
                                 (topic.topic_name.clone(), partitions)

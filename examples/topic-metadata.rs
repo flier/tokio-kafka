@@ -6,13 +6,13 @@ extern crate futures;
 extern crate tokio_core;
 extern crate tokio_kafka;
 
-use std::rc::Rc;
-use std::env;
 use std::cmp;
-use std::process;
-use std::path::Path;
-use std::net::{SocketAddr, ToSocketAddrs};
 use std::collections::HashMap;
+use std::env;
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::path::Path;
+use std::process;
+use std::rc::Rc;
 
 use getopts::Options;
 
@@ -77,8 +77,9 @@ impl Config {
 
         let brokers = matches
             .opt_str("b")
-            .map_or_else(|| vec![DEFAULT_BROKER.to_owned()],
-                         |s| s.split(',').map(|s| s.trim().to_owned()).collect());
+            .map_or_else(|| vec![DEFAULT_BROKER.to_owned()], |s| {
+                s.split(',').map(|s| s.trim().to_owned()).collect()
+            });
 
         let (api_version_request, broker_version) = matches
             .opt_str("broker-version")
@@ -128,54 +129,47 @@ fn main() {
 
     let topics = config.topic_names.clone();
 
-    let work = client
-        .metadata()
-        .and_then(move |metadata| {
-            let topics: Vec<TopicPartition> = metadata
-                .topics()
-                .iter()
-                .filter(move |&(&topic_name, _)| {
-                            topics
-                                .as_ref()
-                                .map_or(true, move |topic_names| {
-                        topic_names.contains(&topic_name.to_owned())
-                    })
-                        })
-                .flat_map(|(topic_name, partitions)| {
-                    partitions
-                        .iter()
-                        .map(move |partition| {
-                                 TopicPartition {
-                                     topic_name: String::from(*topic_name).into(),
-                                     partition: partition.partition,
-                                 }
-                             })
+    let work = client.metadata().and_then(move |metadata| {
+        let topics: Vec<TopicPartition> = metadata
+            .topics()
+            .iter()
+            .filter(move |&(&topic_name, _)| {
+                topics.as_ref().map_or(true, move |topic_names| {
+                    topic_names.contains(&topic_name.to_owned())
                 })
-                .collect();
+            })
+            .flat_map(|(topic_name, partitions)| {
+                partitions.iter().map(move |partition| {
+                                          TopicPartition {
+                                              topic_name: String::from(*topic_name).into(),
+                                              partition: partition.partition,
+                                          }
+                                      })
+            })
+            .collect();
 
-            let requests =
-                vec![client.list_offsets(topics
-                                             .iter()
-                                             .map(|tp| (tp.clone(), FetchOffset::Earliest))
-                                             .collect()),
-                     client.list_offsets(topics
-                                             .iter()
-                                             .map(|tp| (tp.clone(), FetchOffset::Latest))
-                                             .collect())];
+        let requests = vec![client.list_offsets(topics
+                                                    .iter()
+                                                    .map(|tp| (tp.clone(), FetchOffset::Earliest))
+                                                    .collect()),
+                            client.list_offsets(topics
+                                                    .iter()
+                                                    .map(|tp| (tp.clone(), FetchOffset::Latest))
+                                                    .collect())];
 
-            let topic_names = topics
-                .iter()
-                .map(|ref tp| String::from(tp.topic_name.to_owned()))
-                .collect();
+        let topic_names = topics
+            .iter()
+            .map(|ref tp| String::from(tp.topic_name.to_owned()))
+            .collect();
 
-            future::join_all(requests).map(|responses| {
-                                               dump_metadata(config,
-                                                             metadata,
-                                                             topic_names,
-                                                             &responses[0],
-                                                             &responses[1])
-                                           })
-        });
+        future::join_all(requests).map(|responses| {
+                                           dump_metadata(config,
+                                                         metadata,
+                                                         topic_names,
+                                                         &responses[0],
+                                                         &responses[1])
+                                       })
+    });
 
     core.run(work).unwrap();
 }
@@ -252,12 +246,14 @@ fn dump_metadata<'a>(config: Config,
                         }
 
                         print!(" {:>12} {:>12}",
-                               earliest_offset.offset,
-                               latest_offset.offset);
+                               earliest_offset.offset().unwrap(),
+                               latest_offset.offset().unwrap());
 
                         if config.show_size {
                             print!(" {:>12}",
-                                   format!("({})", latest_offset.offset - earliest_offset.offset));
+                                   format!("({})",
+                                           latest_offset.offset().unwrap() -
+                                           earliest_offset.offset().unwrap()));
                         }
 
                         println!("")

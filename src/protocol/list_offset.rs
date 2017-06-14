@@ -1,5 +1,6 @@
-use std::borrow::Cow;
+
 use bytes::{BufMut, ByteOrder, BytesMut};
+use std::borrow::Cow;
 
 use time::Timespec;
 
@@ -70,22 +71,17 @@ pub struct ListPartitionOffset {
 impl<'a> Record for ListOffsetRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REPLICA_ID_SIZE +
-        self.topics
-            .iter()
-            .fold(ARRAY_LEN_SIZE, |size, topic| {
-                size + STR_LEN_SIZE + topic.topic_name.len() +
-                topic
-                    .partitions
-                    .iter()
-                    .fold(ARRAY_LEN_SIZE, |size, _| {
-                        size + PARTITION_ID_SIZE + TIMESTAMP_SIZE +
-                        if api_version == 0 {
-                            MAX_NUMBER_OF_OFFSETS_SIZE
-                        } else {
-                            0
-                        }
-                    })
+        self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+            size + STR_LEN_SIZE + topic.topic_name.len() +
+            topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
+                size + PARTITION_ID_SIZE + TIMESTAMP_SIZE +
+                if api_version == 0 {
+                    MAX_NUMBER_OF_OFFSETS_SIZE
+                } else {
+                    0
+                }
             })
+        })
     }
 }
 
@@ -127,9 +123,12 @@ pub struct ListOffsetTopicStatus {
 pub struct ListOffsetPartitionStatus {
     /// The id of the partition the fetch is for.
     pub partition: PartitionId,
+    /// The error code
     pub error_code: ErrorCode,
-    pub timestamp: Option<Timestamp>,
+    /// The offset found in the partition
     pub offsets: Vec<Offset>,
+    /// The timestamp associated with the returned offset
+    pub timestamp: Option<Timestamp>,
 }
 
 impl ListOffsetResponse {

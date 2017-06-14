@@ -1,14 +1,14 @@
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use futures::Future;
 
-use errors::ErrorKind;
-use protocol::FetchOffset;
-use network::TopicPartition;
 use client::{Client, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{OffsetResetStrategy, Subscriptions};
+use errors::ErrorKind;
+use network::TopicPartition;
+use protocol::{FetchOffset, KafkaCode};
 
 pub struct Fetcher<'a> {
     client: KafkaClient<'a>,
@@ -40,9 +40,7 @@ impl<'a> Fetcher<'a>
     pub fn update_positions(&self, partitions: &[TopicPartition<'a>]) -> UpdatePositions {
         let default_reset_strategy = self.subscriptions.borrow().default_reset_strategy();
 
-        self.reset_offsets(partitions
-                               .iter()
-                               .flat_map(|tp| {
+        self.reset_offsets(partitions.iter().flat_map(|tp| {
             self.subscriptions
                 .borrow_mut()
                 .assigned_state_mut(tp)
@@ -86,7 +84,7 @@ impl<'a> Fetcher<'a>
                     }
                     _ => {
                         return ErrorKind::NoOffsetForPartition(tp.topic_name.into(), tp.partition)
-                                   .into();
+                            .into();
                     }
                 }
             }
@@ -96,13 +94,21 @@ impl<'a> Fetcher<'a>
 
         self.client
             .list_offsets(offset_resets)
-            .map(move |offsets| for (topic_name, partitions) in offsets {
-                     for partition in partitions {
-                         let tp = topic_partition!(topic_name.clone(), partition.partition);
+            .and_then(move |offsets| {
+                for (topic_name, partitions) in offsets {
+                    for partition in partitions {
+                        if let Some(offset) = partition.offset() {
+                            let tp = topic_partition!(topic_name.clone(), partition.partition);
 
-                         subscriptions.borrow_mut().seek(&tp, partition.offset);
-                     }
-                 })
+                            subscriptions.borrow_mut().seek(&tp, offset);
+                        } else {
+                            bail!(ErrorKind::KafkaError(KafkaCode::OffsetOutOfRange));
+                        }
+                    }
+                }
+
+                Ok(())
+            })
             .static_boxed()
     }
 

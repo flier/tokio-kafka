@@ -1,12 +1,13 @@
-use std::mem;
-use std::hash::Hash;
-use std::str::FromStr;
-use std::iter::FromIterator;
+
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
+use std::iter::FromIterator;
+use std::mem;
+use std::str::FromStr;
 
 use errors::{Error, ErrorKind, Result};
-use protocol::Offset;
 use network::{OffsetAndMetadata, TopicPartition};
+use protocol::Offset;
 
 #[derive(Debug, Default)]
 pub struct Subscriptions<'a> {
@@ -60,7 +61,8 @@ impl<'a> Subscriptions<'a> {
 
     /// Add topics to the current group subscription.
     ///
-    /// This is used by the group leader to ensure that it receives metadata updates for all topics
+    /// This is used by the group leader to ensure that it receives metadata updates for all
+    /// topics
     /// that the group is interested in.
     pub fn group_subscribe<I: Iterator<Item = S>, S: AsRef<str> + Hash + Eq>(&mut self,
                                                                              topic_names: I) {
@@ -74,21 +76,19 @@ impl<'a> Subscriptions<'a> {
 
     /// Change the assignment to the specified partitions returned from the coordinator
     pub fn assign_from_subscribed(&mut self, partitions: Vec<TopicPartition<'a>>) -> Result<()> {
-        if let Some(tp) = partitions
-               .iter()
-               .find(|tp| {
-                         !self.subscription
-                              .contains(&String::from(tp.topic_name.to_owned()))
-                     }) {
+        if let Some(tp) = partitions.iter().find(|tp| {
+                                                     !self.subscription
+                                                         .contains(&String::from(tp.topic_name
+                                                                                     .to_owned()))
+                                                 }) {
             bail!(ErrorKind::IllegalArgument(format!("assigned partition {}#{} for non-subscribed topic",
                                                      tp.topic_name,
                                                      tp.partition)))
         }
 
-        self.assignment =
-            HashMap::from_iter(partitions
-                                   .into_iter()
-                                   .map(|tp| (tp, TopicPartitionState::default())));
+        self.assignment = HashMap::from_iter(partitions
+                                                 .into_iter()
+                                                 .map(|tp| (tp, TopicPartitionState::default())));
 
         Ok(())
     }
