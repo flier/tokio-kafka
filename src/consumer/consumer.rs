@@ -1,13 +1,13 @@
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::hash::Hash;
+use std::rc::Rc;
 
 use futures::{Async, Future, Poll, Stream};
 
-use errors::{Error, ErrorKind};
-use serialization::Deserializer;
 use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture, TopicRecord};
 use consumer::{ConsumerConfig, ConsumerCoordinator, Coordinator, Fetcher, Subscriptions};
+use errors::{Error, ErrorKind};
+use serialization::Deserializer;
 
 /// A trait for consuming records from a Kafka cluster.
 pub trait Consumer {
@@ -78,6 +78,7 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
         let fetch_min_bytes = self.inner.config.fetch_min_bytes;
         let fetch_max_bytes = self.inner.config.fetch_max_bytes;
         let fetch_max_wait = self.inner.config.fetch_max_wait();
+        let partition_fetch_bytes = self.inner.config.partition_fetch_bytes;
         let assignors = self.inner
             .config
             .assignment_strategy
@@ -109,11 +110,13 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                                                                heartbeat_interval,
                                                                assignors,
                                                                timer);
+
                     let fetcher = Fetcher::new(inner.client.clone(),
                                                subscriptions,
                                                fetch_min_bytes,
                                                fetch_max_bytes,
-                                               fetch_max_wait);
+                                               fetch_max_wait,
+                                               partition_fetch_bytes);
 
                     Ok(ConsumerTopics {
                            consumer: KafkaConsumer { inner: inner },

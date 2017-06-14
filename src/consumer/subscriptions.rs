@@ -1,4 +1,3 @@
-
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::iter::FromIterator;
@@ -53,7 +52,10 @@ impl<'a> Subscriptions<'a> {
         self.default_reset_strategy
     }
 
-    pub fn subscribe<I: Iterator<Item = S>, S: AsRef<str> + Hash + Eq>(&mut self, topic_names: I) {
+    pub fn subscribe<I, S>(&mut self, topic_names: I)
+        where I: Iterator<Item = S>,
+              S: AsRef<str> + Hash + Eq
+    {
         let topic_names: Vec<String> = topic_names.map(|s| s.as_ref().to_owned()).collect();
         self.subscription = HashSet::from_iter(topic_names.iter().cloned());
         self.group_subscription = &self.group_subscription | &self.subscription;
@@ -123,7 +125,7 @@ pub struct TopicPartitionState<'a> {
     /// last consumed position
     pub position: Option<Offset>,
     /// the high watermark from last fetch
-    pub hight_watermark: Offset,
+    pub high_watermark: Offset,
     /// last committed position
     pub committed: Option<OffsetAndMetadata<'a>>,
     /// the strategy to use if the offset needs resetting

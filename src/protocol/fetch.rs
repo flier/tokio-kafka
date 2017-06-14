@@ -1,5 +1,5 @@
-use std::i32;
 use std::borrow::Cow;
+use std::i32;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
 
@@ -24,14 +24,18 @@ pub struct FetchRequest<'a> {
     pub header: RequestHeader<'a>,
     /// The replica id indicates the node id of the replica initiating this request.
     pub replica_id: ReplicaId,
-    /// The maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued.
+    /// The maximum amount of time in milliseconds to block waiting if insufficient data is
+    /// available at the time the request is issued.
     pub max_wait_time: i32,
-    /// This is the minimum number of bytes of messages that must be available to give a response.
+    /// This is the minimum number of bytes of messages that must be available to give a
+    /// response.
     pub min_bytes: i32,
     /// Maximum bytes to accumulate in the response.
     ///
-    /// Note that this is not an absolute maximum, if the first message in the first non-empty partition of
-    /// the fetch is larger than this value, the message will still be returned to ensure that progress can be made.
+    /// Note that this is not an absolute maximum, if the first message in the first non-empty
+    /// partition of
+    /// the fetch is larger than this value, the message will still be returned to ensure that
+    /// progress can be made.
     pub max_bytes: i32,
     /// Topics to fetch in the order provided.
     pub topics: Vec<FetchTopic<'a>>,
@@ -59,16 +63,12 @@ impl<'a> Record for FetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REQUEST_OVERHEAD +
         if api_version > 2 { MAX_BYTES_SIZE } else { 0 } +
-        self.topics
-            .iter()
-            .fold(ARRAY_LEN_SIZE, |size, topic| {
-                size + STR_LEN_SIZE + topic.topic_name.len() +
-                topic
-                    .partitions
-                    .iter()
-                    .fold(ARRAY_LEN_SIZE,
-                          |size, _| size + PARTITION_ID_SIZE + FETCH_OFFSET_SIZE + MAX_BYTES_SIZE)
+        self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+            size + STR_LEN_SIZE + topic.topic_name.len() +
+            topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
+                size + PARTITION_ID_SIZE + FETCH_OFFSET_SIZE + MAX_BYTES_SIZE
             })
+        })
     }
 }
 
@@ -85,14 +85,14 @@ impl<'a> Encodable for FetchRequest<'a> {
             dst.put_i32::<T>(self.max_bytes);
         }
         dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
-                buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
-                buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                    buf.put_i32::<T>(partition.partition);
-                    buf.put_i64::<T>(partition.fetch_offset);
-                    buf.put_i32::<T>(partition.max_bytes);
-                    Ok(())
-                })
-            })?;
+            buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
+            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
+                buf.put_i32::<T>(partition.partition);
+                buf.put_i64::<T>(partition.fetch_offset);
+                buf.put_i32::<T>(partition.max_bytes);
+                Ok(())
+            })
+        })?;
         Ok(())
     }
 }
@@ -118,7 +118,7 @@ pub struct FetchPartitionData {
     pub partition: PartitionId,
     pub error_code: ErrorCode,
     /// The offset at the end of the log for this partition.
-    pub highwater_mark_offset: Offset,
+    pub high_watermark: Offset,
     pub message_set: MessageSet,
 }
 
@@ -161,12 +161,12 @@ named_args!(parse_fetch_partition_data(api_version: ApiVersion)<FetchPartitionDa
         do_parse!(
             partition: be_i32
          >> error_code: be_i16
-         >> offset: be_i64
+         >> high_watermark: be_i64
          >> message_set: length_value!(be_i32, apply!(parse_message_set, api_version))
          >> (FetchPartitionData {
                 partition: partition,
                 error_code: error_code,
-                highwater_mark_offset: offset,
+                high_watermark: high_watermark,
                 message_set: message_set,
             })
         )
@@ -302,7 +302,7 @@ mod tests {
                 partitions: vec![FetchPartitionData {
                     partition: 1,
                     error_code: 2,
-                    highwater_mark_offset: 3,
+                    high_watermark: 3,
                     message_set: MessageSet {
                         messages: vec![Message {
                             offset: 0,
@@ -359,7 +359,7 @@ mod tests {
                 partitions: vec![FetchPartitionData {
                     partition: 1,
                     error_code: 2,
-                    highwater_mark_offset: 3,
+                    high_watermark: 3,
                     message_set: MessageSet {
                         messages: vec![Message {
                             offset: 0,

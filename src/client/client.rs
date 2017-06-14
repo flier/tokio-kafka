@@ -123,13 +123,18 @@ pub struct PartitionRecords {
     /// The offset found in the partition
     pub offset: Offset,
     /// The offset at the end of the log for this partition.
-    pub highwater_mark: Offset,
+    pub high_watermark: Offset,
     /// The message data fetched from this partition, in the format described above.
     pub messages: Vec<Message>,
 }
 
 /// The fetch partition data
-pub type PartitionData = (Offset, Option<i32>);
+pub struct PartitionData {
+    /// Message offset.
+    pub offset: Offset,
+    /// Maximum bytes to fetch.
+    pub max_bytes: Option<i32>,
+}
 
 /// The future of discover group coodinator
 pub type GroupCoordinator = StaticBoxFuture<Broker>;
@@ -722,14 +727,15 @@ impl<'a> Inner<'a>
                             topic_name: topic_name.to_owned(),
                             partitions: partitions
                                 .iter()
-                                .map(|&(partition_id, (offset, max_bytes))| {
-                                         FetchPartition {
-                                             partition: partition_id,
-                                             fetch_offset: offset,
-                                             max_bytes: max_bytes
-                                                 .unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
-                                         }
-                                     })
+                                .map(|&(partition_id, ref fetch_data)| {
+                                    FetchPartition {
+                                        partition: partition_id,
+                                        fetch_offset: fetch_data.offset,
+                                        max_bytes: fetch_data
+                                            .max_bytes
+                                            .unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
+                                    }
+                                })
                                 .collect(),
                         }
                     })
@@ -761,16 +767,16 @@ impl<'a> Inner<'a>
                                     offsets_by_topic
                                         .get(&topic_name)
                                         .map(move |offsets| {
-                                            offsets
-                                                .into_iter()
-                                                .fold(HashMap::new(), move |mut offsets,
-                                                      &(partition,
-                                                        (offset, _))| {
-                                                    let tp = topic_partition!(topic_name.clone(),
-                                                                              partition);
-                                                    offsets.insert(tp, offset);
-                                                    offsets
-                                                })
+                                            let mut m = HashMap::new();
+
+                                            for &(partition_id, ref fetch_data) in offsets {
+                                                let tp = topic_partition!(topic_name.clone(),
+                                                                          partition_id);
+
+                                                m.insert(tp, fetch_data);
+                                            }
+
+                                            m
                                         })
                                         .unwrap_or_default()
                                 };
@@ -787,12 +793,12 @@ impl<'a> Inner<'a>
 
                                             offsets_by_topic_partition
                                                 .get(&tp)
-                                                .map(move |&offset| {
+                                                .map(move |&fetch| {
                                                     PartitionRecords {
                                                         partition: data.partition,
                                                         error_code: data.error_code,
-                                                        offset: offset,
-                                                        highwater_mark: data.highwater_mark_offset,
+                                                        offset: fetch.offset,
+                                                        high_watermark: data.high_watermark,
                                                         messages: data.message_set.messages,
                                                     }
                                                 })

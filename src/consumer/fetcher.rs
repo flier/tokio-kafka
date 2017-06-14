@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use futures::Future;
 
-use client::{Client, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
+use client::{Client, FetchRecords, KafkaClient, PartitionData, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{OffsetResetStrategy, Subscriptions};
 use errors::ErrorKind;
 use network::TopicPartition;
@@ -16,6 +16,7 @@ pub struct Fetcher<'a> {
     fetch_min_bytes: usize,
     fetch_max_bytes: usize,
     fetch_max_wait: Duration,
+    partition_fetch_bytes: usize,
 }
 
 impl<'a> Fetcher<'a>
@@ -25,7 +26,8 @@ impl<'a> Fetcher<'a>
                subscriptions: Rc<RefCell<Subscriptions<'a>>>,
                fetch_min_bytes: usize,
                fetch_max_bytes: usize,
-               fetch_max_wait: Duration)
+               fetch_max_wait: Duration,
+               partition_fetch_bytes: usize)
                -> Self {
         Fetcher {
             client: client,
@@ -33,23 +35,26 @@ impl<'a> Fetcher<'a>
             fetch_min_bytes: fetch_min_bytes,
             fetch_max_bytes: fetch_max_bytes,
             fetch_max_wait: fetch_max_wait,
+            partition_fetch_bytes: partition_fetch_bytes,
         }
     }
 
     /// Update the fetch positions for the provided partitions.
-    pub fn update_positions(&self, partitions: &[TopicPartition<'a>]) -> UpdatePositions {
+    pub fn update_positions<I>(&self, partitions: I) -> UpdatePositions
+        where I: Iterator<Item = TopicPartition<'a>>
+    {
         let default_reset_strategy = self.subscriptions.borrow().default_reset_strategy();
 
-        self.reset_offsets(partitions.iter().flat_map(|tp| {
+        self.reset_offsets(partitions.flat_map(|tp| {
             self.subscriptions
                 .borrow_mut()
-                .assigned_state_mut(tp)
+                .assigned_state_mut(&tp)
                 .and_then(|state| if state.is_offset_reset_needed() {
-                              Some(tp.clone())
+                              Some(tp)
                           } else if state.has_committed() {
                               state.need_offset_reset(default_reset_strategy);
 
-                              Some(tp.clone())
+                              Some(tp)
                           } else {
                               let committed = state
                                   .committed
@@ -113,7 +118,47 @@ impl<'a> Fetcher<'a>
     }
 
     /// Set-up a fetch request for any node that we have assigned partitions.
-    pub fn fetch_records(&self) {}
+    pub fn fetch_records<I>(&self, partitions: I) -> FetchRecords
+        where I: Iterator<Item = TopicPartition<'a>>
+    {
+        let subscriptions = self.subscriptions.clone();
+
+        let fetch_partitions = partitions
+            .flat_map(|tp| {
+                subscriptions.borrow().assigned_state(&tp).map(|state| {
+                    let fetch_data = PartitionData {
+                        offset: state.position.unwrap(),
+                        max_bytes: Some(self.partition_fetch_bytes as i32),
+                    };
+
+                    (tp, fetch_data)
+                })
+            })
+            .collect();
+
+        self.client
+            .fetch_records(self.fetch_max_wait,
+                           self.fetch_min_bytes,
+                           self.fetch_max_bytes,
+                           fetch_partitions)
+            .map(move |records| {
+                for (topic_name, records) in &records {
+                    for record in records {
+                        let tp = topic_partition!(topic_name.clone(), record.partition);
+
+                        if let Some(mut state) = subscriptions
+                               .borrow_mut()
+                               .assigned_state_mut(&tp) {
+                            state.position = Some(record.offset);
+                            state.high_watermark = record.high_watermark;
+                        }
+                    }
+                }
+
+                records
+            })
+            .static_boxed()
+    }
 }
 
 pub type ResetOffsets = StaticBoxFuture;
