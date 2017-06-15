@@ -1,8 +1,9 @@
-use std::io;
-use std::rc::Rc;
-use std::fmt::Debug;
+
 use std::cell::RefCell;
+use std::fmt::Debug;
+use std::io;
 use std::net::SocketAddr;
+use std::rc::Rc;
 use std::time::Duration;
 
 use bytes::BytesMut;
@@ -10,18 +11,18 @@ use bytes::BytesMut;
 use futures::{Async, Poll, Stream};
 use futures::future::Future;
 use futures::unsync::oneshot;
-use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_core::reactor::Handle;
+use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_proto::BindClient;
 use tokio_proto::streaming::{Body, Message};
 use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
 
+use client::{Metrics, StaticBoxFuture, ToStaticBoxFuture};
 use errors::Error;
 use network::{ConnectionId, KafkaCodec, KafkaConnection, KafkaConnector, KafkaRequest,
               KafkaResponse, Pool, Pooled};
-use client::{Metrics, StaticBoxFuture, ToStaticBoxFuture};
 
 #[derive(Debug, Default)]
 struct State {
@@ -44,10 +45,11 @@ pub struct KafkaService<'a> {
 }
 
 impl<'a> KafkaService<'a> {
-    pub fn new(handle: Handle,
-               max_connection_idle: Duration,
-               metrics: Option<Rc<Metrics>>)
-               -> Self {
+    pub fn new(
+        handle: Handle,
+        max_connection_idle: Duration,
+        metrics: Option<Rc<Metrics>>,
+    ) -> Self {
         KafkaService {
             handle: handle.clone(),
             pool: Pool::new(max_connection_idle),
@@ -59,7 +61,8 @@ impl<'a> KafkaService<'a> {
 }
 
 impl<'a> Service for KafkaService<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
     type Request = (SocketAddr, KafkaRequest<'a>);
     type Response = KafkaResponse;
@@ -69,9 +72,9 @@ impl<'a> Service for KafkaService<'a>
     fn call(&self, req: Self::Request) -> Self::Future {
         let (addr, request) = req;
 
-        self.metrics
-            .as_ref()
-            .map(|metrics| metrics.send_request(&addr, &request));
+        self.metrics.as_ref().map(|metrics| {
+            metrics.send_request(&addr, &request)
+        });
 
         let checkout = self.pool.checkout(addr);
         let connect = {
@@ -79,19 +82,16 @@ impl<'a> Service for KafkaService<'a>
             let connection_id = self.state.borrow_mut().next_connection_id();
             let pool = self.pool.clone();
 
-            self.connector
-                .tcp(addr)
-                .map(move |io| {
-                    let (tx, rx) = oneshot::channel();
-                    let client = RemoteClient {
-                            connection_id: connection_id,
-                            client_rx: RefCell::new(Some(rx)),
-                        }
-                        .bind_client(&handle, io);
-                    let pooled = pool.pooled(addr, client);
-                    drop(tx.send(pooled.clone()));
-                    pooled
-                })
+            self.connector.tcp(addr).map(move |io| {
+                let (tx, rx) = oneshot::channel();
+                let client = RemoteClient {
+                    connection_id: connection_id,
+                    client_rx: RefCell::new(Some(rx)),
+                }.bind_client(&handle, io);
+                let pooled = pool.pooled(addr, client);
+                drop(tx.send(pooled.clone()));
+                pooled
+            })
         };
 
         let race = checkout
@@ -111,19 +111,19 @@ impl<'a> Service for KafkaService<'a>
 
         race.and_then(move |client| client.call(Message::WithoutBody(request)))
             .map(|msg| {
-                     debug!("received message: {:?}", msg);
+                debug!("received message: {:?}", msg);
 
-                     match msg {
-                         Message::WithoutBody(res) |
-                         Message::WithBody(res, _) => res,
-                     }
-                 })
+                match msg {
+                    Message::WithoutBody(res) |
+                    Message::WithBody(res, _) => res,
+                }
+            })
             .map(move |response| {
-                     metrics.map(|metrics| metrics.received_response(&addr, &response));
+                metrics.map(|metrics| metrics.received_response(&addr, &response));
 
-                     response
-                 })
-            .map_err(Error::from)
+                response
+            })
+            .from_err()
             .static_boxed()
     }
 }
@@ -143,9 +143,11 @@ impl Stream for KafkaBody {
     }
 }
 
-type TokioClient<'a> = ClientProxy<Message<KafkaRequest<'a>, KafkaBody>,
-                                   Message<KafkaResponse, TokioBody>,
-                                   io::Error>;
+type TokioClient<'a> = ClientProxy<
+    Message<KafkaRequest<'a>, KafkaBody>,
+    Message<KafkaResponse, TokioBody>,
+    io::Error,
+>;
 
 type PooledClient<'a> = Pooled<SocketAddr, TokioClient<'a>>;
 
@@ -155,8 +157,9 @@ struct RemoteClient<'a> {
 }
 
 impl<'a, T> ClientProto<T> for RemoteClient<'a>
-    where T: AsyncRead + AsyncWrite + Debug + 'static,
-          Self: 'static
+where
+    T: AsyncRead + AsyncWrite + Debug + 'static,
+    Self: 'static,
 {
     type Request = KafkaRequest<'a>;
     type RequestBody = <KafkaBody as Stream>::Item;
@@ -167,16 +170,17 @@ impl<'a, T> ClientProto<T> for RemoteClient<'a>
     type BindTransport = BindingClient<'a, T>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        trace!("connection #{} bind transport for {:?}",
-               self.connection_id,
-               io);
+        trace!(
+            "connection #{} bind transport for {:?}",
+            self.connection_id,
+            io
+        );
 
         BindingClient {
             connection_id: self.connection_id,
-            rx: self.client_rx
-                .borrow_mut()
-                .take()
-                .expect("client_rx was lost"),
+            rx: self.client_rx.borrow_mut().take().expect(
+                "client_rx was lost",
+            ),
             io: Some(io),
         }
     }
@@ -189,7 +193,8 @@ struct BindingClient<'a, T> {
 }
 
 impl<'a, T> Future for BindingClient<'a, T>
-    where T: AsyncRead + AsyncWrite + Debug + 'static
+where
+    T: AsyncRead + AsyncWrite + Debug + 'static,
 {
     type Item = KafkaConnection<'a, T, PooledClient<'a>>;
     type Error = io::Error;
@@ -199,10 +204,12 @@ impl<'a, T> Future for BindingClient<'a, T>
             Ok(Async::Ready(client)) => {
                 trace!("got connection #{} with {:?}", self.connection_id, client);
 
-                Ok(Async::Ready(KafkaConnection::new(self.connection_id,
-                                                self.io.take().expect("binding client io lost"),
-                                                KafkaCodec::new(),
-                                                client)))
+                Ok(Async::Ready(KafkaConnection::new(
+                    self.connection_id,
+                    self.io.take().expect("binding client io lost"),
+                    KafkaCodec::new(),
+                    client,
+                )))
             }
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(_canceled) => unreachable!(),

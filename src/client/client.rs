@@ -397,7 +397,7 @@ where
                 Ok(timeout) => {
                     let inner = self.inner.clone();
                     let future = timeout
-                        .map_err(Error::from)
+                        .from_err()
                         .and_then(move |_| LoadMetadata::new(inner.clone()))
                         .map(|_| ())
                         .map_err(|_| ());

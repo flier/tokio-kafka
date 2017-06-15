@@ -1,10 +1,10 @@
-use std::mem;
-use std::rc::Rc;
-use std::cell::RefCell;
 use std::borrow::{Borrow, Cow};
+use std::cell::RefCell;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::mem;
 use std::net::SocketAddr;
+use std::rc::Rc;
 
 use time;
 
@@ -12,14 +12,14 @@ use futures::{Async, AsyncSink, Future, Poll, Sink, StartSend, Stream, future};
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_retry::Retry;
 
-use errors::{Error, ErrorKind};
-use protocol::{ApiKeys, PartitionId, ToMilliseconds};
-use serialization::Serializer;
 use client::{Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, ToStaticBoxFuture,
              TopicRecord};
+use errors::{Error, ErrorKind};
 use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,
                RecordAccumulator, RecordMetadata, Sender};
+use protocol::{ApiKeys, PartitionId, ToMilliseconds};
+use serialization::Serializer;
 
 /// A trait for publishing records to the Kafka cluster.
 pub trait Producer<'a> {
@@ -53,17 +53,19 @@ pub type GetTopic<T> = StaticBoxFuture<T>;
 /// A Kafka producer that publishes records to the Kafka cluster.
 #[derive(Clone)]
 pub struct KafkaProducer<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Hash,
-          V: Serializer
+where
+    K: Serializer,
+    K::Item: Hash,
+    V: Serializer,
 {
     inner: Rc<Inner<'a, K, V, P>>,
 }
 
 struct Inner<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Hash,
-          V: Serializer
+where
+    K: Serializer,
+    K::Item: Hash,
+    V: Serializer,
 {
     client: Rc<KafkaClient<'a>>,
     config: ProducerConfig,
@@ -75,57 +77,62 @@ struct Inner<'a, K, V, P>
 }
 
 impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Hash,
-          V: Serializer,
-          Self: 'static
+where
+    K: Serializer,
+    K::Item: Hash,
+    V: Serializer,
+    Self: 'static,
 {
-    pub fn new(client: KafkaClient<'a>,
-               config: ProducerConfig,
-               key_serializer: K,
-               value_serializer: V,
-               partitioner: P,
-               interceptors: Interceptors<K::Item, V::Item>)
-               -> Self {
+    pub fn new(
+        client: KafkaClient<'a>,
+        config: ProducerConfig,
+        key_serializer: K,
+        value_serializer: V,
+        partitioner: P,
+        interceptors: Interceptors<K::Item, V::Item>,
+    ) -> Self {
         let accumulator =
             RecordAccumulator::new(config.batch_size, config.compression, config.linger());
 
         KafkaProducer {
             inner: Rc::new(Inner {
-                               client: Rc::new(client),
-                               config: config,
-                               accumulator: accumulator,
-                               key_serializer: key_serializer,
-                               value_serializer: value_serializer,
-                               partitioner: partitioner,
-                               interceptors: interceptors,
-                           }),
+                client: Rc::new(client),
+                config: config,
+                accumulator: accumulator,
+                key_serializer: key_serializer,
+                value_serializer: value_serializer,
+                partitioner: partitioner,
+                interceptors: interceptors,
+            }),
         }
     }
 
     pub fn from_client(client: KafkaClient<'a>) -> ProducerBuilder<'a, K, V, P>
-        where K: Serializer,
-              V: Serializer
+    where
+        K: Serializer,
+        V: Serializer,
     {
         ProducerBuilder::from_client(client)
     }
 
     pub fn from_hosts<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, P>
-        where I: Iterator<Item = SocketAddr>,
-              K: Serializer,
-              V: Serializer
+    where
+        I: Iterator<Item = SocketAddr>,
+        K: Serializer,
+        V: Serializer,
     {
         ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
     }
 }
 
 impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Debug + Hash,
-          V: Serializer,
-          V::Item: Debug,
-          P: Partitioner,
-          Self: 'static
+where
+    K: Serializer,
+    K::Item: Debug + Hash,
+    V: Serializer,
+    V::Item: Debug,
+    P: Partitioner,
+    Self: 'static,
 {
     type Key = K::Item;
     type Value = V::Item;
@@ -141,11 +148,9 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                 let push_record = inner.push_record(metadata, record);
 
                 if push_record.is_full() {
-                    let flush = inner
-                        .flush_batches(false)
-                        .map_err(|err| {
-                                     warn!("fail to flush full batch, {}", err);
-                                 });
+                    let flush = inner.flush_batches(false).map_err(|err| {
+                        warn!("fail to flush full batch, {}", err);
+                    });
 
                     inner.client.handle().spawn(flush);
                 }
@@ -159,7 +164,7 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
                                 let inner = inner.clone();
 
                                 timeout
-                                    .map_err(Error::from)
+                                    .from_err()
                                     .and_then(move |_| inner.flush_batches(false))
                                     .map(|_| ())
                                     .map_err(|_| ())
@@ -188,34 +193,36 @@ impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>
         self.inner
             .client
             .metadata()
-            .and_then(move |metadata| if let Some(partitions) = metadata
-                             .topics()
-                             .get(topic_name.as_str()) {
-                          Ok(ProducerTopic {
-                                 producer: KafkaProducer { inner: inner.clone() },
-                                 topic_name: topic_name.into(),
-                                 partitions: partitions.iter().map(|p| p.partition).collect(),
-                                 pending: Pending::new(),
-                             })
-                      } else {
-                          bail!(ErrorKind::TopicNotFound(topic_name))
-                      })
+            .and_then(move |metadata| if let Some(partitions) =
+                metadata.topics().get(topic_name.as_str())
+            {
+                Ok(ProducerTopic {
+                    producer: KafkaProducer { inner: inner.clone() },
+                    topic_name: topic_name.into(),
+                    partitions: partitions.iter().map(|p| p.partition).collect(),
+                    pending: Pending::new(),
+                })
+            } else {
+                bail!(ErrorKind::TopicNotFound(topic_name))
+            })
             .static_boxed()
     }
 }
 
 impl<'a, K, V, P> Inner<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Debug + Hash,
-          V: Serializer,
-          V::Item: Debug,
-          P: Partitioner,
-          Self: 'static
+where
+    K: Serializer,
+    K::Item: Debug + Hash,
+    V: Serializer,
+    V::Item: Debug,
+    P: Partitioner,
+    Self: 'static,
 {
-    fn push_record(&self,
-                   metadata: Rc<Metadata>,
-                   mut record: ProducerRecord<K::Item, V::Item>)
-                   -> PushRecord {
+    fn push_record(
+        &self,
+        metadata: Rc<Metadata>,
+        mut record: ProducerRecord<K::Item, V::Item>,
+    ) -> PushRecord {
         trace!("sending record {:?}", record);
 
         if let Some(ref interceptors) = self.interceptors {
@@ -237,22 +244,25 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
         } = record;
 
         let partition = self.partitioner
-            .partition(&topic_name,
-                       partition,
-                       key.as_ref(),
-                       value.as_ref(),
-                       &metadata)
+            .partition(
+                &topic_name,
+                partition,
+                key.as_ref(),
+                value.as_ref(),
+                &metadata,
+            )
             .unwrap_or_default();
 
         let key = key.and_then(|key| self.key_serializer.serialize(&topic_name, key).ok());
 
-        let value = value
-            .and_then(|value| self.value_serializer.serialize(&topic_name, value).ok());
+        let value = value.and_then(|value| {
+            self.value_serializer.serialize(&topic_name, value).ok()
+        });
 
         let tp = topic_partition!(topic_name, partition);
 
-        let timestamp = timestamp
-            .unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
+        let timestamp =
+            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
         let api_version = metadata
             .leader_for(&tp)
@@ -262,8 +272,13 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
 
         trace!("use API version {} for {:?}", api_version, tp);
 
-        self.accumulator
-            .push_record(tp, timestamp, key, value, api_version)
+        self.accumulator.push_record(
+            tp,
+            timestamp,
+            key,
+            value,
+            api_version,
+        )
     }
 
     /// Flush full or expired batches
@@ -278,20 +293,21 @@ impl<'a, K, V, P> Inner<'a, K, V, P>
         self.accumulator
             .batches(force)
             .for_each(move |(tp, batch)| {
-                let sender = Sender::new(client.clone(),
-                                         interceptor.clone(),
-                                         acks,
-                                         ack_timeout,
-                                         tp,
-                                         batch);
+                let sender = Sender::new(
+                    client.clone(),
+                    interceptor.clone(),
+                    acks,
+                    ack_timeout,
+                    tp,
+                    batch,
+                );
 
                 match sender {
                     Ok(sender) => {
-                        Retry::spawn(handle.clone(),
-                                     retry_strategy.clone(),
-                                     move || sender.send_batch())
-                                .map_err(Error::from)
-                                .static_boxed()
+                        Retry::spawn(handle.clone(), retry_strategy.clone(), move || {
+                            sender.send_batch()
+                        }).from_err()
+                            .static_boxed()
                     }
                     Err(err) => {
                         warn!("fail to create sender, {}", err);
@@ -358,11 +374,12 @@ impl Sink for Pending {
 
 /// A `Sink` of topic which records can be sent, asynchronously.
 pub struct ProducerTopic<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Debug + Hash,
-          V: Serializer,
-          V::Item: Debug,
-          P: Partitioner
+where
+    K: Serializer,
+    K::Item: Debug + Hash,
+    V: Serializer,
+    V::Item: Debug,
+    P: Partitioner,
 {
     producer: KafkaProducer<'a, K, V, P>,
     topic_name: Cow<'a, str>,
@@ -371,12 +388,13 @@ pub struct ProducerTopic<'a, K, V, P>
 }
 
 impl<'a, K, V, P> Sink for ProducerTopic<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Debug + Hash,
-          V: Serializer,
-          V::Item: Debug,
-          P: Partitioner,
-          Self: 'static
+where
+    K: Serializer,
+    K::Item: Debug + Hash,
+    V: Serializer,
+    V::Item: Debug,
+    P: Partitioner,
+    Self: 'static,
 {
     type SinkItem = TopicRecord<K::Item, V::Item>;
     type SinkError = Error;
@@ -384,9 +402,11 @@ impl<'a, K, V, P> Sink for ProducerTopic<'a, K, V, P>
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         let record = ProducerRecord::from_topic_record(&self.topic_name, item);
 
-        self.pending
-            .start_send(self.producer.send(record))
-            .map(|_| AsyncSink::Ready)
+        self.pending.start_send(self.producer.send(record)).map(
+            |_| {
+                AsyncSink::Ready
+            },
+        )
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
@@ -395,12 +415,13 @@ impl<'a, K, V, P> Sink for ProducerTopic<'a, K, V, P>
 }
 
 impl<'a, K, V, P> ProducerTopic<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Debug + Hash,
-          V: Serializer,
-          V::Item: Debug,
-          P: Partitioner,
-          Self: 'static
+where
+    K: Serializer,
+    K::Item: Debug + Hash,
+    V: Serializer,
+    V::Item: Debug,
+    P: Partitioner,
+    Self: 'static,
 {
     /// The partitions of topic
     pub fn partitions(&self) -> &[PartitionId] {
@@ -411,11 +432,11 @@ impl<'a, K, V, P> ProducerTopic<'a, K, V, P>
     pub fn partition(&self, partition_id: PartitionId) -> Option<ProducerPartition<'a, K, V, P>> {
         if self.partitions.contains(&partition_id) {
             Some(ProducerPartition {
-                     producer: KafkaProducer { inner: self.producer.inner.clone() },
-                     topic_name: self.topic_name.clone(),
-                     partition_id: partition_id,
-                     pending: Pending::new(),
-                 })
+                producer: KafkaProducer { inner: self.producer.inner.clone() },
+                topic_name: self.topic_name.clone(),
+                partition_id: partition_id,
+                pending: Pending::new(),
+            })
         } else {
             None
         }
@@ -424,11 +445,12 @@ impl<'a, K, V, P> ProducerTopic<'a, K, V, P>
 
 /// A `Sink` of partition which records can be sent, asynchronously.
 pub struct ProducerPartition<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Debug + Hash,
-          V: Serializer,
-          V::Item: Debug,
-          P: Partitioner
+where
+    K: Serializer,
+    K::Item: Debug + Hash,
+    V: Serializer,
+    V::Item: Debug,
+    P: Partitioner,
 {
     producer: KafkaProducer<'a, K, V, P>,
     topic_name: Cow<'a, str>,
@@ -437,12 +459,13 @@ pub struct ProducerPartition<'a, K, V, P>
 }
 
 impl<'a, K, V, P> Sink for ProducerPartition<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Debug + Hash,
-          V: Serializer,
-          V::Item: Debug,
-          P: Partitioner,
-          Self: 'static
+where
+    K: Serializer,
+    K::Item: Debug + Hash,
+    V: Serializer,
+    V::Item: Debug,
+    P: Partitioner,
+    Self: 'static,
 {
     type SinkItem = PartitionRecord<K::Item, V::Item>;
     type SinkError = Error;
@@ -450,9 +473,11 @@ impl<'a, K, V, P> Sink for ProducerPartition<'a, K, V, P>
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         let record =
             ProducerRecord::from_partition_record(&self.topic_name, Some(self.partition_id), item);
-        self.pending
-            .start_send(self.producer.send(record))
-            .map(|_| AsyncSink::Ready)
+        self.pending.start_send(self.producer.send(record)).map(
+            |_| {
+                AsyncSink::Ready
+            },
+        )
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
