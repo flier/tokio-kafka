@@ -171,7 +171,7 @@ pub type OffsetCommit = StaticBoxFuture<HashMap<String, Vec<CommittedOffset>>>;
 
 pub struct CommittedOffset {
     /// The partition id
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// The error code
     pub error_code: KafkaCode,
 }
@@ -180,7 +180,7 @@ pub type OffsetFetch = StaticBoxFuture<HashMap<String, Vec<FetchedOffset>>>;
 
 pub struct FetchedOffset {
     /// The partition id
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// The error code
     pub error_code: KafkaCode,
     /// The offset found in the partition
@@ -812,7 +812,7 @@ where
                                 .into_iter()
                                 .map(|partition| {
                                     ProducedRecords {
-                                        partition_id: partition.partition,
+                                        partition_id: partition.partition_id,
                                         error_code: partition.error_code.into(),
                                         base_offset: partition.offset,
                                     }
@@ -846,7 +846,7 @@ where
                 .or_insert_with(HashMap::new)
                 .entry(tp.topic_name)
                 .or_insert_with(Vec::new)
-                .push((tp.partition, value));
+                .push((tp.partition_id, value));
         }
 
         Ok(topics)
@@ -872,7 +872,7 @@ where
                                 .iter()
                                 .map(|&(partition_id, ref fetch_data)| {
                                     FetchPartition {
-                                        partition: partition_id,
+                                        partition_id: partition_id,
                                         fetch_offset: fetch_data.offset,
                                         max_bytes: fetch_data.max_bytes.unwrap_or(
                                             DEFAULT_RESPONSE_MAX_BYTES,
@@ -937,12 +937,12 @@ where
                                         .flat_map(move |data| {
                                             let tp = topic_partition!(
                                                 topic_name.clone(),
-                                                data.partition
+                                                data.partition_id
                                             );
 
                                             offsets_by_topic_partition.get(&tp).map(move |&fetch| {
                                                 FetchedRecords {
-                                                    partition_id: data.partition,
+                                                    partition_id: data.partition_id,
                                                     error_code: data.error_code.into(),
                                                     fetch_offset: fetch.offset,
                                                     high_watermark: data.high_watermark,
@@ -1007,7 +1007,7 @@ where
                                     .into_iter()
                                     .map(|partition| {
                                         ListedOffset {
-                                            partition_id: partition.partition,
+                                            partition_id: partition.partition_id,
                                             error_code: partition.error_code.into(),
                                             offsets: partition.offsets,
                                             timestamp: partition.timestamp,
@@ -1088,7 +1088,7 @@ where
                             .into_iter()
                             .map(|partition| {
                                 CommittedOffset {
-                                    partition: partition.partition,
+                                    partition_id: partition.partition_id,
                                     error_code: partition.error_code.into(),
                                 }
                             })
@@ -1140,7 +1140,7 @@ where
                             .into_iter()
                             .map(|partition| {
                                 FetchedOffset {
-                                    partition: partition.partition,
+                                    partition_id: partition.partition_id,
                                     offset: partition.offset,
                                     metadata: partition.metadata,
                                     error_code: partition.error_code.into(),

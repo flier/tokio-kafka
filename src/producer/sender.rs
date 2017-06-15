@@ -54,7 +54,7 @@ where
         trace!("sending batch to {:?}: {:?}", self.tp, self.message_set);
 
         let topic_name: String = String::from(self.tp.topic_name.borrow());
-        let partition_id = self.tp.partition;
+        let partition_id = self.tp.partition_id;
         let acks = self.acks;
         let ack_timeout = self.ack_timeout;
         let message_set = Cow::Owned(self.message_set.clone());

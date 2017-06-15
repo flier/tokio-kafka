@@ -18,10 +18,12 @@ pub struct MetadataRequest<'a> {
 impl<'a> Record for MetadataRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) +
-        self.topic_names
-            .iter()
-            .fold(ARRAY_LEN_SIZE,
-                  |size, topic_name| size + STR_LEN_SIZE + topic_name.len())
+            self.topic_names.iter().fold(
+                ARRAY_LEN_SIZE,
+                |size, topic_name| {
+                    size + STR_LEN_SIZE + topic_name.len()
+                },
+            )
     }
 }
 
@@ -29,8 +31,12 @@ impl<'a> Encodable for MetadataRequest<'a> {
     fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
         self.header.encode::<T>(dst)?;
 
-        dst.put_array::<T, _, _>(&self.topic_names,
-                                  |buf, topic_name| buf.put_str::<T, _>(Some(topic_name.as_ref())))?;
+        dst.put_array::<T, _, _>(
+            &self.topic_names,
+            |buf, topic_name| {
+                buf.put_str::<T, _>(Some(topic_name.as_ref()))
+            },
+        )?;
 
         Ok(())
     }
@@ -60,7 +66,7 @@ pub struct TopicMetadata {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartitionMetadata {
     pub error_code: ErrorCode,
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     pub leader: NodeId,
     pub replicas: Vec<NodeId>,
     pub isr: Vec<NodeId>,
@@ -121,13 +127,13 @@ named!(parse_partition_metadata<PartitionMetadata>,
     parse_tag!(ParseTag::PartitionMetadata,
         do_parse!(
             error_code: be_i16
-         >> partition: be_i32
+         >> partition_id: be_i32
          >> leader: be_i32
          >> replicas: length_count!(be_i32, be_i32)
          >> isr: length_count!(be_i32, be_i32)
          >> (PartitionMetadata {
                 error_code: error_code,
-                partition: partition,
+                partition_id: partition_id,
                 leader: leader,
                 replicas: replicas,
                 isr: isr,
@@ -195,7 +201,7 @@ mod tests {
                 topic_name: "topic".to_owned(),
                 partitions: vec![PartitionMetadata {
                     error_code: 3,
-                    partition: 4,
+                    partition_id: 4,
                     leader: 5,
                     replicas: vec![6],
                     isr: vec![7],

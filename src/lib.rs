@@ -88,3 +88,11 @@ pub use serialization::{BytesDeserializer, BytesSerializer, Deserializer, NoopDe
 pub use serialization::{JsonDeserializer, JsonSerializer};
 #[cfg(feature = "encoding")]
 pub use serialization::{StrEncodingDeserializer, StrEncodingSerializer};
+
+#[macro_export]
+macro_rules! topic_partition {
+    ($topic_name:expr, $partition_id:expr) => ($crate::TopicPartition {
+        topic_name: $topic_name.into(),
+        partition_id: $partition_id,
+    })
+}

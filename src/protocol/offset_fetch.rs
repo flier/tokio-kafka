@@ -1,5 +1,5 @@
-use std::borrow::Cow;
 use bytes::{BufMut, ByteOrder, BytesMut};
+use std::borrow::Cow;
 
 use nom::{IResult, be_i16, be_i32, be_i64};
 
@@ -28,7 +28,7 @@ pub struct OffsetFetchTopic<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OffsetFetchPartition {
     /// The id of the partition the fetch is for.
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -49,7 +49,7 @@ pub struct OffsetFetchTopicStatus {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OffsetFetchPartitionStatus {
     /// The id of the partition the fetch is for.
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// Last committed message offset.
     pub offset: Offset,
     /// Any associated metadata the client wants to keep.
@@ -61,14 +61,11 @@ pub struct OffsetFetchPartitionStatus {
 impl<'a> Record for OffsetFetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len() +
-        self.topics
-            .iter()
-            .fold(ARRAY_LEN_SIZE, |size, topic| {
+            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
                 size + STR_LEN_SIZE + topic.topic_name.len() +
-                topic
-                    .partitions
-                    .iter()
-                    .fold(ARRAY_LEN_SIZE, |size, _| size + PARTITION_ID_SIZE)
+                    topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
+                        size + PARTITION_ID_SIZE
+                    })
             })
     }
 }
@@ -81,7 +78,7 @@ impl<'a> Encodable for OffsetFetchRequest<'a> {
         dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
             buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
             buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition);
+                buf.put_i32::<T>(partition.partition_id);
                 Ok(())
             })
         })
@@ -123,12 +120,12 @@ named!(parse_offset_fetch_topic_status<OffsetFetchTopicStatus>,
 named!(parse_offset_fetch_partition_status<OffsetFetchPartitionStatus>,
     parse_tag!(ParseTag::OffsetFetchPartitionStatus,
         do_parse!(
-            partition: be_i32
+            partition_id: be_i32
          >> offset: be_i64
          >> metadata: parse_opt_string
          >> error_code: be_i16
          >> (OffsetFetchPartitionStatus {
-                partition: partition,
+                partition_id: partition_id,
                 offset: offset,
                 metadata: metadata,
                 error_code: error_code,
@@ -136,7 +133,6 @@ named!(parse_offset_fetch_partition_status<OffsetFetchPartitionStatus>,
         )
     )
 );
-
 
 #[cfg(test)]
 mod tests {
@@ -159,7 +155,7 @@ mod tests {
             topics: vec![OffsetFetchTopic {
                 topic_name: "topic".into(),
                 partitions: vec![OffsetFetchPartition {
-                    partition: 1,
+                    partition_id: 1,
                 }],
             }],
         };
@@ -200,7 +196,7 @@ mod tests {
             topics: vec![OffsetFetchTopicStatus {
                 topic_name: "topic".to_owned(),
                 partitions: vec![OffsetFetchPartitionStatus {
-                    partition: 1,
+                    partition_id: 1,
                     offset: 2,
                     metadata: Some("metadata".to_owned()),
                     error_code: 3,

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use serde::{de, ser};
 
-use protocol::Nullable;
 use consumer::{Assignment, Subscription};
+use protocol::Nullable;
 
 const CONSUMER_PROTOCOL_V0: i16 = 0;
 
@@ -39,7 +39,8 @@ pub struct AssignmentSchema {
 
 impl<'a> ser::Serialize for Subscription<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: ser::Serializer
+    where
+        S: ser::Serializer,
     {
         let mut schema = SubscriptionSchema {
             header: ConsumerProtocolHeader { version: CONSUMER_PROTOCOL_V0 },
@@ -61,7 +62,8 @@ impl<'a> ser::Serialize for Subscription<'a> {
 
 impl<'a, 'de> de::Deserialize<'de> for Subscription<'a> {
     fn deserialize<D>(deserializer: D) -> Result<Subscription<'a>, D::Error>
-        where D: de::Deserializer<'de>
+    where
+        D: de::Deserializer<'de>,
     {
         let SubscriptionSchema {
             header,
@@ -70,19 +72,23 @@ impl<'a, 'de> de::Deserialize<'de> for Subscription<'a> {
         } = SubscriptionSchema::deserialize(deserializer)?;
 
         if header.version < CONSUMER_PROTOCOL_V0 {
-            Err(de::Error::custom(format!("unsupported subscription version: {}", header.version)))
+            Err(de::Error::custom(format!(
+                "unsupported subscription version: {}",
+                header.version
+            )))
         } else {
             Ok(Subscription {
-                   topics: topics.into_iter().map(Cow::Owned).collect(),
-                   user_data: user_data.into_raw().map(Cow::Owned),
-               })
+                topics: topics.into_iter().map(Cow::Owned).collect(),
+                user_data: user_data.into_raw().map(Cow::Owned),
+            })
         }
     }
 }
 
 impl<'a> ser::Serialize for Assignment<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: ser::Serializer
+    where
+        S: ser::Serializer,
     {
         let mut topic_partitions = HashMap::new();
 
@@ -90,7 +96,7 @@ impl<'a> ser::Serialize for Assignment<'a> {
             topic_partitions
                 .entry(tp.topic_name.to_owned())
                 .or_insert_with(Vec::new)
-                .push(tp.partition);
+                .push(tp.partition_id);
         }
 
         let mut schema = AssignmentSchema {
@@ -98,11 +104,11 @@ impl<'a> ser::Serialize for Assignment<'a> {
             topic_partitions: topic_partitions
                 .into_iter()
                 .map(|(topic_name, partitions)| {
-                         TopicAssignment {
-                             topics: String::from(topic_name.to_owned()),
-                             partitions: partitions,
-                         }
-                     })
+                    TopicAssignment {
+                        topics: String::from(topic_name.to_owned()),
+                        partitions: partitions,
+                    }
+                })
                 .collect(),
             user_data: self.user_data
                 .as_ref()
@@ -110,9 +116,9 @@ impl<'a> ser::Serialize for Assignment<'a> {
                 .into(),
         };
 
-        schema
-            .topic_partitions
-            .sort_by(|lhs, rhs| lhs.topics.cmp(&rhs.topics));
+        schema.topic_partitions.sort_by(|lhs, rhs| {
+            lhs.topics.cmp(&rhs.topics)
+        });
 
         schema.serialize(serializer)
     }
@@ -120,7 +126,8 @@ impl<'a> ser::Serialize for Assignment<'a> {
 
 impl<'a, 'de> de::Deserialize<'de> for Assignment<'a> {
     fn deserialize<D>(deserializer: D) -> Result<Assignment<'a>, D::Error>
-        where D: de::Deserializer<'de>
+    where
+        D: de::Deserializer<'de>,
     {
         let AssignmentSchema {
             header,
@@ -129,24 +136,26 @@ impl<'a, 'de> de::Deserialize<'de> for Assignment<'a> {
         } = AssignmentSchema::deserialize(deserializer)?;
 
         if header.version < CONSUMER_PROTOCOL_V0 {
-            Err(de::Error::custom(format!("unsupported assignment version: {}", header.version)))
+            Err(de::Error::custom(format!(
+                "unsupported assignment version: {}",
+                header.version
+            )))
         } else {
             let partitions = topic_partitions
                 .iter()
                 .flat_map(|assignment| {
                     let topic_name = String::from(assignment.topics.to_owned());
 
-                    assignment
-                        .partitions
-                        .iter()
-                        .map(move |&partition| topic_partition!(topic_name.clone(), partition))
+                    assignment.partitions.iter().map(move |&partition| {
+                        topic_partition!(topic_name.clone(), partition)
+                    })
                 })
                 .collect();
 
             Ok(Assignment {
-                   partitions: partitions,
-                   user_data: user_data.into_raw().map(Cow::Owned),
-               })
+                partitions: partitions,
+                user_data: user_data.into_raw().map(Cow::Owned),
+            })
         }
     }
 }
@@ -213,8 +222,10 @@ mod tests {
 
     #[test]
     fn test_subscription_serializer() {
-        assert_eq!(Schema::serialize(&*TEST_SUBSCRIPTION).unwrap(),
-                   *TEST_SUBSCRIPTION_DATA);
+        assert_eq!(
+            Schema::serialize(&*TEST_SUBSCRIPTION).unwrap(),
+            *TEST_SUBSCRIPTION_DATA
+        );
     }
 
     #[test]
@@ -227,8 +238,10 @@ mod tests {
 
     #[test]
     fn test_assignment_serializer() {
-        assert_eq!(Schema::serialize(&*TEST_ASSIGNMENT).unwrap(),
-                   *TEST_ASSIGNMENT_DATA);
+        assert_eq!(
+            Schema::serialize(&*TEST_ASSIGNMENT).unwrap(),
+            *TEST_ASSIGNMENT_DATA
+        );
     }
 
     #[test]

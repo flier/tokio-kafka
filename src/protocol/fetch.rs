@@ -52,7 +52,7 @@ pub struct FetchTopic<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchPartition {
     /// The id of the partition the fetch is for.
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// The offset to begin this fetch from.
     pub fetch_offset: Offset,
     /// The maximum bytes to include in the message set for this partition.
@@ -62,13 +62,13 @@ pub struct FetchPartition {
 impl<'a> Record for FetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REQUEST_OVERHEAD +
-        if api_version > 2 { MAX_BYTES_SIZE } else { 0 } +
-        self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
-            size + STR_LEN_SIZE + topic.topic_name.len() +
-            topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
-                size + PARTITION_ID_SIZE + FETCH_OFFSET_SIZE + MAX_BYTES_SIZE
+            if api_version > 2 { MAX_BYTES_SIZE } else { 0 } +
+            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len() +
+                    topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
+                        size + PARTITION_ID_SIZE + FETCH_OFFSET_SIZE + MAX_BYTES_SIZE
+                    })
             })
-        })
     }
 }
 
@@ -87,7 +87,7 @@ impl<'a> Encodable for FetchRequest<'a> {
         dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
             buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
             buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition);
+                buf.put_i32::<T>(partition.partition_id);
                 buf.put_i64::<T>(partition.fetch_offset);
                 buf.put_i32::<T>(partition.max_bytes);
                 Ok(())
@@ -115,7 +115,7 @@ pub struct FetchTopicData {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchPartitionData {
     /// The id of the partition the fetch is for.
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     pub error_code: ErrorCode,
     /// The offset at the end of the log for this partition.
     pub high_watermark: Offset,
@@ -159,12 +159,12 @@ named_args!(parse_fetch_topic_data(api_version: ApiVersion)<FetchTopicData>,
 named_args!(parse_fetch_partition_data(api_version: ApiVersion)<FetchPartitionData>,
     parse_tag!(ParseTag::FetchPartitionData,
         do_parse!(
-            partition: be_i32
+            partition_id: be_i32
          >> error_code: be_i16
          >> high_watermark: be_i64
          >> message_set: length_value!(be_i32, apply!(parse_message_set, api_version))
          >> (FetchPartitionData {
-                partition: partition,
+                partition_id: partition_id,
                 error_code: error_code,
                 high_watermark: high_watermark,
                 message_set: message_set,
@@ -199,7 +199,7 @@ mod tests {
             topics: vec![FetchTopic {
                 topic_name: "topic".into(),
                 partitions: vec![FetchPartition {
-                    partition: 5,
+                    partition_id: 5,
                     fetch_offset: 6,
                     max_bytes: 7
                 }],
@@ -253,7 +253,7 @@ mod tests {
             topics: vec![FetchTopic {
                 topic_name: "topic".into(),
                 partitions: vec![FetchPartition {
-                    partition: 5,
+                    partition_id: 5,
                     fetch_offset: 6,
                     max_bytes: 7
                 }],
@@ -300,7 +300,7 @@ mod tests {
             topics: vec![FetchTopicData {
                 topic_name: "topic".to_owned(),
                 partitions: vec![FetchPartitionData {
-                    partition: 1,
+                    partition_id: 1,
                     error_code: 2,
                     high_watermark: 3,
                     message_set: MessageSet {
@@ -357,7 +357,7 @@ mod tests {
             topics: vec![FetchTopicData {
                 topic_name: "topic".to_owned(),
                 partitions: vec![FetchPartitionData {
-                    partition: 1,
+                    partition_id: 1,
                     error_code: 2,
                     high_watermark: 3,
                     message_set: MessageSet {

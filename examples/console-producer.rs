@@ -12,22 +12,22 @@ extern crate tokio_file_unix;
 
 extern crate tokio_kafka;
 
-use std::io;
-use std::fs;
-use std::str;
 use std::env;
-use std::process;
-use std::time::Duration;
-use std::path::Path;
+use std::fs;
+use std::io;
 use std::net::ToSocketAddrs;
+use std::path::Path;
+use std::process;
+use std::str;
+use std::time::Duration;
 
 use getopts::Options;
 
 use futures::{Future, Sink, Stream};
 use tokio_core::reactor::Core;
+use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
-use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 
 use tokio_kafka::{BytesSerializer, Compression, DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE,
                   DEFAULT_LINGER_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, KafkaVersion,
@@ -68,42 +68,50 @@ struct Config {
 impl Config {
     fn parse_cmdline() -> Result<Self> {
         let args: Vec<String> = env::args().collect();
-        let program = Path::new(&args[0])
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
+        let program = Path::new(&args[0]).file_name().unwrap().to_str().unwrap();
         let mut opts = Options::new();
 
         opts.optflag("h", "help", "print this help menu");
-        opts.optopt("b",
-                    "brokers",
-                    "Bootstrap broker(s) (host[:port], comma separated)",
-                    "HOSTS");
-        opts.optopt("",
-                    "broker-version",
-                    "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
-                    "VERSION");
+        opts.optopt(
+            "b",
+            "brokers",
+            "Bootstrap broker(s) (host[:port], comma separated)",
+            "HOSTS",
+        );
+        opts.optopt(
+            "",
+            "broker-version",
+            "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
+            "VERSION",
+        );
         opts.optopt("t", "topic", "Specify target topic", "NAME");
         opts.optopt("i", "input", "Specify input file", "FILE");
         opts.optopt("n", "batch-size", "Send N message in one batch.", "N");
-        opts.optopt("c",
-                    "compression",
-                    "Compress messages [none, gzip, snappy, lz4]",
-                    "TYPE");
-        opts.optopt("a",
-                    "required-acks",
-                    "Specify amount of required broker acknowledgments [none, one, all]",
-                    "TYPE");
+        opts.optopt(
+            "c",
+            "compression",
+            "Compress messages [none, gzip, snappy, lz4]",
+            "TYPE",
+        );
+        opts.optopt(
+            "a",
+            "required-acks",
+            "Specify amount of required broker acknowledgments [none, one, all]",
+            "TYPE",
+        );
         opts.optopt("", "ack-timeout", "Specify time to wait for acks", "MS");
-        opts.optopt("",
-                    "idle-timeout",
-                    "Specify timeout for idle connections",
-                    "MS");
-        opts.optopt("",
-                    "linger",
-                    "The producer groups together any records in the linger timeout",
-                    "MS");
+        opts.optopt(
+            "",
+            "idle-timeout",
+            "Specify timeout for idle connections",
+            "MS",
+        );
+        opts.optopt(
+            "",
+            "linger",
+            "The producer groups together any records in the linger timeout",
+            "MS",
+        );
 
         let m = opts.parse(&args[1..])?;
 
@@ -115,39 +123,51 @@ impl Config {
             process::exit(0);
         }
 
-        let brokers = m.opt_str("b")
-            .map_or_else(|| vec![DEFAULT_BROKER.to_owned()],
-                         |s| s.split(',').map(|s| s.trim().to_owned()).collect());
+        let brokers = m.opt_str("b").map_or_else(
+            || vec![DEFAULT_BROKER.to_owned()],
+            |s| {
+                s.split(',').map(|s| s.trim().to_owned()).collect()
+            },
+        );
 
-        let (api_version_request, broker_version) = m.opt_str("broker-version")
-            .map_or((false, None), |s| if s == "auto" {
+        let (api_version_request, broker_version) = m.opt_str("broker-version").map_or(
+            (false, None),
+            |s| if s == "auto" {
                 (true, None)
             } else {
                 (false, Some(s.parse().unwrap()))
-            });
+            },
+        );
 
         Ok(Config {
-               brokers: brokers,
-               api_version_request: api_version_request,
-               broker_version: broker_version,
-               topic_name: m.opt_str("topic")
-                   .unwrap_or_else(|| DEFAULT_TOPIC.to_owned()),
-               input_file: m.opt_str("input"),
-               batch_size: m.opt_str("batch-size").map_or(DEFAULT_BATCH_SIZE, |s| s.parse().unwrap()),
-               compression: m.opt_str("compression")
-                   .map(|s| s.parse().unwrap())
-                   .unwrap_or_default(),
-               required_acks: m.opt_str("required-acks")
-                   .map(|s| s.parse().unwrap())
-                   .unwrap_or_default(),
-               idle_timeout: Duration::from_millis(m.opt_str("idle-timeout")
-                   .map_or(DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
-                           |s| s.parse().unwrap())),
-               ack_timeout: Duration::from_millis(m.opt_str("ack-timeout")
-                   .map_or(DEFAULT_ACK_TIMEOUT_MILLIS, |s| s.parse().unwrap())),
-               linger: Duration::from_millis(m.opt_str("linger")
-                   .map_or(DEFAULT_LINGER_MILLIS, |s| s.parse().unwrap())),
-           })
+            brokers: brokers,
+            api_version_request: api_version_request,
+            broker_version: broker_version,
+            topic_name: m.opt_str("topic").unwrap_or_else(
+                || DEFAULT_TOPIC.to_owned(),
+            ),
+            input_file: m.opt_str("input"),
+            batch_size: m.opt_str("batch-size").map_or(DEFAULT_BATCH_SIZE, |s| {
+                s.parse().unwrap()
+            }),
+            compression: m.opt_str("compression")
+                .map(|s| s.parse().unwrap())
+                .unwrap_or_default(),
+            required_acks: m.opt_str("required-acks")
+                .map(|s| s.parse().unwrap())
+                .unwrap_or_default(),
+            idle_timeout: Duration::from_millis(m.opt_str("idle-timeout").map_or(
+                DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
+                |s| s.parse().unwrap(),
+            )),
+            ack_timeout: Duration::from_millis(m.opt_str("ack-timeout").map_or(
+                DEFAULT_ACK_TIMEOUT_MILLIS,
+                |s| s.parse().unwrap(),
+            )),
+            linger: Duration::from_millis(m.opt_str("linger").map_or(DEFAULT_LINGER_MILLIS, |s| {
+                s.parse().unwrap()
+            })),
+        })
     }
 }
 
@@ -196,9 +216,10 @@ impl ProducerInterceptor for LogInterceptor {
     type Key = ();
     type Value = String;
 
-    fn send(&self,
-            record: ProducerRecord<Self::Key, Self::Value>)
-            -> tokio_kafka::Result<ProducerRecord<Self::Key, Self::Value>> {
+    fn send(
+        &self,
+        record: ProducerRecord<Self::Key, Self::Value>,
+    ) -> tokio_kafka::Result<ProducerRecord<Self::Key, Self::Value>> {
         debug!("sending {:?}", record);
 
         Ok(record)
@@ -209,13 +230,15 @@ impl ProducerInterceptor for LogInterceptor {
 
         match *result {
             Ok(ref md) => {
-                trace!("sent to {} #{} @{}, ts={}, key_size={}, value_size={}",
-                       md.topic_name,
-                       md.partition,
-                       md.offset,
-                       md.timestamp,
-                       md.serialized_key_size,
-                       md.serialized_value_size)
+                trace!(
+                    "sent to {} #{} @{}, ts={}, key_size={}, value_size={}",
+                    md.topic_name,
+                    md.partition_id,
+                    md.offset,
+                    md.timestamp,
+                    md.serialized_key_size,
+                    md.serialized_value_size
+                )
             }
             Err(ref err) => warn!("fail to produce records, {}", err),
         }
@@ -223,12 +246,12 @@ impl ProducerInterceptor for LogInterceptor {
 }
 
 fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
-    where I: AsyncRead
+where
+    I: AsyncRead,
 {
-    let hosts = config
-        .brokers
-        .iter()
-        .flat_map(|s| s.to_socket_addrs().unwrap());
+    let hosts = config.brokers.iter().flat_map(
+        |s| s.to_socket_addrs().unwrap(),
+    );
 
     let handle = core.handle();
 
@@ -255,10 +278,10 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
 
     let lines = FramedRead::new(io, DelimCodec(Newline))
         .and_then(|line| {
-                      String::from_utf8(line)
-                          .map(|line| line.trim().to_owned())
-                          .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
-                  })
+            String::from_utf8(line)
+                .map(|line| line.trim().to_owned())
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+        })
         .filter(|line| !line.is_empty())
         .map(TopicRecord::from_value);
 

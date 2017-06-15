@@ -35,8 +35,9 @@ impl<'a> Subscriptions<'a> {
     }
 
     pub fn with_topics<I, S>(topic_names: I, default_reset_strategy: OffsetResetStrategy) -> Self
-        where I: Iterator<Item = S>,
-              S: AsRef<str> + Hash + Eq
+    where
+        I: Iterator<Item = S>,
+        S: AsRef<str> + Hash + Eq,
     {
         let topic_names: Vec<String> = topic_names.map(|s| s.as_ref().to_owned()).collect();
 
@@ -53,8 +54,9 @@ impl<'a> Subscriptions<'a> {
     }
 
     pub fn subscribe<I, S>(&mut self, topic_names: I)
-        where I: Iterator<Item = S>,
-              S: AsRef<str> + Hash + Eq
+    where
+        I: Iterator<Item = S>,
+        S: AsRef<str> + Hash + Eq,
     {
         let topic_names: Vec<String> = topic_names.map(|s| s.as_ref().to_owned()).collect();
         self.subscription = HashSet::from_iter(topic_names.iter().cloned());
@@ -66,10 +68,13 @@ impl<'a> Subscriptions<'a> {
     /// This is used by the group leader to ensure that it receives metadata updates for all
     /// topics
     /// that the group is interested in.
-    pub fn group_subscribe<I: Iterator<Item = S>, S: AsRef<str> + Hash + Eq>(&mut self,
-                                                                             topic_names: I) {
-        self.group_subscription
-            .extend(topic_names.map(|s| s.as_ref().to_owned()))
+    pub fn group_subscribe<I: Iterator<Item = S>, S: AsRef<str> + Hash + Eq>(
+        &mut self,
+        topic_names: I,
+    ) {
+        self.group_subscription.extend(topic_names.map(
+            |s| s.as_ref().to_owned(),
+        ))
     }
 
     pub fn topics(&self) -> Vec<&str> {
@@ -79,18 +84,21 @@ impl<'a> Subscriptions<'a> {
     /// Change the assignment to the specified partitions returned from the coordinator
     pub fn assign_from_subscribed(&mut self, partitions: Vec<TopicPartition<'a>>) -> Result<()> {
         if let Some(tp) = partitions.iter().find(|tp| {
-                                                     !self.subscription
-                                                         .contains(&String::from(tp.topic_name
-                                                                                     .to_owned()))
-                                                 }) {
-            bail!(ErrorKind::IllegalArgument(format!("assigned partition {}#{} for non-subscribed topic",
-                                                     tp.topic_name,
-                                                     tp.partition)))
+            !self.subscription.contains(
+                &String::from(tp.topic_name.to_owned()),
+            )
+        })
+        {
+            bail!(ErrorKind::IllegalArgument(format!(
+                "assigned partition {}#{} for non-subscribed topic",
+                tp.topic_name,
+                tp.partition_id
+            )))
         }
 
-        self.assignment = HashMap::from_iter(partitions
-                                                 .into_iter()
-                                                 .map(|tp| (tp, TopicPartitionState::default())));
+        self.assignment = HashMap::from_iter(partitions.into_iter().map(|tp| {
+            (tp, TopicPartitionState::default())
+        }));
 
         Ok(())
     }
@@ -107,9 +115,10 @@ impl<'a> Subscriptions<'a> {
         self.assignment.get(tp)
     }
 
-    pub fn assigned_state_mut(&mut self,
-                              tp: &TopicPartition<'a>)
-                              -> Option<&mut TopicPartitionState<'a>> {
+    pub fn assigned_state_mut(
+        &mut self,
+        tp: &TopicPartition<'a>,
+    ) -> Option<&mut TopicPartitionState<'a>> {
         self.assignment.get_mut(tp)
     }
 
@@ -149,9 +158,10 @@ impl<'a> TopicPartitionState<'a> {
         self.committed.is_some()
     }
 
-    pub fn need_offset_reset(&mut self,
-                             reset_strategy: OffsetResetStrategy)
-                             -> Option<OffsetResetStrategy> {
+    pub fn need_offset_reset(
+        &mut self,
+        reset_strategy: OffsetResetStrategy,
+    ) -> Option<OffsetResetStrategy> {
         mem::replace(&mut self.reset_strategy, Some(reset_strategy))
     }
 

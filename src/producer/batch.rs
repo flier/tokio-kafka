@@ -1,7 +1,8 @@
-use std::rc::Rc;
+
 use std::cell::RefCell;
 use std::hash::Hash;
 use std::ops::Deref;
+use std::rc::Rc;
 use std::time::Instant;
 
 use bytes::{BigEndian, Bytes};
@@ -9,11 +10,11 @@ use bytes::{BigEndian, Bytes};
 use futures::{Async, Future, Poll};
 use futures::unsync::oneshot::{Canceled, Receiver, Sender, channel};
 
-use errors::{Error, ErrorKind, Result};
 use compression::Compression;
+use errors::{Error, ErrorKind, Result};
+use producer::{ProducerInterceptor, ProducerInterceptors, RecordMetadata};
 use protocol::{ApiVersion, KafkaCode, MessageSet, MessageSetBuilder, Offset, PartitionId,
                Timestamp};
-use producer::{ProducerInterceptor, ProducerInterceptors, RecordMetadata};
 
 #[derive(Debug)]
 pub struct Thunk {
@@ -25,22 +26,23 @@ pub struct Thunk {
 }
 
 impl Thunk {
-    pub fn done<K: Hash, V>(self,
-                            interceptors: Option<Rc<RefCell<ProducerInterceptors<K, V>>>>,
-                            topic_name: &str,
-                            partition: PartitionId,
-                            base_offset: Offset,
-                            error_code: KafkaCode)
-                            -> ::std::result::Result<(), Result<RecordMetadata>> {
+    pub fn done<K: Hash, V>(
+        self,
+        interceptors: Option<Rc<RefCell<ProducerInterceptors<K, V>>>>,
+        topic_name: &str,
+        partition_id: PartitionId,
+        base_offset: Offset,
+        error_code: KafkaCode,
+    ) -> ::std::result::Result<(), Result<RecordMetadata>> {
         let result = if error_code == KafkaCode::None {
             Ok(RecordMetadata {
-                   topic_name: topic_name.to_owned(),
-                   partition: partition,
-                   offset: base_offset + self.relative_offset,
-                   timestamp: self.timestamp,
-                   serialized_key_size: self.key_size,
-                   serialized_value_size: self.value_size,
-               })
+                topic_name: topic_name.to_owned(),
+                partition_id: partition_id,
+                offset: base_offset + self.relative_offset,
+                timestamp: self.timestamp,
+                serialized_key_size: self.key_size,
+                serialized_value_size: self.value_size,
+            })
         } else {
             Err(ErrorKind::KafkaError(error_code).into())
         };
@@ -89,11 +91,12 @@ impl ProducerBatch {
         &self.last_push_time
     }
 
-    pub fn push_record(&mut self,
-                       timestamp: Timestamp,
-                       key: Option<Bytes>,
-                       value: Option<Bytes>)
-                       -> Result<FutureRecordMetadata> {
+    pub fn push_record(
+        &mut self,
+        timestamp: Timestamp,
+        key: Option<Bytes>,
+        value: Option<Bytes>,
+    ) -> Result<FutureRecordMetadata> {
         let key_size = key.as_ref().map_or(0, |b| b.len());
         let value_size = value.as_ref().map_or(0, |b| b.len());
 
@@ -101,14 +104,13 @@ impl ProducerBatch {
 
         let (sender, receiver) = channel();
 
-        self.thunks
-            .push(Thunk {
-                      sender: sender,
-                      relative_offset: relative_offset,
-                      timestamp: timestamp,
-                      key_size: key_size,
-                      value_size: value_size,
-                  });
+        self.thunks.push(Thunk {
+            sender: sender,
+            relative_offset: relative_offset,
+            timestamp: timestamp,
+            key_size: key_size,
+            value_size: value_size,
+        });
         self.last_push_time = Instant::now();
 
         Ok(FutureRecordMetadata { receiver: receiver })

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use protocol::{ApiKeys, ApiVersion, NodeId, PartitionId, UsableApiVersions};
 use network::TopicPartition;
+use protocol::{ApiKeys, ApiVersion, NodeId, PartitionId, UsableApiVersions};
 
-/// A trait for representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
+/// A trait for representation of a subset of the nodes, topics, and partitions in the Kafka
+/// cluster.
 pub trait Cluster {
     /// The known set of brokers.
     fn brokers(&self) -> &[Broker];
@@ -17,7 +18,8 @@ pub trait Cluster {
     /// Find the broker by the node id (return `None` if no such node exists)
     fn find_broker(&self, broker: BrokerRef) -> Option<&Broker>;
 
-    /// Get the current leader for the given topic-partition (return `None` if no such node exists)
+    /// Get the current leader for the given topic-partition (return `None` if no such node
+    /// exists)
     fn leader_for(&self, tp: &TopicPartition) -> Option<&Broker>;
 
     /// Get the metadata for the specified partition (return `None` if no such partition exists)
@@ -86,13 +88,11 @@ impl Broker {
     }
 
     pub fn api_version(&self, api_key: ApiKeys) -> Option<ApiVersion> {
-        self.api_versions
-            .as_ref()
-            .and_then(|api_versions| {
-                          api_versions
-                              .find(api_key)
-                              .map(|api_version| api_version.max_version)
-                      })
+        self.api_versions.as_ref().and_then(|api_versions| {
+            api_versions.find(api_key).map(|api_version| {
+                api_version.max_version
+            })
+        })
     }
 
     pub fn with_api_versions(&self, api_versions: Option<UsableApiVersions>) -> Self {
@@ -145,16 +145,23 @@ impl From<BrokerIndex> for BrokerRef {
 /// Information about a topic-partition.
 #[derive(Debug, Clone)]
 pub struct PartitionInfo {
-    pub partition: PartitionId,
+    /// The partition id
+    pub partition_id: PartitionId,
+    /// The node id of the node currently acting as a leader for this partition or null if
+    /// there is no leader
     pub leader: Option<BrokerRef>,
+    /// The complete set of replicas for this partition regardless of whether they are alive or
+    /// up-to-date
     pub replicas: Vec<BrokerRef>,
+    /// The subset of the replicas that are in sync, that is caught-up to the leader and ready
+    /// to take over as leader if the leader should fail
     pub in_sync_replicas: Vec<BrokerRef>,
 }
 
 impl<'a> Default for PartitionInfo {
     fn default() -> Self {
         PartitionInfo {
-            partition: -1,
+            partition_id: -1,
             leader: None,
             replicas: Vec::new(),
             in_sync_replicas: Vec::new(),
@@ -165,7 +172,7 @@ impl<'a> Default for PartitionInfo {
 impl PartitionInfo {
     pub fn new(partition: PartitionId) -> Self {
         PartitionInfo {
-            partition: partition,
+            partition_id: partition,
             leader: None,
             replicas: vec![],
             in_sync_replicas: vec![],
@@ -174,31 +181,10 @@ impl PartitionInfo {
 
     pub fn with_leader(partition: PartitionId, leader: BrokerRef) -> Self {
         PartitionInfo {
-            partition: partition,
+            partition_id: partition,
             leader: Some(leader),
             replicas: vec![],
             in_sync_replicas: vec![],
         }
-    }
-
-    /// The partition id
-    pub fn partition(&self) -> PartitionId {
-        self.partition
-    }
-
-    /// The node id of the node currently acting as a leader for this partition or null if there is no leader
-    pub fn leader(&self) -> Option<BrokerRef> {
-        self.leader
-    }
-
-    /// The complete set of replicas for this partition regardless of whether they are alive or up-to-date
-    pub fn replicas(&self) -> &[BrokerRef] {
-        self.replicas.as_slice()
-    }
-
-    /// The subset of the replicas that are in sync,
-    /// that is caught-up to the leader and ready to take over as leader if the leader should fail
-    pub fn in_sync_replicas(&self) -> &[BrokerRef] {
-        self.in_sync_replicas.as_slice()
     }
 }

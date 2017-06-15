@@ -1,11 +1,12 @@
-use std::fmt;
-use std::error::Error as StdError;
+
 use std::borrow::{Borrow, Cow};
+use std::error::Error as StdError;
+use std::fmt;
 
 use serde::{de, ser};
 
-use protocol::{ApiKeys, KafkaCode, PartitionId};
 use client::BrokerRef;
+use protocol::{ApiKeys, KafkaCode, PartitionId};
 
 error_chain!{
     foreign_links {
@@ -71,9 +72,9 @@ error_chain!{
             description("unsupported offset reset strategy")
             display("unsupported offset reset strategy, {}", name)
         }
-        NoOffsetForPartition(topic_name: String, partition: PartitionId) {
+        NoOffsetForPartition(topic_name: String, partition_id: PartitionId) {
             description("Undefined offset with no reset policy for partition")
-            display("Undefined offset with no reset policy for partition, {}:{}", topic_name, partition)
+            display("Undefined offset with no reset policy for partition, {}:{}", topic_name, partition_id)
         }
         UnexpectedEOF {
             description("Unexpected EOF")
@@ -103,7 +104,8 @@ unsafe impl Send for Error {}
 
 impl ser::Error for Error {
     fn custom<T>(msg: T) -> Self
-        where T: fmt::Display
+    where
+        T: fmt::Display,
     {
         ErrorKind::Msg(msg.to_string()).into()
     }
@@ -111,7 +113,8 @@ impl ser::Error for Error {
 
 impl de::Error for Error {
     fn custom<T>(msg: T) -> Self
-        where T: fmt::Display
+    where
+        T: fmt::Display,
     {
         ErrorKind::Msg(msg.to_string()).into()
     }
@@ -130,7 +133,8 @@ impl<T> From<::std::sync::PoisonError<T>> for Error {
 }
 
 impl<P> From<::nom::verbose_errors::Err<P>> for Error
-    where P: ::std::fmt::Debug
+where
+    P: ::std::fmt::Debug,
 {
     fn from(err: ::nom::verbose_errors::Err<P>) -> Self {
         ErrorKind::ParseError(err.to_string()).into()

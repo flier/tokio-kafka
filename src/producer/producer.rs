@@ -199,7 +199,7 @@ where
                 Ok(ProducerTopic {
                     producer: KafkaProducer { inner: inner.clone() },
                     topic_name: topic_name.into(),
-                    partitions: partitions.iter().map(|p| p.partition).collect(),
+                    partitions: partitions.iter().map(|p| p.partition_id).collect(),
                     pending: Pending::new(),
                 })
             } else {
@@ -237,7 +237,7 @@ where
 
         let ProducerRecord {
             topic_name,
-            partition,
+            partition_id,
             key,
             value,
             timestamp,
@@ -246,7 +246,7 @@ where
         let partition = self.partitioner
             .partition(
                 &topic_name,
-                partition,
+                partition_id,
                 key.as_ref(),
                 value.as_ref(),
                 &metadata,

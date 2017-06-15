@@ -94,8 +94,10 @@ where
                         offset_resets.push((tp, FetchOffset::Latest));
                     }
                     _ => {
-                        return ErrorKind::NoOffsetForPartition(tp.topic_name.into(), tp.partition)
-                            .into();
+                        return ErrorKind::NoOffsetForPartition(
+                            tp.topic_name.into(),
+                            tp.partition_id,
+                        ).into();
                     }
                 }
             }

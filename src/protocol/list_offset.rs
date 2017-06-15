@@ -1,4 +1,3 @@
-
 use bytes::{BufMut, ByteOrder, BytesMut};
 use std::borrow::Cow;
 
@@ -61,7 +60,7 @@ pub struct ListTopicOffset<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListPartitionOffset {
     /// The id of the partition the fetch is for.
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// Used to ask for all messages before a certain time (ms).
     pub timestamp: Timestamp,
     /// Maximum offsets to return.
@@ -71,17 +70,17 @@ pub struct ListPartitionOffset {
 impl<'a> Record for ListOffsetRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REPLICA_ID_SIZE +
-        self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
-            size + STR_LEN_SIZE + topic.topic_name.len() +
-            topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
-                size + PARTITION_ID_SIZE + TIMESTAMP_SIZE +
-                if api_version == 0 {
-                    MAX_NUMBER_OF_OFFSETS_SIZE
-                } else {
-                    0
-                }
+            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len() +
+                    topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
+                        size + PARTITION_ID_SIZE + TIMESTAMP_SIZE +
+                            if api_version == 0 {
+                                MAX_NUMBER_OF_OFFSETS_SIZE
+                            } else {
+                                0
+                            }
+                    })
             })
-        })
     }
 }
 
@@ -95,7 +94,7 @@ impl<'a> Encodable for ListOffsetRequest<'a> {
         dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
             buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
             buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition);
+                buf.put_i32::<T>(partition.partition_id);
                 buf.put_i64::<T>(partition.timestamp);
                 if api_version == 0 {
                     buf.put_i32::<T>(partition.max_number_of_offsets);
@@ -122,7 +121,7 @@ pub struct ListOffsetTopicStatus {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListOffsetPartitionStatus {
     /// The id of the partition the fetch is for.
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// The error code
     pub error_code: ErrorCode,
     /// The offset found in the partition
@@ -166,13 +165,13 @@ named_args!(parse_list_offset_topic_status(api_version: ApiVersion)<ListOffsetTo
 named_args!(parse_list_offset_partition_status(api_version: ApiVersion)<ListOffsetPartitionStatus>,
     parse_tag!(ParseTag::ListOffsetPartitionStatus,
         do_parse!(
-            partition: be_i32
+            partition_id: be_i32
          >> error_code: be_i16
          >> offsets: cond!(api_version == 0, length_count!(be_i32, be_i64))
          >> timestamp: cond!(api_version > 0, be_i64)
          >> offset: cond!(api_version > 0, be_i64)
          >> (ListOffsetPartitionStatus {
-                partition: partition,
+                partition_id: partition_id,
                 error_code: error_code,
                 timestamp: timestamp,
                 offsets: if api_version == 0 { offsets.unwrap_or_default() } else { vec![offset.unwrap_or_default()] },
@@ -203,7 +202,7 @@ mod tests {
             topics: vec![ListTopicOffset {
                 topic_name: "topic".into(),
                 partitions: vec![ListPartitionOffset {
-                    partition: 5,
+                    partition_id: 5,
                     timestamp: 6,
                     max_number_of_offsets: 7
                 }],
@@ -252,7 +251,7 @@ mod tests {
             topics: vec![ListTopicOffset {
                 topic_name: "topic".into(),
                 partitions: vec![ListPartitionOffset {
-                    partition: 5,
+                    partition_id: 5,
                     timestamp: 6,
                     max_number_of_offsets: 0
                 }],
@@ -294,7 +293,7 @@ mod tests {
             topics: vec![ListOffsetTopicStatus {
                 topic_name: "topic".to_owned(),
                 partitions: vec![ListOffsetPartitionStatus {
-                    partition: 1,
+                    partition_id: 1,
                     error_code: 2,
                     timestamp: None,
                     offsets: vec![3, 4, 5, 6],
@@ -334,7 +333,7 @@ mod tests {
             topics: vec![ListOffsetTopicStatus {
                 topic_name: "topic".to_owned(),
                 partitions: vec![ListOffsetPartitionStatus {
-                    partition: 1,
+                    partition_id: 1,
                     error_code: 2,
                     timestamp: Some(3),
                     offsets: vec![4],

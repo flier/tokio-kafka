@@ -1,5 +1,5 @@
-use std::mem;
 use std::borrow::Cow;
+use std::mem;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
 
@@ -30,24 +30,22 @@ pub struct ProduceTopicData<'a> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProducePartitionData<'a> {
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     pub message_set: Cow<'a, MessageSet>,
 }
 
 impl<'a> Record for ProduceRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REQUIRED_ACKS_SIZE + ACK_TIMEOUT_SIZE +
-        self.topics
-            .iter()
-            .fold(ARRAY_LEN_SIZE, |size, topic| {
+            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
                 size + STR_LEN_SIZE + topic.topic_name.len() +
-                topic
-                    .partitions
-                    .iter()
-                    .fold(ARRAY_LEN_SIZE, |size, partition| {
-                        size + PARTITION_ID_SIZE + BYTES_LEN_SIZE +
-                        partition.message_set.size(api_version)
-                    })
+                    topic.partitions.iter().fold(
+                        ARRAY_LEN_SIZE,
+                        |size, partition| {
+                            size + PARTITION_ID_SIZE + BYTES_LEN_SIZE +
+                                partition.message_set.size(api_version)
+                        },
+                    )
             })
     }
 }
@@ -63,7 +61,7 @@ impl<'a> Encodable for ProduceRequest<'a> {
         dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
             buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
             buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition);
+                buf.put_i32::<T>(partition.partition_id);
 
                 let size_off = buf.len();
                 buf.put_i32::<T>(0);
@@ -94,7 +92,7 @@ pub struct ProduceTopicStatus {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProducePartitionStatus {
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     pub error_code: ErrorCode,
     pub offset: Offset,
     pub timestamp: Option<Timestamp>,
@@ -137,12 +135,12 @@ named_args!(parse_produce_topic_status(api_version: ApiVersion)<ProduceTopicStat
 named_args!(parse_produce_partition_status(api_version: ApiVersion)<ProducePartitionStatus>,
     parse_tag!(ParseTag::ProducePartitionStatus,
         do_parse!(
-            partition: be_i32
+            partition_id: be_i32
          >> error_code: be_i16
          >> offset: be_i64
          >> timestamp: cond!(api_version > 1, be_i64)
          >> (ProducePartitionStatus {
-                partition: partition,
+                partition_id: partition_id,
                 error_code: error_code,
                 offset: offset,
                 timestamp: timestamp,
@@ -158,8 +156,8 @@ mod tests {
     use nom::IResult;
 
     use super::*;
-    use protocol::*;
     use compression::Compression;
+    use protocol::*;
 
     lazy_static!{
         static ref TEST_REQUEST_DATA: Vec<u8> = vec![
@@ -212,7 +210,7 @@ mod tests {
             topics: vec![ProduceTopicStatus {
                              topic_name: "topic".to_owned(),
                              partitions: vec![ProducePartitionStatus {
-                                                  partition: 1,
+                                                  partition_id: 1,
                                                   error_code: 2,
                                                   offset: 3,
                                                   timestamp: Some(4),
@@ -236,7 +234,7 @@ mod tests {
             topics: vec![ProduceTopicData {
                 topic_name: "topic".into(),
                 partitions: vec![ProducePartitionData {
-                    partition: 1,
+                    partition_id: 1,
                     message_set: Cow::Owned(MessageSet {
                         messages: vec![Message {
                             offset: 0,

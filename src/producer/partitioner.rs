@@ -1,21 +1,22 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::hash::{BuildHasher, BuildHasherDefault, Hash, Hasher};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use twox_hash::XxHash;
 
-use protocol::PartitionId;
 use client::{Cluster, Metadata};
+use protocol::PartitionId;
 
 /// A trait for choosing a partition for a message to be sent to Kafka.
 pub trait Partitioner {
     /// Compute the partition for the given record.
-    fn partition<K: Hash, V>(&self,
-                             topic_name: &str,
-                             partition: Option<PartitionId>,
-                             key: Option<&K>,
-                             value: Option<&V>,
-                             metadata: &Metadata)
-                             -> Option<PartitionId>;
+    fn partition<K: Hash, V>(
+        &self,
+        topic_name: &str,
+        partition_id: Option<PartitionId>,
+        key: Option<&K>,
+        value: Option<&V>,
+        metadata: &Metadata,
+    ) -> Option<PartitionId>;
 }
 
 pub type DefaultHasher = XxHash;
@@ -23,7 +24,8 @@ pub type DefaultHasher = XxHash;
 /// The default partitioning strategy
 ///
 /// - If a partition is specified in the record, use it
-/// - If no partition is specified but a key is present choose a partition based on a hash of the key
+/// - If no partition is specified but a key is present choose a partition based on a hash of the
+/// key
 /// - If no partition or key is present choose a partition in a round-robin fashion
 #[derive(Default)]
 pub struct DefaultPartitioner<H: BuildHasher = BuildHasherDefault<DefaultHasher>> {
@@ -51,19 +53,21 @@ impl DefaultPartitioner {
 }
 
 impl<H> Partitioner for DefaultPartitioner<H>
-    where H: BuildHasher
+where
+    H: BuildHasher,
 {
-    fn partition<K: Hash, V>(&self,
-                             topic_name: &str,
-                             partition: Option<PartitionId>,
-                             key: Option<&K>,
-                             _value: Option<&V>,
-                             metadata: &Metadata)
-                             -> Option<PartitionId> {
-        if let Some(partition) = partition {
-            if partition >= 0 {
+    fn partition<K: Hash, V>(
+        &self,
+        topic_name: &str,
+        partition_id: Option<PartitionId>,
+        key: Option<&K>,
+        _value: Option<&V>,
+        metadata: &Metadata,
+    ) -> Option<PartitionId> {
+        if let Some(partition_id) = partition_id {
+            if partition_id >= 0 {
                 // If a partition is specified in the record, use it
-                return Some(partition);
+                return Some(partition_id);
             }
         }
 
@@ -80,14 +84,18 @@ impl<H> Partitioner for DefaultPartitioner<H>
                 self.records.fetch_add(1, Ordering::Relaxed)
             } % partitions.len();
 
-            trace!("partition record to #{} base on {}",
-                   index,
-                   key.map_or("round-robin", |_| "hash-key"));
+            trace!(
+                "partition record to #{} base on {}",
+                index,
+                key.map_or("round-robin", |_| "hash-key")
+            );
 
-            Some(partitions[index].partition)
+            Some(partitions[index].partition_id)
         } else {
-            warn!("missed partitions info for topic `{}`, fallback to partition #0",
-                  topic_name);
+            warn!(
+                "missed partitions info for topic `{}`, fallback to partition #0",
+                topic_name
+            );
 
             None
         }
@@ -105,44 +113,56 @@ mod tests {
         let partitioner = DefaultPartitioner::new();
 
         // partition without topics
-        assert_eq!(partitioner.partition("topic",
-                                         None,
-                                         Some("key").as_ref(),
-                                         Some("value").as_ref(),
-                                         &metadata),
-                   None);
+        assert_eq!(
+            partitioner.partition(
+                "topic",
+                None,
+                Some("key").as_ref(),
+                Some("value").as_ref(),
+                &metadata,
+            ),
+            None
+        );
     }
 
     #[test]
     fn test_key_partitioning() {
         let partitions = (0..3)
             .map(|id| {
-                     PartitionInfo {
-                         partition: id,
-                         ..Default::default()
-                     }
-                 })
+                PartitionInfo {
+                    partition_id: id,
+                    ..Default::default()
+                }
+            })
             .collect();
         let metadata = Metadata::with_topics(vec![("topic".to_owned(), partitions)]);
 
         let partitioner = DefaultPartitioner::new();
 
         // partition with key
-        assert_eq!(partitioner.partition("topic",
-                                         None,
-                                         Some("key").as_ref(),
-                                         Some("value").as_ref(),
-                                         &metadata),
-                   Some(2));
+        assert_eq!(
+            partitioner.partition(
+                "topic",
+                None,
+                Some("key").as_ref(),
+                Some("value").as_ref(),
+                &metadata,
+            ),
+            Some(2)
+        );
 
         // partition without key
         for id in 0..100 {
-            assert_eq!(partitioner.partition::<(), &str>("topic",
-                                                         None,
-                                                         None,
-                                                         Some("value").as_ref(),
-                                                         &metadata),
-                       Some(id % 3));
+            assert_eq!(
+                partitioner.partition::<(), &str>(
+                    "topic",
+                    None,
+                    None,
+                    Some("value").as_ref(),
+                    &metadata,
+                ),
+                Some(id % 3)
+            );
         }
 
         assert_eq!(partitioner.records(), 100);

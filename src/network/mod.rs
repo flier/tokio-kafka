@@ -26,20 +26,20 @@ pub type ConnectionId = u32;
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TopicPartition<'a> {
     pub topic_name: Cow<'a, str>,
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
 }
 
 impl<'a> fmt::Display for TopicPartition<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}#{}", self.topic_name, self.partition)
+        write!(f, "{}#{}", self.topic_name, self.partition_id)
     }
 }
 
 #[macro_export]
 macro_rules! topic_partition {
-    ($topic_name:expr, $partition:expr) => ($crate::network::TopicPartition {
+    ($topic_name:expr, $partition_id:expr) => ($crate::network::TopicPartition {
         topic_name: $topic_name.into(),
-        partition: $partition,
+        partition_id: $partition_id,
     })
 }
 

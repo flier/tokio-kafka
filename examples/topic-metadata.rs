@@ -4,6 +4,7 @@ extern crate pretty_env_logger;
 extern crate getopts;
 extern crate futures;
 extern crate tokio_core;
+#[macro_use]
 extern crate tokio_kafka;
 
 use std::cmp;
@@ -147,10 +148,7 @@ fn main() {
             })
             .flat_map(|(topic_name, partitions)| {
                 partitions.iter().map(move |partition| {
-                    TopicPartition {
-                        topic_name: String::from(*topic_name).into(),
-                        partition: partition.partition,
-                    }
+                    topic_partition!(String::from(topic_name.to_owned()), partition.partition_id)
                 })
             })
             .collect();
@@ -235,15 +233,15 @@ fn dump_metadata<'a>(
         {
 
             for partition_info in partitions.iter() {
-                if let Some(leader) = partition_info.leader() {
+                if let Some(leader) = partition_info.leader {
                     if let (Some(broker), Some(earliest_offset), Some(latest_offset)) =
                         (
                             metadata.find_broker(leader),
                             earliest.iter().find(|offset| {
-                                offset.partition_id == partition_info.partition
+                                offset.partition_id == partition_info.partition_id
                             }),
                             latest.iter().find(|offset| {
-                                offset.partition_id == partition_info.partition
+                                offset.partition_id == partition_info.partition_id
                             }),
                         )
                     {
@@ -252,7 +250,7 @@ fn dump_metadata<'a>(
                             "{1:0$} {2:>4} {3:>4}",
                             topic_width,
                             topic_name,
-                            partition_info.partition,
+                            partition_info.partition_id,
                             broker.id()
                         );
 
@@ -290,7 +288,7 @@ fn dump_metadata<'a>(
                         "{1:0$} - partition #{2} haven't leader!\n",
                         topic_width,
                         topic_name,
-                        partition_info.partition
+                        partition_info.partition_id
                     );
                 }
             }

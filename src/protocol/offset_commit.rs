@@ -38,7 +38,7 @@ pub struct OffsetCommitTopic<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OffsetCommitPartition<'a> {
     /// The id of the partition the commit is for.
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// Message offset to be committed.
     pub offset: Offset,
     /// Timestamp of the commit
@@ -65,7 +65,7 @@ pub struct OffsetCommitTopicStatus {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OffsetCommitPartitionStatus {
     /// The id of the partition the commit is for.
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// Error code.
     pub error_code: ErrorCode,
 }
@@ -110,7 +110,7 @@ impl<'a> Encodable for OffsetCommitRequest<'a> {
         dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
             buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
             buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition);
+                buf.put_i32::<T>(partition.partition_id);
                 buf.put_i64::<T>(partition.offset);
                 if api_version == 1 {
                     buf.put_i64::<T>(partition.timestamp);
@@ -156,10 +156,10 @@ named!(parse_offset_commit_topic_status<OffsetCommitTopicStatus>,
 named!(parse_offset_commit_partition_status<OffsetCommitPartitionStatus>,
     parse_tag!(ParseTag::OffsetCommitPartitionStatus,
         do_parse!(
-            partition: be_i32
+            partition_id: be_i32
          >> error_code: be_i16
          >> (OffsetCommitPartitionStatus {
-                partition: partition,
+                partition_id: partition_id,
                 error_code: error_code,
             })
         )
@@ -190,7 +190,7 @@ mod tests {
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),
                 partitions: vec![OffsetCommitPartition {
-                    partition: 5,
+                    partition_id: 5,
                     offset: 6,
                     timestamp: Default::default(),
                     metadata: Some("metadata".into())
@@ -245,7 +245,7 @@ mod tests {
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),
                 partitions: vec![OffsetCommitPartition {
-                    partition: 5,
+                    partition_id: 5,
                     offset: 6,
                     timestamp: 7,
                     metadata: Some("metadata".into())
@@ -303,7 +303,7 @@ mod tests {
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),
                 partitions: vec![OffsetCommitPartition {
-                    partition: 5,
+                    partition_id: 5,
                     offset: 6,
                     timestamp: Default::default(),
                     metadata: Some("metadata".into())
@@ -352,7 +352,7 @@ mod tests {
             topics: vec![OffsetCommitTopicStatus {
                 topic_name: "topic".to_owned(),
                 partitions: vec![OffsetCommitPartitionStatus {
-                    partition: 1,
+                    partition_id: 1,
                     error_code: 2,
                 }],
             }],

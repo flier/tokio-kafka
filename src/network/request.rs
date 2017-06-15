@@ -70,7 +70,7 @@ impl<'a> KafkaRequest<'a> {
                     topic_name: tp.topic_name.to_owned().into(),
                     partitions: vec![
                         ProducePartitionData {
-                            partition: tp.partition,
+                            partition_id: tp.partition_id,
                             message_set: message_set,
                         },
                     ],
@@ -134,7 +134,7 @@ impl<'a> KafkaRequest<'a> {
                         .into_iter()
                         .map(|(id, offset)| {
                             ListPartitionOffset {
-                                partition: id,
+                                partition_id: id,
                                 timestamp: offset.into(),
                                 max_number_of_offsets: 16,
                             }
@@ -195,7 +195,7 @@ impl<'a> KafkaRequest<'a> {
             .fold(HashMap::new(), |mut topics, (tp, offset)| {
                 topics.entry(tp.topic_name).or_insert_with(Vec::new).push(
                     OffsetCommitPartition {
-                        partition: tp.partition,
+                        partition_id: tp.partition_id,
                         offset: offset.offset,
                         timestamp: offset.timestamp.unwrap_or(DEFAULT_TIMESTAMP),
                         metadata: offset.metadata,
@@ -240,7 +240,7 @@ impl<'a> KafkaRequest<'a> {
             .into_iter()
             .fold(HashMap::new(), |mut topics, tp| {
                 topics.entry(tp.topic_name).or_insert_with(Vec::new).push(
-                    OffsetFetchPartition { partition: tp.partition },
+                    OffsetFetchPartition { partition_id: tp.partition_id },
                 );
                 topics
             })
