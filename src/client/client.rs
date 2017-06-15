@@ -906,27 +906,26 @@ where
                             .map(move |topic| {
                                 let topic_name = topic.topic_name;
 
-                                let offsets_by_topic_partition = {
-                                    let topic_name = Cow::from(topic_name.as_str());
+                                let offsets_by_topic_partition =
+                                    {
+                                        let topic_name = Cow::from(topic_name.as_str());
 
-                                    offsets_by_topic
-                                        .get(&topic_name)
-                                        .map(move |offsets| {
-                                            let mut m = HashMap::new();
+                                        offsets_by_topic
+                                            .get(&topic_name)
+                                            .map(move |offsets| {
+                                                offsets.iter().map(
+                                                    |&(partition_id, ref fetch_data)| {
+                                                        let tp = topic_partition!(
+                                                            topic_name.clone(),
+                                                            partition_id
+                                                        );
 
-                                            for &(partition_id, ref fetch_data) in offsets {
-                                                let tp = topic_partition!(
-                                                    topic_name.clone(),
-                                                    partition_id
-                                                );
-
-                                                m.insert(tp, fetch_data);
-                                            }
-
-                                            m
-                                        })
-                                        .unwrap_or_default()
-                                };
+                                                        (tp, fetch_data)
+                                                    },
+                                                ).collect::<HashMap<TopicPartition, &PartitionData>>()
+                                            })
+                                            .unwrap_or_default()
+                                    };
 
                                 let records = {
                                     let topic_name = Cow::from(topic_name.as_str());
@@ -1050,6 +1049,8 @@ where
         retention_time: Duration,
         offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
     ) -> OffsetCommit {
+        debug!("fetch offset to group `{}`: {:?}", group_id, offsets);
+
         let addr = coordinator
             .addr()
             .to_socket_addrs()
@@ -1080,10 +1081,10 @@ where
                 bail!(ErrorKind::UnexpectedResponse(res.api_key()))
             })
             .map(|topics| {
-                HashMap::from_iter(topics.into_iter().map(|status| {
-                    (
-                        status.topic_name,
-                        status
+                topics
+                    .into_iter()
+                    .map(|status| {
+                        let partitions = status
                             .partitions
                             .into_iter()
                             .map(|partition| {
@@ -1092,9 +1093,11 @@ where
                                     error_code: partition.error_code.into(),
                                 }
                             })
-                            .collect(),
-                    )
-                }))
+                            .collect();
+
+                        (status.topic_name, partitions)
+                    })
+                    .collect()
             })
             .static_boxed()
     }
@@ -1105,6 +1108,8 @@ where
         group_id: Cow<'a, str>,
         partitions: Vec<TopicPartition<'a>>,
     ) -> OffsetFetch {
+        debug!("fetch offset of group `{}`: {:?}", group_id, partitions);
+
         let addr = coordinator
             .addr()
             .to_socket_addrs()
@@ -1132,10 +1137,10 @@ where
                 bail!(ErrorKind::UnexpectedResponse(res.api_key()))
             })
             .map(|topics| {
-                HashMap::from_iter(topics.into_iter().map(|status| {
-                    (
-                        status.topic_name,
-                        status
+                topics
+                    .into_iter()
+                    .map(|status| {
+                        let partitions = status
                             .partitions
                             .into_iter()
                             .map(|partition| {
@@ -1146,9 +1151,11 @@ where
                                     error_code: partition.error_code.into(),
                                 }
                             })
-                            .collect(),
-                    )
-                }))
+                            .collect();
+
+                        (status.topic_name, partitions)
+                    })
+                    .collect()
             })
             .static_boxed()
     }
