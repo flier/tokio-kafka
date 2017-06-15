@@ -23,8 +23,8 @@ use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 use tokio_service::Service;
 use tokio_timer::Timer;
 
-use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, KafkaService, Metadata,
-             Metrics};
+use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware,
+             KafkaService, Metadata, Metrics};
 use errors::{Error, ErrorKind, Result};
 use network::{KafkaRequest, KafkaResponse, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
@@ -36,20 +36,22 @@ use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, E
 pub trait Client<'a>: 'static {
     /// Send the given record asynchronously and return a future which will eventually contain
     /// the response information.
-    fn produce_records(&self,
-                       acks: RequiredAcks,
-                       timeout: Duration,
-                       topic_partition: TopicPartition<'a>,
-                       records: Vec<Cow<'a, MessageSet>>)
-                       -> ProduceRecords;
+    fn produce_records(
+        &self,
+        acks: RequiredAcks,
+        timeout: Duration,
+        topic_partition: TopicPartition<'a>,
+        records: Vec<Cow<'a, MessageSet>>,
+    ) -> ProduceRecords;
 
     /// Fetch records of partitions for all nodes for which we have assigned partitions.
-    fn fetch_records(&self,
-                     fetch_max_wait: Duration,
-                     fetch_min_bytes: usize,
-                     fetch_max_bytes: usize,
-                     partitions: Vec<(TopicPartition<'a>, PartitionData)>)
-                     -> FetchRecords<'a>;
+    fn fetch_records(
+        &self,
+        fetch_max_wait: Duration,
+        fetch_min_bytes: usize,
+        fetch_max_bytes: usize,
+        partitions: Vec<(TopicPartition<'a>, PartitionData)>,
+    ) -> FetchRecords<'a>;
 
     /// Search the offsets by target times for the specified topics and return a future which
     /// will eventually contain the partition offset information.
@@ -63,15 +65,16 @@ pub trait Client<'a>: 'static {
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator;
 
     /// Join the consumer group
-    fn join_group(&self,
-                  coordinator: BrokerRef,
-                  group_id: Cow<'a, str>,
-                  session_timeout: i32,
-                  rebalance_timeout: i32,
-                  member_id: Cow<'a, str>,
-                  protocol_type: Cow<'a, str>,
-                  group_protocols: Vec<ConsumerGroupProtocol<'a>>)
-                  -> JoinGroup;
+    fn join_group(
+        &self,
+        coordinator: BrokerRef,
+        group_id: Cow<'a, str>,
+        session_timeout: i32,
+        rebalance_timeout: i32,
+        member_id: Cow<'a, str>,
+        protocol_type: Cow<'a, str>,
+        group_protocols: Vec<ConsumerGroupProtocol<'a>>,
+    ) -> JoinGroup;
 
     /// Send heartbeat to the consumer group
     fn heartbeat(&self, coordinator: BrokerRef, generation: Generation) -> Heartbeat;
@@ -80,11 +83,12 @@ pub trait Client<'a>: 'static {
     fn leave_group(&self, coordinator: BrokerRef, generation: Generation) -> LeaveGroup;
 
     /// Sync the current consumer group
-    fn sync_group(&self,
-                  coordinator: BrokerRef,
-                  generation: Generation,
-                  group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
-                  -> SyncGroup;
+    fn sync_group(
+        &self,
+        coordinator: BrokerRef,
+        generation: Generation,
+        group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>,
+    ) -> SyncGroup;
 }
 
 /// The future of records metadata information.
@@ -250,10 +254,12 @@ impl<'a> Deref for KafkaClient<'a> {
 }
 
 impl<'a> KafkaClient<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
     pub fn from_hosts<I>(hosts: I, handle: Handle) -> ClientBuilder<'a>
-        where I: Iterator<Item = SocketAddr>
+    where
+        I: Iterator<Item = SocketAddr>,
     {
         ClientBuilder::from_hosts(hosts, handle)
     }
@@ -266,24 +272,25 @@ impl<'a> KafkaClient<'a>
         } else {
             None
         };
-        let service = InFlightMiddleware::new(
-            LogMiddleware::new(
-                TimeoutMiddleware::new(
-                    KafkaService::new(handle.clone(),
-                                      config.max_connection_idle(),
-                                      metrics.clone()),
-                                      config.timer(),
-                                      config.request_timeout())));
+        let service = InFlightMiddleware::new(LogMiddleware::new(TimeoutMiddleware::new(
+            KafkaService::new(
+                handle.clone(),
+                config.max_connection_idle(),
+                metrics.clone(),
+            ),
+            config.timer(),
+            config.request_timeout(),
+        )));
 
         let timer = Rc::new(config.timer());
         let inner = Rc::new(Inner {
-                                config: config,
-                                handle: handle.clone(),
-                                service: service,
-                                timer: timer,
-                                metrics: metrics,
-                                state: Rc::new(RefCell::new(State::default())),
-                            });
+            config: config,
+            handle: handle.clone(),
+            service: service,
+            timer: timer,
+            metrics: metrics,
+            state: Rc::new(RefCell::new(State::default())),
+        });
 
         let mut client = KafkaClient { inner: inner };
 
@@ -311,39 +318,44 @@ impl<'a> KafkaClient<'a>
     pub fn refresh_metadata(&mut self) {
         let handle = self.inner.handle.clone();
 
-        handle.spawn(self.load_metadata()
-                         .map(|metadata| {
-                                  trace!("auto loaded metadata, {:?}", metadata);
-                              })
-                         .map_err(|err| {
-                                      warn!("fail to load metadata, {}", err);
-                                  }));
+        handle.spawn(
+            self.load_metadata()
+                .map(|metadata| {
+                    trace!("auto loaded metadata, {:?}", metadata);
+                })
+                .map_err(|err| {
+                    warn!("fail to load metadata, {}", err);
+                }),
+        );
     }
 }
 
 impl<'a> Client<'a> for KafkaClient<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
-    fn produce_records(&self,
-                       required_acks: RequiredAcks,
-                       timeout: Duration,
-                       tp: TopicPartition<'a>,
-                       records: Vec<Cow<'a, MessageSet>>)
-                       -> ProduceRecords {
+    fn produce_records(
+        &self,
+        required_acks: RequiredAcks,
+        timeout: Duration,
+        tp: TopicPartition<'a>,
+        records: Vec<Cow<'a, MessageSet>>,
+    ) -> ProduceRecords {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
-                          inner.produce_records(metadata, required_acks, timeout, tp, records)
-                      })
+                inner.produce_records(metadata, required_acks, timeout, tp, records)
+            })
             .static_boxed()
     }
 
-    fn fetch_records(&self,
-                     fetch_max_wait: Duration,
-                     fetch_min_bytes: usize,
-                     fetch_max_bytes: usize,
-                     partitions: Vec<(TopicPartition<'a>, PartitionData)>)
-                     -> FetchRecords<'a> {
+    fn fetch_records(
+        &self,
+        fetch_max_wait: Duration,
+        fetch_min_bytes: usize,
+        fetch_max_bytes: usize,
+        partitions: Vec<(TopicPartition<'a>, PartitionData)>,
+    ) -> FetchRecords<'a> {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
@@ -351,11 +363,13 @@ impl<'a> Client<'a> for KafkaClient<'a>
                     .topics_by_broker(metadata, partitions)
                     .into_future()
                     .and_then(move |topics| {
-                                  inner.fetch_records(fetch_max_wait,
-                                                      fetch_min_bytes,
-                                                      fetch_max_bytes,
-                                                      topics)
-                              })
+                        inner.fetch_records(
+                            fetch_max_wait,
+                            fetch_min_bytes,
+                            fetch_max_bytes,
+                            topics,
+                        )
+                    })
 
             })
             .static_boxed()
@@ -365,11 +379,11 @@ impl<'a> Client<'a> for KafkaClient<'a>
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
-                          inner
-                              .topics_by_broker(metadata, partitions)
-                              .into_future()
-                              .and_then(move |topics| inner.list_offsets(topics))
-                      })
+                inner
+                    .topics_by_broker(metadata, partitions)
+                    .into_future()
+                    .and_then(move |topics| inner.list_offsets(topics))
+            })
             .static_boxed()
     }
 
@@ -406,28 +420,31 @@ impl<'a> Client<'a> for KafkaClient<'a>
             .static_boxed()
     }
 
-    fn join_group(&self,
-                  coordinator: BrokerRef,
-                  group_id: Cow<'a, str>,
-                  session_timeout: i32,
-                  rebalance_timeout: i32,
-                  member_id: Cow<'a, str>,
-                  protocol_type: Cow<'a, str>,
-                  group_protocols: Vec<ConsumerGroupProtocol<'a>>)
-                  -> JoinGroup {
+    fn join_group(
+        &self,
+        coordinator: BrokerRef,
+        group_id: Cow<'a, str>,
+        session_timeout: i32,
+        rebalance_timeout: i32,
+        member_id: Cow<'a, str>,
+        protocol_type: Cow<'a, str>,
+        group_protocols: Vec<ConsumerGroupProtocol<'a>>,
+    ) -> JoinGroup {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
                 metadata
                     .find_broker(coordinator)
                     .map(move |coordinator| {
-                        inner.join_group(coordinator,
-                                         group_id,
-                                         session_timeout,
-                                         rebalance_timeout,
-                                         member_id,
-                                         protocol_type,
-                                         group_protocols)
+                        inner.join_group(
+                            coordinator,
+                            group_id,
+                            session_timeout,
+                            rebalance_timeout,
+                            member_id,
+                            protocol_type,
+                            group_protocols,
+                        )
                     })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
             })
@@ -441,11 +458,13 @@ impl<'a> Client<'a> for KafkaClient<'a>
                 metadata
                     .find_broker(coordinator)
                     .map(move |coordinator| {
-                             inner.heartbeat(coordinator,
-                                             generation.group_id.into(),
-                                             generation.generation_id,
-                                             generation.member_id.into())
-                         })
+                        inner.heartbeat(
+                            coordinator,
+                            generation.group_id.into(),
+                            generation.generation_id,
+                            generation.member_id.into(),
+                        )
+                    })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
             })
             .static_boxed()
@@ -458,32 +477,37 @@ impl<'a> Client<'a> for KafkaClient<'a>
                 metadata
                     .find_broker(coordinator)
                     .map(move |coordinator| {
-                             inner.leave_group(coordinator,
-                                               generation.group_id.into(),
-                                               generation.member_id.into())
-                         })
+                        inner.leave_group(
+                            coordinator,
+                            generation.group_id.into(),
+                            generation.member_id.into(),
+                        )
+                    })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
             })
             .static_boxed()
     }
 
-    fn sync_group(&self,
-                  coordinator: BrokerRef,
-                  generation: Generation,
-                  group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
-                  -> SyncGroup {
+    fn sync_group(
+        &self,
+        coordinator: BrokerRef,
+        generation: Generation,
+        group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>,
+    ) -> SyncGroup {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
                 metadata
                     .find_broker(coordinator)
                     .map(move |coordinator| {
-                             inner.sync_group(coordinator,
-                                              generation.group_id.into(),
-                                              generation.generation_id,
-                                              generation.member_id.into(),
-                                              group_assignment)
-                         })
+                        inner.sync_group(
+                            coordinator,
+                            generation.group_id.into(),
+                            generation.generation_id,
+                            generation.member_id.into(),
+                            group_assignment,
+                        )
+                    })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
             })
             .static_boxed()
@@ -491,7 +515,8 @@ impl<'a> Client<'a> for KafkaClient<'a>
 }
 
 impl<'a> Inner<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
     fn next_correlation_id(&self) -> CorrelationId {
         (*self.state).borrow_mut().next_correlation_id()
@@ -519,9 +544,11 @@ impl<'a> Inner<'a>
             for addr in broker.addr().to_socket_addrs()? {
                 match self.service.in_flight_requests(&addr) {
                     Some(0) => {
-                        trace!("found least loaded broker #{} @ {} without in flight requests",
-                               broker.id(),
-                               addr);
+                        trace!(
+                            "found least loaded broker #{} @ {} without in flight requests",
+                            broker.id(),
+                            addr
+                        );
 
                         return Ok((addr, broker.as_ref()));
                     }
@@ -536,33 +563,38 @@ impl<'a> Inner<'a>
 
         found
             .map(|(addr, broker)| {
-                     trace!("found least loaded broker #{} @ {} with {} in flight requests",
-                            broker.index(),
-                            addr,
-                            self.service.in_flight_requests(&addr).unwrap_or_default());
+                trace!(
+                    "found least loaded broker #{} @ {} with {} in flight requests",
+                    broker.index(),
+                    addr,
+                    self.service.in_flight_requests(&addr).unwrap_or_default()
+                );
 
-                     (addr, broker)
-                 })
+                (addr, broker)
+            })
             .or_else(|| {
                 metadata.brokers().first().map(|broker| {
                     let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap();
 
-                    trace!("not found any alive broker, use a random broker # {} @ {}",
-                           broker.id(),
-                           addr);
+                    trace!(
+                        "not found any alive broker, use a random broker # {} @ {}",
+                        broker.id(),
+                        addr
+                    );
 
                     (addr, broker.as_ref())
                 })
             })
             .ok_or_else(|| {
-                            warn!("not found any broker");
+                warn!("not found any broker");
 
-                            ErrorKind::KafkaError(KafkaCode::BrokerNotAvailable).into()
-                        })
+                ErrorKind::KafkaError(KafkaCode::BrokerNotAvailable).into()
+            })
     }
 
     fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
-        where S: AsRef<str> + Debug
+    where
+        S: AsRef<str> + Debug,
     {
         debug!("fetch metadata for toipcs: {:?}", topic_names);
 
@@ -570,18 +602,20 @@ impl<'a> Inner<'a>
             let mut responses = Vec::new();
 
             for addr in &self.config.hosts {
-                let request = KafkaRequest::fetch_metadata(0, // api_version
-                                                           self.next_correlation_id(),
-                                                           self.client_id(),
-                                                           topic_names);
+                let request = KafkaRequest::fetch_metadata(
+                    0, // api_version
+                    self.next_correlation_id(),
+                    self.client_id(),
+                    topic_names,
+                );
 
-                let response = self.service
-                    .call((*addr, request))
-                    .and_then(|res| if let KafkaResponse::Metadata(res) = res {
-                                  Ok(Rc::new(Metadata::from(res)))
-                              } else {
-                                  bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                              });
+                let response = self.service.call((*addr, request)).and_then(|res| {
+                    if let KafkaResponse::Metadata(res) = res {
+                        Ok(Rc::new(Metadata::from(res)))
+                    } else {
+                        bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    }
+                });
 
                 responses.push(response);
             }
@@ -604,10 +638,10 @@ impl<'a> Inner<'a>
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
-                          Ok(UsableApiVersions::new(res.api_versions))
-                      } else {
-                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                      })
+                Ok(UsableApiVersions::new(res.api_versions))
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
             .static_boxed()
     }
 
@@ -619,8 +653,9 @@ impl<'a> Inner<'a>
 
             for broker in metadata.brokers() {
                 let broker_ref = broker.as_ref();
-                let response = self.fetch_api_versions(broker)
-                    .map(move |api_versions| (broker_ref, api_versions));
+                let response = self.fetch_api_versions(broker).map(move |api_versions| {
+                    (broker_ref, api_versions)
+                });
 
                 responses.push(response);
             }
@@ -633,70 +668,76 @@ impl<'a> Inner<'a>
             .static_boxed()
     }
 
-    fn produce_records(&self,
-                       metadata: Rc<Metadata>,
-                       required_acks: RequiredAcks,
-                       timeout: Duration,
-                       tp: TopicPartition<'a>,
-                       records: Vec<Cow<'a, MessageSet>>)
-                       -> ProduceRecords {
-        let (api_version, addr) = metadata
-            .leader_for(&tp)
-            .map_or_else(|| (0, *self.config.hosts.iter().next().unwrap()),
-                         |broker| {
-                             (broker.api_version(ApiKeys::Produce).unwrap_or_default(),
-                              broker.addr().to_socket_addrs().unwrap().next().unwrap())
-                         });
+    fn produce_records(
+        &self,
+        metadata: Rc<Metadata>,
+        required_acks: RequiredAcks,
+        timeout: Duration,
+        tp: TopicPartition<'a>,
+        records: Vec<Cow<'a, MessageSet>>,
+    ) -> ProduceRecords {
+        let (api_version, addr) =
+            metadata.leader_for(&tp).map_or_else(
+                || (0, *self.config.hosts.iter().next().unwrap()),
+                |broker| {
+                    (
+                        broker.api_version(ApiKeys::Produce).unwrap_or_default(),
+                        broker.addr().to_socket_addrs().unwrap().next().unwrap(),
+                    )
+                },
+            );
 
-        let request = KafkaRequest::produce_records(api_version,
-                                                    self.next_correlation_id(),
-                                                    self.client_id(),
-                                                    required_acks,
-                                                    timeout,
-                                                    &tp,
-                                                    records);
+        let request = KafkaRequest::produce_records(
+            api_version,
+            self.next_correlation_id(),
+            self.client_id(),
+            required_acks,
+            timeout,
+            &tp,
+            records,
+        );
 
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::Produce(res) = res {
-                          Ok(res.topics)
-                      } else {
-                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                      })
+                Ok(res.topics)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
             .map(|topics| {
                 topics
                     .into_iter()
                     .map(|topic| {
-                        (topic.topic_name.to_owned(),
-                         topic
-                             .partitions
-                             .into_iter()
-                             .map(|partition| {
-                                      (partition.partition, partition.error_code, partition.offset)
-                                  })
-                             .collect())
+                        (
+                            topic.topic_name.to_owned(),
+                            topic
+                                .partitions
+                                .into_iter()
+                                .map(|partition| {
+                                    (partition.partition, partition.error_code, partition.offset)
+                                })
+                                .collect(),
+                        )
                     })
                     .collect()
             })
             .static_boxed()
     }
 
-    fn topics_by_broker<T>(&self,
-                           metadata: Rc<Metadata>,
-                           partitions: Vec<(TopicPartition<'a>, T)>)
-                           -> Result<TopicsByBroker<'a, T>> {
+    fn topics_by_broker<T>(
+        &self,
+        metadata: Rc<Metadata>,
+        partitions: Vec<(TopicPartition<'a>, T)>,
+    ) -> Result<TopicsByBroker<'a, T>> {
         let mut topics = HashMap::new();
 
         for (tp, value) in partitions {
-            let broker =
-                metadata
-                    .leader_for(&tp)
-                    .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::NotLeaderForPartition))?;
-            let addr = broker
-                .addr()
-                .to_socket_addrs()?
-                .next()
-                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::LeaderNotAvailable))?;
+            let broker = metadata.leader_for(&tp).ok_or_else(|| {
+                ErrorKind::KafkaError(KafkaCode::NotLeaderForPartition)
+            })?;
+            let addr = broker.addr().to_socket_addrs()?.next().ok_or_else(|| {
+                ErrorKind::KafkaError(KafkaCode::LeaderNotAvailable)
+            })?;
             let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
 
             topics
@@ -710,12 +751,13 @@ impl<'a> Inner<'a>
         Ok(topics)
     }
 
-    fn fetch_records(&self,
-                     fetch_max_wait: Duration,
-                     fetch_min_bytes: usize,
-                     fetch_max_bytes: usize,
-                     topics: TopicsByBroker<'a, PartitionData>)
-                     -> FetchRecords<'a> {
+    fn fetch_records(
+        &self,
+        fetch_max_wait: Duration,
+        fetch_min_bytes: usize,
+        fetch_max_bytes: usize,
+        topics: TopicsByBroker<'a, PartitionData>,
+    ) -> FetchRecords<'a> {
         let requests = {
             let mut requests = Vec::new();
 
@@ -731,9 +773,9 @@ impl<'a> Inner<'a>
                                     FetchPartition {
                                         partition: partition_id,
                                         fetch_offset: fetch_data.offset,
-                                        max_bytes: fetch_data
-                                            .max_bytes
-                                            .unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
+                                        max_bytes: fetch_data.max_bytes.unwrap_or(
+                                            DEFAULT_RESPONSE_MAX_BYTES,
+                                        ),
                                     }
                                 })
                                 .collect(),
@@ -741,20 +783,22 @@ impl<'a> Inner<'a>
                     })
                     .collect();
 
-                let request = KafkaRequest::fetch_records(api_version,
-                                                          self.next_correlation_id(),
-                                                          self.client_id(),
-                                                          fetch_max_wait,
-                                                          fetch_min_bytes as i32,
-                                                          fetch_max_bytes as i32,
-                                                          fetch_topics);
+                let request = KafkaRequest::fetch_records(
+                    api_version,
+                    self.next_correlation_id(),
+                    self.client_id(),
+                    fetch_max_wait,
+                    fetch_min_bytes as i32,
+                    fetch_max_bytes as i32,
+                    fetch_topics,
+                );
                 let request = self.service
                     .call((addr, request))
                     .and_then(|res| if let KafkaResponse::Fetch(res) = res {
-                                  Ok(res.topics)
-                              } else {
-                                  bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                              })
+                        Ok(res.topics)
+                    } else {
+                        bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    })
                     .map(|records| {
                         records
                             .into_iter()
@@ -770,8 +814,10 @@ impl<'a> Inner<'a>
                                             let mut m = HashMap::new();
 
                                             for &(partition_id, ref fetch_data) in offsets {
-                                                let tp = topic_partition!(topic_name.clone(),
-                                                                          partition_id);
+                                                let tp = topic_partition!(
+                                                    topic_name.clone(),
+                                                    partition_id
+                                                );
 
                                                 m.insert(tp, fetch_data);
                                             }
@@ -788,20 +834,20 @@ impl<'a> Inner<'a>
                                         .partitions
                                         .into_iter()
                                         .flat_map(move |data| {
-                                            let tp = topic_partition!(topic_name.clone(),
-                                                                      data.partition);
+                                            let tp = topic_partition!(
+                                                topic_name.clone(),
+                                                data.partition
+                                            );
 
-                                            offsets_by_topic_partition
-                                                .get(&tp)
-                                                .map(move |&fetch| {
-                                                    PartitionRecords {
-                                                        partition: data.partition,
-                                                        error_code: data.error_code.into(),
-                                                        fetch_offset: fetch.offset,
-                                                        high_watermark: data.high_watermark,
-                                                        messages: data.message_set.messages,
-                                                    }
-                                                })
+                                            offsets_by_topic_partition.get(&tp).map(move |&fetch| {
+                                                PartitionRecords {
+                                                    partition: data.partition,
+                                                    error_code: data.error_code.into(),
+                                                    fetch_offset: fetch.offset,
+                                                    high_watermark: data.high_watermark,
+                                                    messages: data.message_set.messages,
+                                                }
+                                            })
                                         })
                                         .collect::<Vec<PartitionRecords>>()
                                 };
@@ -819,18 +865,16 @@ impl<'a> Inner<'a>
 
         future::join_all(requests)
             .map(|responses| {
-                responses
-                    .into_iter()
-                    .fold(HashMap::new(), |mut records, response| {
-                        for (topic_name, mut partitions) in response {
-                            records
-                                .entry(topic_name)
-                                .or_insert_with(Vec::new)
-                                .append(&mut partitions);
-                        }
+                responses.into_iter().fold(HashMap::new(), |mut records,
+                 response| {
+                    for (topic_name, mut partitions) in response {
+                        records.entry(topic_name).or_insert_with(Vec::new).append(
+                            &mut partitions,
+                        );
+                    }
 
-                        records
-                    })
+                    records
+                })
             })
             .static_boxed()
     }
@@ -840,17 +884,19 @@ impl<'a> Inner<'a>
             let mut requests = Vec::new();
 
             for ((addr, api_version), topics) in topics {
-                let request = KafkaRequest::list_offsets(api_version,
-                                                         self.next_correlation_id(),
-                                                         self.client_id(),
-                                                         topics);
+                let request = KafkaRequest::list_offsets(
+                    api_version,
+                    self.next_correlation_id(),
+                    self.client_id(),
+                    topics,
+                );
                 let request = self.service
                     .call((addr, request))
                     .and_then(|res| if let KafkaResponse::ListOffsets(res) = res {
-                                  Ok(res.topics)
-                              } else {
-                                  bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                              })
+                        Ok(res.topics)
+                    } else {
+                        bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    })
                     .map(|topics| {
                         topics
                             .into_iter()
@@ -859,13 +905,13 @@ impl<'a> Inner<'a>
                                     .partitions
                                     .into_iter()
                                     .map(|partition| {
-                                             PartitionOffset {
-                                                 partition: partition.partition,
-                                                 error_code: partition.error_code.into(),
-                                                 offsets: partition.offsets,
-                                                 timestamp: partition.timestamp,
-                                             }
-                                         })
+                                        PartitionOffset {
+                                            partition: partition.partition,
+                                            error_code: partition.error_code.into(),
+                                            offsets: partition.offsets,
+                                            timestamp: partition.timestamp,
+                                        }
+                                    })
                                     .collect::<Vec<PartitionOffset>>();
 
                                 (topic.topic_name.clone(), partitions)
@@ -881,25 +927,24 @@ impl<'a> Inner<'a>
 
         future::join_all(requests)
             .map(|responses| {
-                responses
-                    .into_iter()
-                    .fold(HashMap::new(), |mut offsets, response| {
-                        for (topic_name, mut partitions) in response {
-                            offsets
-                                .entry(topic_name)
-                                .or_insert_with(Vec::new)
-                                .append(&mut partitions)
-                        }
-                        offsets
-                    })
+                responses.into_iter().fold(HashMap::new(), |mut offsets,
+                 response| {
+                    for (topic_name, mut partitions) in response {
+                        offsets.entry(topic_name).or_insert_with(Vec::new).append(
+                            &mut partitions,
+                        )
+                    }
+                    offsets
+                })
             })
             .static_boxed()
     }
 
-    fn group_coordinator(&self,
-                         metadata: Rc<Metadata>,
-                         group_id: Cow<'a, str>)
-                         -> GroupCoordinator {
+    fn group_coordinator(
+        &self,
+        metadata: Rc<Metadata>,
+        group_id: Cow<'a, str>,
+    ) -> GroupCoordinator {
         debug!("disover group coordinator of group `{}`", group_id);
 
         let addr = {
@@ -911,37 +956,42 @@ impl<'a> Inner<'a>
             }
         };
 
-        let request = KafkaRequest::group_coordinator(0, // api_version,
-                                                      self.next_correlation_id(),
-                                                      self.client_id(),
-                                                      group_id);
+        let request = KafkaRequest::group_coordinator(
+            0, // api_version,
+            self.next_correlation_id(),
+            self.client_id(),
+            group_id,
+        );
 
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::GroupCoordinator(res) = res {
-                          Ok(res)
-                      } else {
-                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                      })
+                Ok(res)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
             .and_then(|res| if res.error_code == KafkaCode::None as ErrorCode {
-                          Ok(Broker::new(res.coordinator_id,
-                                         &res.coordinator_host,
-                                         res.coordinator_port as u16))
-                      } else {
-                          bail!(ErrorKind::KafkaError(res.error_code.into()))
-                      })
+                Ok(Broker::new(
+                    res.coordinator_id,
+                    &res.coordinator_host,
+                    res.coordinator_port as u16,
+                ))
+            } else {
+                bail!(ErrorKind::KafkaError(res.error_code.into()))
+            })
             .static_boxed()
     }
 
-    fn join_group(&self,
-                  coordinator: &Broker,
-                  group_id: Cow<'a, str>,
-                  session_timeout: i32,
-                  rebalance_timeout: i32,
-                  member_id: Cow<'a, str>,
-                  protocol_type: Cow<'a, str>,
-                  group_protocols: Vec<ConsumerGroupProtocol<'a>>)
-                  -> JoinGroup {
+    fn join_group(
+        &self,
+        coordinator: &Broker,
+        group_id: Cow<'a, str>,
+        session_timeout: i32,
+        rebalance_timeout: i32,
+        member_id: Cow<'a, str>,
+        protocol_type: Cow<'a, str>,
+        group_protocols: Vec<ConsumerGroupProtocol<'a>>,
+    ) -> JoinGroup {
         debug!("member `{}` join group `{}`", member_id, group_id);
 
         let addr = coordinator
@@ -957,47 +1007,54 @@ impl<'a> Inner<'a>
 
         let joined_group_id: String = (*group_id).to_owned();
 
-        let request = KafkaRequest::join_group(api_version,
-                                               self.next_correlation_id(),
-                                               self.client_id(),
-                                               group_id,
-                                               session_timeout,
-                                               rebalance_timeout,
-                                               member_id,
-                                               protocol_type,
-                                               group_protocols);
+        let request = KafkaRequest::join_group(
+            api_version,
+            self.next_correlation_id(),
+            self.client_id(),
+            group_id,
+            session_timeout,
+            rebalance_timeout,
+            member_id,
+            protocol_type,
+            group_protocols,
+        );
 
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::JoinGroup(res) = res {
-                          Ok(res)
-                      } else {
-                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                      })
-            .and_then(move |res| if res.error_code == KafkaCode::None as ErrorCode {
-                          Ok(ConsumerGroup {
-                                 group_id: joined_group_id,
-                                 generation_id: res.generation_id,
-                                 protocol: res.protocol,
-                                 leader_id: res.leader_id,
-                                 member_id: res.member_id,
-                                 members: res.members,
-                             })
-                      } else {
-                          bail!(ErrorKind::KafkaError(res.error_code.into()))
-                      })
+                Ok(res)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
+            .and_then(move |res| if res.error_code ==
+                KafkaCode::None as ErrorCode
+            {
+                Ok(ConsumerGroup {
+                    group_id: joined_group_id,
+                    generation_id: res.generation_id,
+                    protocol: res.protocol,
+                    leader_id: res.leader_id,
+                    member_id: res.member_id,
+                    members: res.members,
+                })
+            } else {
+                bail!(ErrorKind::KafkaError(res.error_code.into()))
+            })
             .static_boxed()
     }
 
-    fn heartbeat(&self,
-                 coordinator: &Broker,
-                 group_id: Cow<'a, str>,
-                 group_generation_id: GenerationId,
-                 member_id: Cow<'a, str>)
-                 -> Heartbeat {
-        debug!("member `{}` send heartbeat to group `{}`",
-               member_id,
-               group_id);
+    fn heartbeat(
+        &self,
+        coordinator: &Broker,
+        group_id: Cow<'a, str>,
+        group_generation_id: GenerationId,
+        member_id: Cow<'a, str>,
+    ) -> Heartbeat {
+        debug!(
+            "member `{}` send heartbeat to group `{}`",
+            member_id,
+            group_id
+        );
 
         let addr = coordinator
             .addr()
@@ -1006,32 +1063,35 @@ impl<'a> Inner<'a>
             .next()
             .unwrap(); // TODO
 
-        let request = KafkaRequest::heartbeat(self.next_correlation_id(),
-                                              self.client_id(),
-                                              group_id,
-                                              group_generation_id,
-                                              member_id);
+        let request = KafkaRequest::heartbeat(
+            self.next_correlation_id(),
+            self.client_id(),
+            group_id,
+            group_generation_id,
+            member_id,
+        );
 
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::Heartbeat(res) = res {
-                          Ok(res.error_code)
-                      } else {
-                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                      })
+                Ok(res.error_code)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
             .and_then(|error_code| if error_code == KafkaCode::None as ErrorCode {
-                          Ok(())
-                      } else {
-                          bail!(ErrorKind::KafkaError(error_code.into()))
-                      })
+                Ok(())
+            } else {
+                bail!(ErrorKind::KafkaError(error_code.into()))
+            })
             .static_boxed()
     }
 
-    fn leave_group(&self,
-                   coordinator: &Broker,
-                   group_id: Cow<'a, str>,
-                   member_id: Cow<'a, str>)
-                   -> LeaveGroup {
+    fn leave_group(
+        &self,
+        coordinator: &Broker,
+        group_id: Cow<'a, str>,
+        member_id: Cow<'a, str>,
+    ) -> LeaveGroup {
         debug!("member `{}` leave group `{}`", member_id, group_id);
 
         let addr = coordinator
@@ -1043,37 +1103,42 @@ impl<'a> Inner<'a>
 
         let leaved_group_id: String = (*group_id).to_owned();
 
-        let request = KafkaRequest::leave_group(self.next_correlation_id(),
-                                                self.client_id(),
-                                                group_id,
-                                                member_id);
+        let request = KafkaRequest::leave_group(
+            self.next_correlation_id(),
+            self.client_id(),
+            group_id,
+            member_id,
+        );
 
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::LeaveGroup(res) = res {
-                          Ok(res.error_code)
-                      } else {
-                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                      })
+                Ok(res.error_code)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
             .and_then(|error_code| if error_code == KafkaCode::None as ErrorCode {
-                          Ok(leaved_group_id)
-                      } else {
-                          bail!(ErrorKind::KafkaError(error_code.into()))
-                      })
+                Ok(leaved_group_id)
+            } else {
+                bail!(ErrorKind::KafkaError(error_code.into()))
+            })
             .static_boxed()
     }
 
-    fn sync_group(&self,
-                  coordinator: &Broker,
-                  group_id: Cow<'a, str>,
-                  group_generation_id: GenerationId,
-                  member_id: Cow<'a, str>,
-                  group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>)
-                  -> SyncGroup {
-        debug!("sync group `{}` # {} with member `{}`",
-               group_id,
-               group_generation_id,
-               member_id);
+    fn sync_group(
+        &self,
+        coordinator: &Broker,
+        group_id: Cow<'a, str>,
+        group_generation_id: GenerationId,
+        member_id: Cow<'a, str>,
+        group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>,
+    ) -> SyncGroup {
+        debug!(
+            "sync group `{}` # {} with member `{}`",
+            group_id,
+            group_generation_id,
+            member_id
+        );
 
         let addr = coordinator
             .addr()
@@ -1082,31 +1147,35 @@ impl<'a> Inner<'a>
             .next()
             .unwrap(); // TODO
 
-        let request = KafkaRequest::sync_group(self.next_correlation_id(),
-                                               self.client_id(),
-                                               group_id,
-                                               group_generation_id,
-                                               member_id,
-                                               group_assignment.unwrap_or_default());
+        let request = KafkaRequest::sync_group(
+            self.next_correlation_id(),
+            self.client_id(),
+            group_id,
+            group_generation_id,
+            member_id,
+            group_assignment.unwrap_or_default(),
+        );
 
         self.service
             .call((addr, request))
             .and_then(|res| if let KafkaResponse::SyncGroup(res) = res {
-                          Ok(res)
-                      } else {
-                          bail!(ErrorKind::UnexpectedResponse(res.api_key()))
-                      })
+                Ok(res)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
             .and_then(|res| if res.error_code == KafkaCode::None as ErrorCode {
-                          Ok(res.member_assignment)
-                      } else {
-                          bail!(ErrorKind::KafkaError(res.error_code.into()))
-                      })
+                Ok(res.member_assignment)
+            } else {
+                bail!(ErrorKind::KafkaError(res.error_code.into()))
+            })
             .static_boxed()
     }
 }
 
-type TopicsByBroker<'a, T> = HashMap<(SocketAddr, ApiVersion),
-                                     HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>>;
+type TopicsByBroker<'a, T> = HashMap<
+    (SocketAddr, ApiVersion),
+    HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>,
+>;
 
 impl State {
     pub fn next_correlation_id(&mut self) -> CorrelationId {
@@ -1134,8 +1203,10 @@ impl State {
     }
 
     pub fn update_metadata(&mut self, metadata: Rc<Metadata>) {
-        let status = mem::replace(&mut self.metadata_status,
-                                  MetadataStatus::Loaded(metadata.clone()));
+        let status = mem::replace(
+            &mut self.metadata_status,
+            MetadataStatus::Loaded(metadata.clone()),
+        );
 
         if let MetadataStatus::Loading(senders) = status {
             for sender in senders.into_inner() {
@@ -1158,7 +1229,8 @@ pub enum Loading {
 }
 
 impl<'a> LoadMetadata<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
     fn new(inner: Rc<Inner<'a>>) -> LoadMetadata<'a> {
         let fetch_metadata = inner.fetch_metadata::<&str>(&[]);
@@ -1173,7 +1245,8 @@ impl<'a> LoadMetadata<'a>
 }
 
 impl<'a> Future for LoadMetadata<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
     type Item = Rc<Metadata>;
     type Error = Error;
@@ -1189,19 +1262,23 @@ impl<'a> Future for LoadMetadata<'a>
                             let inner = self.inner.clone();
 
                             if inner.config.api_version_request {
-                                state = Loading::ApiVersions(metadata.clone(),
-                                                             inner.load_api_versions(metadata));
+                                state = Loading::ApiVersions(
+                                    metadata.clone(),
+                                    inner.load_api_versions(metadata),
+                                );
                             } else {
                                 let fallback_api_versions =
                                     inner.config.broker_version_fallback.api_versions();
 
-                                let metadata =
-                                    Rc::new(metadata
-                                                .with_fallback_api_versions(fallback_api_versions));
+                                let metadata = Rc::new(metadata.with_fallback_api_versions(
+                                    fallback_api_versions,
+                                ));
 
-                                trace!("use fallback API versions from {:?}, {:?}",
-                                       inner.config.broker_version_fallback,
-                                       fallback_api_versions);
+                                trace!(
+                                    "use fallback API versions from {:?}, {:?}",
+                                    inner.config.broker_version_fallback,
+                                    fallback_api_versions
+                                );
 
                                 state = Loading::Finished(metadata);
                             }
@@ -1222,9 +1299,9 @@ impl<'a> Future for LoadMetadata<'a>
                     }
                 }
                 Loading::Finished(ref metadata) => {
-                    (*self.inner.state)
-                        .borrow_mut()
-                        .update_metadata(metadata.clone());
+                    (*self.inner.state).borrow_mut().update_metadata(
+                        metadata.clone(),
+                    );
 
                     return Ok(Async::Ready(metadata.clone()));
                 }
@@ -1235,16 +1312,17 @@ impl<'a> Future for LoadMetadata<'a>
     }
 }
 
-
 pub struct StaticBoxFuture<T = (), E = Error>(Box<Future<Item = T, Error = E> + 'static>)
-    where T: 'static,
-          E: 'static;
+where
+    T: 'static,
+    E: 'static;
 
 impl<T, E> StaticBoxFuture<T, E> {
     pub fn new<F>(inner: F) -> Self
-        where F: IntoFuture<Item = T, Error = E> + 'static,
-              T: 'static,
-              E: 'static
+    where
+        F: IntoFuture<Item = T, Error = E> + 'static,
+        T: 'static,
+        E: 'static,
     {
         StaticBoxFuture(Box::new(inner.into_future()))
     }
@@ -1259,7 +1337,8 @@ impl<T, E> StaticBoxFuture<T, E> {
 }
 
 impl<T, E> From<ErrorKind> for StaticBoxFuture<T, E>
-    where E: From<ErrorKind>
+where
+    E: From<ErrorKind>,
 {
     fn from(err: ErrorKind) -> Self {
         Self::err(err.into())
@@ -1286,9 +1365,10 @@ pub trait ToStaticBoxFuture<T, E> {
 }
 
 impl<T, E, F> ToStaticBoxFuture<T, E> for F
-    where F: IntoFuture<Item = T, Error = E> + 'static,
-          T: 'static,
-          E: 'static + StdError
+where
+    F: IntoFuture<Item = T, Error = E> + 'static,
+    T: 'static,
+    E: 'static + StdError,
 {
     fn static_boxed(self) -> StaticBoxFuture<T, E> {
         StaticBoxFuture::new(self)
@@ -1299,51 +1379,3 @@ pub type GetMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
 pub type LoadApiVersions = StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>;
-
-#[derive(Clone)]
-struct InFlightMiddleware<S> {
-    upstream: S,
-    requests: HashMap<SocketAddr, usize>,
-}
-
-impl<S> InFlightMiddleware<S> {
-    pub fn new(upstream: S) -> InFlightMiddleware<S> {
-        InFlightMiddleware {
-            upstream: upstream,
-            requests: HashMap::new(),
-        }
-    }
-
-    pub fn in_flight_requests(&self, addr: &SocketAddr) -> Option<usize> {
-        self.requests.get(addr).cloned()
-    }
-
-    pub fn send_request(&mut self, addr: SocketAddr) {
-        let requests = self.requests.entry(addr).or_insert(0);
-
-        if let Some(new) = requests.checked_add(1) {
-            *requests = new;
-        }
-    }
-
-    pub fn received_response(&mut self, addr: SocketAddr) {
-        let requests = self.requests.entry(addr).or_insert(0);
-
-        if let Some(new) = requests.checked_sub(1) {
-            *requests = new;
-        }
-    }
-}
-
-impl<S> Service for InFlightMiddleware<S>
-    where S: Service
-{
-    type Request = S::Request;
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = S::Future;
-
-    fn call(&self, request: Self::Request) -> Self::Future {
-        self.upstream.call(request)
-    }
-}
