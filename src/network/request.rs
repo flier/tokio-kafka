@@ -1,19 +1,20 @@
 use std::borrow::{Cow, ToOwned};
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use bytes::{ByteOrder, BytesMut};
 
 use errors::Result;
+use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CONSUMER_REPLICA_ID,
-               CorrelationId, DescribeGroupsRequest, Encodable, FetchOffset, FetchRequest,
-               FetchTopic, GenerationId, GroupCoordinatorRequest, HeartbeatRequest,
+               CorrelationId, DEFAULT_TIMESTAMP, DescribeGroupsRequest, Encodable, FetchOffset,
+               FetchRequest, FetchTopic, GenerationId, GroupCoordinatorRequest, HeartbeatRequest,
                JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest,
                ListOffsetRequest, ListPartitionOffset, ListTopicOffset, MessageSet,
-               MetadataRequest, OffsetCommitRequest, OffsetFetchRequest, PartitionId,
+               MetadataRequest, OffsetCommitPartition, OffsetCommitRequest, OffsetCommitTopic,
+               OffsetFetchPartition, OffsetFetchRequest, OffsetFetchTopic, PartitionId,
                ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
                RequiredAck, RequiredAcks, SyncGroupAssignment, SyncGroupRequest, ToMilliseconds};
-use network::TopicPartition;
 
 #[derive(Debug)]
 pub enum KafkaRequest<'a> {
@@ -53,14 +54,30 @@ impl<'a> KafkaRequest<'a> {
         }
     }
 
-    pub fn produce_records(api_version: ApiVersion,
-                           correlation_id: CorrelationId,
-                           client_id: Option<Cow<'a, str>>,
-                           required_acks: RequiredAcks,
-                           ack_timeout: Duration,
-                           tp: &TopicPartition<'a>,
-                           records: Vec<Cow<'a, MessageSet>>)
-                           -> KafkaRequest<'a> {
+    pub fn produce_records(
+        api_version: ApiVersion,
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        required_acks: RequiredAcks,
+        ack_timeout: Duration,
+        tp: &TopicPartition<'a>,
+        records: Vec<Cow<'a, MessageSet>>,
+    ) -> KafkaRequest<'a> {
+        let topics = records
+            .into_iter()
+            .map(move |message_set| {
+                ProduceTopicData {
+                    topic_name: tp.topic_name.to_owned().into(),
+                    partitions: vec![
+                        ProducePartitionData {
+                            partition: tp.partition,
+                            message_set: message_set,
+                        },
+                    ],
+                }
+            })
+            .collect();
+
         let request = ProduceRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Produce as ApiKey,
@@ -70,31 +87,21 @@ impl<'a> KafkaRequest<'a> {
             },
             required_acks: required_acks as RequiredAck,
             ack_timeout: ack_timeout.as_millis() as i32,
-            topics: records
-                .into_iter()
-                .map(move |message_set| {
-                    ProduceTopicData {
-                        topic_name: tp.topic_name.to_owned().into(),
-                        partitions: vec![ProducePartitionData {
-                                             partition: tp.partition,
-                                             message_set: message_set,
-                                         }],
-                    }
-                })
-                .collect(),
+            topics: topics,
         };
 
         KafkaRequest::Produce(request)
     }
 
-    pub fn fetch_records(api_version: ApiVersion,
-                         correlation_id: CorrelationId,
-                         client_id: Option<Cow<'a, str>>,
-                         max_wait_time: Duration,
-                         min_bytes: i32,
-                         max_bytes: i32,
-                         topics: Vec<FetchTopic<'a>>)
-                         -> KafkaRequest<'a> {
+    pub fn fetch_records(
+        api_version: ApiVersion,
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        max_wait_time: Duration,
+        min_bytes: i32,
+        max_bytes: i32,
+        topics: Vec<FetchTopic<'a>>,
+    ) -> KafkaRequest<'a> {
         let request = FetchRequest {
             header: RequestHeader {
                 api_key: ApiKeys::ListOffsets as ApiKey,
@@ -112,25 +119,26 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::Fetch(request)
     }
 
-    pub fn list_offsets(api_version: ApiVersion,
-                        correlation_id: CorrelationId,
-                        client_id: Option<Cow<'a, str>>,
-                        topics: HashMap<Cow<'a, str>, Vec<(PartitionId, FetchOffset)>>)
-                        -> KafkaRequest<'a> {
+    pub fn list_offsets(
+        api_version: ApiVersion,
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        topics: HashMap<Cow<'a, str>, Vec<(PartitionId, FetchOffset)>>,
+    ) -> KafkaRequest<'a> {
         let topics = topics
-            .iter()
+            .into_iter()
             .map(|(topic_name, partitions)| {
                 ListTopicOffset {
                     topic_name: topic_name.clone(),
                     partitions: partitions
-                        .iter()
-                        .map(|&(id, offset)| {
-                                 ListPartitionOffset {
-                                     partition: id,
-                                     timestamp: offset.into(),
-                                     max_number_of_offsets: 16,
-                                 }
-                             })
+                        .into_iter()
+                        .map(|(id, offset)| {
+                            ListPartitionOffset {
+                                partition: id,
+                                timestamp: offset.into(),
+                                max_number_of_offsets: 16,
+                            }
+                        })
                         .collect(),
                 }
             })
@@ -150,11 +158,12 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::ListOffsets(request)
     }
 
-    pub fn fetch_metadata<S: AsRef<str>>(api_version: ApiVersion,
-                                         correlation_id: CorrelationId,
-                                         client_id: Option<Cow<'a, str>>,
-                                         topic_names: &[S])
-                                         -> KafkaRequest<'a> {
+    pub fn fetch_metadata<S: AsRef<str>>(
+        api_version: ApiVersion,
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        topic_names: &[S],
+    ) -> KafkaRequest<'a> {
         let request = MetadataRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Metadata as ApiKey,
@@ -171,11 +180,98 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::Metadata(request)
     }
 
-    pub fn group_coordinator(api_version: ApiVersion,
-                             correlation_id: CorrelationId,
-                             client_id: Option<Cow<'a, str>>,
-                             group_id: Cow<'a, str>)
-                             -> KafkaRequest<'a> {
+    pub fn offset_commit(
+        api_version: ApiVersion,
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        group_id: Cow<'a, str>,
+        group_generation_id: GenerationId,
+        member_id: Cow<'a, str>,
+        retention_time: Duration,
+        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
+    ) -> KafkaRequest<'a> {
+        let topics = offsets
+            .into_iter()
+            .fold(HashMap::new(), |mut topics, (tp, offset)| {
+                topics.entry(tp.topic_name).or_insert_with(Vec::new).push(
+                    OffsetCommitPartition {
+                        partition: tp.partition,
+                        offset: offset.offset,
+                        timestamp: offset.timestamp.unwrap_or(DEFAULT_TIMESTAMP),
+                        metadata: offset.metadata,
+                    },
+                );
+                topics
+            })
+            .into_iter()
+            .map(|(topic_name, partitions)| {
+                OffsetCommitTopic {
+                    topic_name: topic_name,
+                    partitions: partitions,
+                }
+            })
+            .collect();
+
+        let request = OffsetCommitRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::OffsetCommit as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            group_id: group_id,
+            group_generation_id: group_generation_id,
+            member_id: member_id,
+            retention_time: retention_time.as_millis() as i64,
+            topics: topics,
+        };
+
+        KafkaRequest::OffsetCommit(request)
+    }
+
+    pub fn offset_fetch(
+        api_version: ApiVersion,
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        group_id: Cow<'a, str>,
+        partitions: Vec<TopicPartition<'a>>,
+    ) -> KafkaRequest<'a> {
+        let topics = partitions
+            .into_iter()
+            .fold(HashMap::new(), |mut topics, tp| {
+                topics.entry(tp.topic_name).or_insert_with(Vec::new).push(
+                    OffsetFetchPartition { partition: tp.partition },
+                );
+                topics
+            })
+            .into_iter()
+            .map(|(topic_name, partitions)| {
+                OffsetFetchTopic {
+                    topic_name: topic_name,
+                    partitions: partitions,
+                }
+            })
+            .collect();
+        let request = OffsetFetchRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::OffsetCommit as ApiKey,
+                api_version: api_version,
+                correlation_id: correlation_id,
+                client_id: client_id,
+            },
+            group_id: group_id,
+            topics: topics,
+        };
+
+        KafkaRequest::OffsetFetch(request)
+    }
+
+    pub fn group_coordinator(
+        api_version: ApiVersion,
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        group_id: Cow<'a, str>,
+    ) -> KafkaRequest<'a> {
         let request = GroupCoordinatorRequest {
             header: RequestHeader {
                 api_key: ApiKeys::GroupCoordinator as ApiKey,
@@ -189,12 +285,13 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::GroupCoordinator(request)
     }
 
-    pub fn heartbeat(correlation_id: CorrelationId,
-                     client_id: Option<Cow<'a, str>>,
-                     group_id: Cow<'a, str>,
-                     group_generation_id: GenerationId,
-                     member_id: Cow<'a, str>)
-                     -> KafkaRequest<'a> {
+    pub fn heartbeat(
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        group_id: Cow<'a, str>,
+        group_generation_id: GenerationId,
+        member_id: Cow<'a, str>,
+    ) -> KafkaRequest<'a> {
         let request = HeartbeatRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Heartbeat as ApiKey,
@@ -210,16 +307,17 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::Heartbeat(request)
     }
 
-    pub fn join_group(api_version: ApiVersion,
-                      correlation_id: CorrelationId,
-                      client_id: Option<Cow<'a, str>>,
-                      group_id: Cow<'a, str>,
-                      session_timeout: i32,
-                      rebalance_timeout: i32,
-                      member_id: Cow<'a, str>,
-                      protocol_type: Cow<'a, str>,
-                      group_protocols: Vec<JoinGroupProtocol<'a>>)
-                      -> KafkaRequest<'a> {
+    pub fn join_group(
+        api_version: ApiVersion,
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        group_id: Cow<'a, str>,
+        session_timeout: i32,
+        rebalance_timeout: i32,
+        member_id: Cow<'a, str>,
+        protocol_type: Cow<'a, str>,
+        group_protocols: Vec<JoinGroupProtocol<'a>>,
+    ) -> KafkaRequest<'a> {
         let request = JoinGroupRequest {
             header: RequestHeader {
                 api_key: ApiKeys::LeaveGroup as ApiKey,
@@ -238,11 +336,12 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::JoinGroup(request)
     }
 
-    pub fn leave_group(correlation_id: CorrelationId,
-                       client_id: Option<Cow<'a, str>>,
-                       group_id: Cow<'a, str>,
-                       member_id: Cow<'a, str>)
-                       -> KafkaRequest<'a> {
+    pub fn leave_group(
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        group_id: Cow<'a, str>,
+        member_id: Cow<'a, str>,
+    ) -> KafkaRequest<'a> {
         let request = LeaveGroupRequest {
             header: RequestHeader {
                 api_key: ApiKeys::LeaveGroup as ApiKey,
@@ -257,13 +356,14 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::LeaveGroup(request)
     }
 
-    pub fn sync_group(correlation_id: CorrelationId,
-                      client_id: Option<Cow<'a, str>>,
-                      group_id: Cow<'a, str>,
-                      group_generation_id: GenerationId,
-                      member_id: Cow<'a, str>,
-                      group_assignment: Vec<SyncGroupAssignment<'a>>)
-                      -> KafkaRequest<'a> {
+    pub fn sync_group(
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+        group_id: Cow<'a, str>,
+        group_generation_id: GenerationId,
+        member_id: Cow<'a, str>,
+        group_assignment: Vec<SyncGroupAssignment<'a>>,
+    ) -> KafkaRequest<'a> {
         let request = SyncGroupRequest {
             header: RequestHeader {
                 api_key: ApiKeys::SyncGroup as ApiKey,
@@ -277,20 +377,21 @@ impl<'a> KafkaRequest<'a> {
             group_assignment: group_assignment
                 .into_iter()
                 .map(|assignment| {
-                         SyncGroupAssignment {
-                             member_id: assignment.member_id,
-                             member_assignment: assignment.member_assignment,
-                         }
-                     })
+                    SyncGroupAssignment {
+                        member_id: assignment.member_id,
+                        member_assignment: assignment.member_assignment,
+                    }
+                })
                 .collect(),
         };
 
         KafkaRequest::SyncGroup(request)
     }
 
-    pub fn api_versions(correlation_id: CorrelationId,
-                        client_id: Option<Cow<'a, str>>)
-                        -> KafkaRequest<'a> {
+    pub fn api_versions(
+        correlation_id: CorrelationId,
+        client_id: Option<Cow<'a, str>>,
+    ) -> KafkaRequest<'a> {
         let request = ApiVersionsRequest {
             header: RequestHeader {
                 api_key: ApiKeys::ApiVersions as ApiKey,

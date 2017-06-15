@@ -1,5 +1,5 @@
-use std::borrow::Cow;
 use bytes::{BufMut, ByteOrder, BytesMut};
+use std::borrow::Cow;
 
 use nom::{IResult, be_i16, be_i32};
 
@@ -20,7 +20,7 @@ pub struct OffsetCommitRequest<'a> {
     /// The generation of the group.
     pub group_generation_id: i32,
     /// The member id assigned by the group coordinator.
-    pub member_id: Option<Cow<'a, str>>,
+    pub member_id: Cow<'a, str>,
     /// Time period in ms to retain the offset.
     pub retention_time: i64,
     /// Topic to commit.
@@ -73,24 +73,22 @@ pub struct OffsetCommitPartitionStatus {
 impl<'a> Record for OffsetCommitRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len() +
-        if api_version > 0 {
-            GROUP_GENERATION_ID_SIZE + STR_LEN_SIZE + self.member_id.as_ref().map_or(0, |s| s.len())
-        } else {
-            0
-        } + if api_version > 1 { RETENTION_TIME } else { 0 } +
-        self.topics
-            .iter()
-            .fold(ARRAY_LEN_SIZE, |size, topic| {
+            if api_version > 0 {
+                GROUP_GENERATION_ID_SIZE + STR_LEN_SIZE + self.member_id.len()
+            } else {
+                0
+            } + if api_version > 1 { RETENTION_TIME } else { 0 } +
+            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
                 size + STR_LEN_SIZE + topic.topic_name.len() +
-                topic
-                    .partitions
-                    .iter()
-                    .fold(ARRAY_LEN_SIZE, |size, partition| {
-                        size + PARTITION_ID_SIZE + OFFSET_SIZE +
-                        if api_version == 1 { TIMESTAMP_SIZE } else { 0 } +
-                        STR_LEN_SIZE +
-                        partition.metadata.as_ref().map_or(0, |s| s.len())
-                    })
+                    topic.partitions.iter().fold(
+                        ARRAY_LEN_SIZE,
+                        |size, partition| {
+                            size + PARTITION_ID_SIZE + OFFSET_SIZE +
+                                if api_version == 1 { TIMESTAMP_SIZE } else { 0 } +
+                                STR_LEN_SIZE +
+                                partition.metadata.as_ref().map_or(0, |s| s.len())
+                        },
+                    )
             })
     }
 }
@@ -104,7 +102,7 @@ impl<'a> Encodable for OffsetCommitRequest<'a> {
         dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
         if api_version > 0 {
             dst.put_i32::<T>(self.group_generation_id);
-            dst.put_str::<T, _>(self.member_id.as_ref())?;
+            dst.put_str::<T, _>(Some(self.member_id.as_ref()))?;
         }
         if api_version > 1 {
             dst.put_i64::<T>(self.retention_time);
@@ -187,7 +185,7 @@ mod tests {
             },
             group_id: "consumer".into(),
             group_generation_id: Default::default(),
-            member_id: Default::default(),
+            member_id: "member".into(),
             retention_time: Default::default(),
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),
@@ -242,7 +240,7 @@ mod tests {
             },
             group_id: "consumer".into(),
             group_generation_id: 456,
-            member_id: Some("member".into()),
+            member_id: "member".into(),
             retention_time: Default::default(),
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),
@@ -300,7 +298,7 @@ mod tests {
             },
             group_id: "consumer".into(),
             group_generation_id: 456,
-            member_id: Some("member".into()),
+            member_id: "member".into(),
             retention_time: 789,
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),

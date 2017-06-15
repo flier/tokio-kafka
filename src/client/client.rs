@@ -26,7 +26,7 @@ use tokio_timer::Timer;
 use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware,
              KafkaService, Metadata, Metrics};
 use errors::{Error, ErrorKind, Result};
-use network::{KafkaRequest, KafkaResponse, TopicPartition};
+use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
                FetchOffset, FetchPartition, FetchTopic, GenerationId, JoinGroupMember,
                JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset, PartitionId,
@@ -51,7 +51,7 @@ pub trait Client<'a>: 'static {
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
         partitions: Vec<(TopicPartition<'a>, PartitionData)>,
-    ) -> FetchRecords<'a>;
+    ) -> FetchRecords;
 
     /// Search the offsets by target times for the specified topics and return a future which
     /// will eventually contain the partition offset information.
@@ -60,6 +60,23 @@ pub trait Client<'a>: 'static {
     /// Load metadata of the Kafka cluster and return a future which will eventually contain
     /// the metadata information.
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
+
+    /// Commit the specified offsets for the specified list of topics and partitions to Kafka.
+    fn offset_commit(
+        &self,
+        coordinator: BrokerRef,
+        generation: Generation,
+        retention_time: Duration,
+        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
+    ) -> OffsetCommit;
+
+    /// Fetch the current committed offsets from the coordinator for a set of partitions.
+    fn offset_fetch(
+        &self,
+        coordinator: BrokerRef,
+        generation: Generation,
+        partitions: Vec<TopicPartition<'a>>,
+    ) -> OffsetFetch;
 
     /// Discover the current coordinator of the consumer group.
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator;
@@ -94,11 +111,24 @@ pub trait Client<'a>: 'static {
 /// The future of records metadata information.
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
 
+/// The future of fetch records of partitions.
+pub type FetchRecords = StaticBoxFuture<HashMap<String, Vec<PartitionRecords>>>;
+
+pub struct PartitionRecords {
+    /// The partition id
+    pub partition: PartitionId,
+    /// The error code
+    pub error_code: KafkaCode,
+    /// The offset found in the partition
+    pub fetch_offset: Offset,
+    /// The offset at the end of the log for this partition.
+    pub high_watermark: Offset,
+    /// The message data fetched from this partition, in the format described above.
+    pub messages: Vec<Message>,
+}
+
 /// The future of partition offsets information.
 pub type ListOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
-
-/// The future of fetch records of partitions.
-pub type FetchRecords<'a> = StaticBoxFuture<HashMap<String, Vec<PartitionRecords>>>;
 
 /// The partition and offset
 #[derive(Clone, Debug)]
@@ -119,25 +149,34 @@ impl PartitionOffset {
     }
 }
 
-pub struct PartitionRecords {
-    /// The partition id
-    pub partition: PartitionId,
-    /// The error code
-    pub error_code: KafkaCode,
-    /// The offset found in the partition
-    pub fetch_offset: Offset,
-    /// The offset at the end of the log for this partition.
-    pub high_watermark: Offset,
-    /// The message data fetched from this partition, in the format described above.
-    pub messages: Vec<Message>,
-}
-
 /// The fetch partition data
 pub struct PartitionData {
     /// Message offset.
     pub offset: Offset,
     /// Maximum bytes to fetch.
     pub max_bytes: Option<i32>,
+}
+
+pub type OffsetCommit = StaticBoxFuture<HashMap<String, Vec<CommittedOffset>>>;
+
+pub struct CommittedOffset {
+    /// The partition id
+    pub partition: PartitionId,
+    /// The error code
+    pub error_code: KafkaCode,
+}
+
+pub type OffsetFetch = StaticBoxFuture<HashMap<String, Vec<FetchedOffset>>>;
+
+pub struct FetchedOffset {
+    /// The partition id
+    pub partition: PartitionId,
+    /// The offset found in the partition
+    pub offset: Offset,
+    /// Any associated metadata the client wants to keep.
+    pub metadata: Option<String>,
+    /// The error code
+    pub error_code: KafkaCode,
 }
 
 /// The future of discover group coodinator
@@ -330,6 +369,8 @@ where
     }
 }
 
+pub type GetMetadata = StaticBoxFuture<Rc<Metadata>>;
+
 impl<'a> Client<'a> for KafkaClient<'a>
 where
     Self: 'static,
@@ -355,7 +396,7 @@ where
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
         partitions: Vec<(TopicPartition<'a>, PartitionData)>,
-    ) -> FetchRecords<'a> {
+    ) -> FetchRecords {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
@@ -411,6 +452,52 @@ where
         }
 
         LoadMetadata::new(self.inner.clone())
+    }
+
+    fn offset_commit(
+        &self,
+        coordinator: BrokerRef,
+        generation: Generation,
+        retention_time: Duration,
+        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
+    ) -> OffsetCommit {
+        let inner = self.inner.clone();
+        self.metadata()
+            .and_then(move |metadata| {
+                metadata
+                    .find_broker(coordinator)
+                    .map(move |coordinator| {
+                        inner.offset_commit(
+                            coordinator,
+                            generation.group_id.into(),
+                            generation.generation_id,
+                            generation.member_id.into(),
+                            retention_time,
+                            offsets,
+                        )
+                    })
+                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+            })
+            .static_boxed()
+    }
+
+    fn offset_fetch(
+        &self,
+        coordinator: BrokerRef,
+        generation: Generation,
+        partitions: Vec<TopicPartition<'a>>,
+    ) -> OffsetFetch {
+        let inner = self.inner.clone();
+        self.metadata()
+            .and_then(move |metadata| {
+                metadata
+                    .find_broker(coordinator)
+                    .map(move |coordinator| {
+                        inner.offset_fetch(coordinator, generation.group_id.into(), partitions)
+                    })
+                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+            })
+            .static_boxed()
     }
 
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
@@ -757,7 +844,7 @@ where
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
         topics: TopicsByBroker<'a, PartitionData>,
-    ) -> FetchRecords<'a> {
+    ) -> FetchRecords {
         let requests = {
             let mut requests = Vec::new();
 
@@ -936,6 +1023,118 @@ where
                     }
                     offsets
                 })
+            })
+            .static_boxed()
+    }
+
+    fn offset_commit(
+        &self,
+        coordinator: &Broker,
+        group_id: Cow<'a, str>,
+        group_generation_id: GenerationId,
+        member_id: Cow<'a, str>,
+        retention_time: Duration,
+        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
+    ) -> OffsetCommit {
+        let addr = coordinator
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
+
+        let api_version = coordinator
+            .api_version(ApiKeys::OffsetCommit)
+            .unwrap_or_default();
+
+        let request = KafkaRequest::offset_commit(
+            api_version,
+            self.next_correlation_id(),
+            self.client_id(),
+            group_id,
+            group_generation_id,
+            member_id,
+            retention_time,
+            offsets,
+        );
+
+        self.service
+            .call((addr, request))
+            .and_then(|res| if let KafkaResponse::OffsetCommit(res) = res {
+                Ok(res.topics)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
+            .map(|topics| {
+                HashMap::from_iter(topics.into_iter().map(|status| {
+                    (
+                        status.topic_name,
+                        status
+                            .partitions
+                            .into_iter()
+                            .map(|partition| {
+                                CommittedOffset {
+                                    partition: partition.partition,
+                                    error_code: partition.error_code.into(),
+                                }
+                            })
+                            .collect(),
+                    )
+                }))
+            })
+            .static_boxed()
+    }
+
+    fn offset_fetch(
+        &self,
+        coordinator: &Broker,
+        group_id: Cow<'a, str>,
+        partitions: Vec<TopicPartition<'a>>,
+    ) -> OffsetFetch {
+        let addr = coordinator
+            .addr()
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap(); // TODO
+
+        let api_version = coordinator
+            .api_version(ApiKeys::OffsetFetch)
+            .unwrap_or_default();
+
+        let request = KafkaRequest::offset_fetch(
+            api_version,
+            self.next_correlation_id(),
+            self.client_id(),
+            group_id,
+            partitions,
+        );
+
+        self.service
+            .call((addr, request))
+            .and_then(|res| if let KafkaResponse::OffsetFetch(res) = res {
+                Ok(res.topics)
+            } else {
+                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            })
+            .map(|topics| {
+                HashMap::from_iter(topics.into_iter().map(|status| {
+                    (
+                        status.topic_name,
+                        status
+                            .partitions
+                            .into_iter()
+                            .map(|partition| {
+                                FetchedOffset {
+                                    partition: partition.partition,
+                                    offset: partition.offset,
+                                    metadata: partition.metadata,
+                                    error_code: partition.error_code.into(),
+                                }
+                            })
+                            .collect(),
+                    )
+                }))
             })
             .static_boxed()
     }
@@ -1172,6 +1371,10 @@ where
     }
 }
 
+pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
+pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
+pub type LoadApiVersions = StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>;
+
 type TopicsByBroker<'a, T> = HashMap<
     (SocketAddr, ApiVersion),
     HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>,
@@ -1374,8 +1577,3 @@ where
         StaticBoxFuture::new(self)
     }
 }
-
-pub type GetMetadata = StaticBoxFuture<Rc<Metadata>>;
-pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
-pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
-pub type LoadApiVersions = StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>;

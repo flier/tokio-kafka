@@ -1,8 +1,8 @@
 #![allow(non_camel_case_types)]
 
 use std::mem;
-use std::time::Duration;
 use std::str::FromStr;
+use std::time::Duration;
 
 use time::Timespec;
 
@@ -25,42 +25,48 @@ mod group;
 mod api_versions;
 mod schema;
 
-pub use self::code::{ErrorCode, KafkaCode};
 pub use self::api_key::{ApiKey, ApiKeys};
+pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
+                             UsableApiVersions};
+pub use self::code::{ErrorCode, KafkaCode};
 pub use self::encode::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, PARTITION_ID_SIZE,
                        REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE, WriteExt};
-pub use self::parse::{PARSE_TAGS, ParseTag, display_parse_error, parse_bytes, parse_opt_bytes,
-                      parse_opt_str, parse_opt_string, parse_str, parse_string};
-pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
-pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
-                        MessageTimestamp, parse_message_set};
-pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
 pub use self::fetch::{DEFAULT_RESPONSE_MAX_BYTES, FetchPartition, FetchRequest, FetchResponse,
                       FetchTopic};
-pub use self::list_offset::{EARLIEST_TIMESTAMP, FetchOffset, LATEST_TIMESTAMP, ListOffsetRequest,
-                            ListOffsetResponse, ListPartitionOffset, ListTopicOffset};
-pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
-                         TopicMetadata};
-pub use self::offset_commit::{OffsetCommitRequest, OffsetCommitResponse};
-pub use self::offset_fetch::{OffsetFetchRequest, OffsetFetchResponse};
 pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordinatorRequest,
                       GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse,
                       JoinGroupMember, JoinGroupProtocol, JoinGroupRequest, JoinGroupResponse,
                       LeaveGroupRequest, LeaveGroupResponse, ListGroupsRequest,
                       ListGroupsResponse, SyncGroupAssignment, SyncGroupRequest, SyncGroupResponse};
-pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
-                             UsableApiVersions};
+pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
+pub use self::list_offset::{EARLIEST_TIMESTAMP, FetchOffset, LATEST_TIMESTAMP, ListOffsetRequest,
+                            ListOffsetResponse, ListPartitionOffset, ListTopicOffset};
+pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
+                        MessageTimestamp, parse_message_set};
+pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
+                         TopicMetadata};
+pub use self::offset_commit::{OffsetCommitPartition, OffsetCommitRequest, OffsetCommitResponse,
+                              OffsetCommitTopic};
+pub use self::offset_fetch::{OffsetFetchPartition, OffsetFetchRequest, OffsetFetchResponse,
+                             OffsetFetchTopic};
+pub use self::parse::{PARSE_TAGS, ParseTag, display_parse_error, parse_bytes, parse_opt_bytes,
+                      parse_opt_str, parse_opt_string, parse_str, parse_string};
+pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
 
 /// Normal client consumers should always specify this as -1 as they have no node id.
 pub const CONSUMER_REPLICA_ID: ReplicaId = -1;
-///  The value -2 is accepted to allow a non-broker to issue fetch requests as if it were a replica broker for debugging purposes.
+/// The value -2 is accepted to allow a non-broker to issue fetch requests as if it were a replica
+/// broker for debugging purposes.
 pub const DEBUGGING_REPLICA_ID: ReplicaId = -2;
+
+pub const DEFAULT_TIMESTAMP: Timestamp = -1;
 
 /// This is a numeric version number for this api.
 ///
 /// We version each API and this version number allows the server to properly interpret the request
-/// as the protocol evolves. Responses will always be in the format corresponding to the request version.
+/// as the protocol evolves. Responses will always be in the format corresponding to the request
+/// version.
 pub type ApiVersion = i16;
 
 /// This is a user-supplied integer.
@@ -133,7 +139,11 @@ impl FromStr for RequiredAcks {
             "none" => Ok(RequiredAcks::None),
             "one" => Ok(RequiredAcks::One),
             "all" => Ok(RequiredAcks::All),
-            _ => bail!(ErrorKind::ParseError(format!("unknown required acks: {}", s))),
+            _ => {
+                bail!(ErrorKind::ParseError(
+                    format!("unknown required acks: {}", s),
+                ))
+            }
         }
     }
 }

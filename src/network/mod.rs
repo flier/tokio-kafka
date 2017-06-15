@@ -7,18 +7,18 @@ mod stream;
 mod conn;
 mod pool;
 
-pub use self::request::KafkaRequest;
-pub use self::response::KafkaResponse;
 pub use self::codec::KafkaCodec;
-pub use self::resolver::{DnsQuery, DnsResolver, Resolver};
-pub use self::stream::{Connect, KafkaConnector, KafkaStream};
 pub use self::conn::{KafkaConnection, KeepAlive, Status};
 pub use self::pool::{Pool, Pooled};
+pub use self::request::KafkaRequest;
+pub use self::resolver::{DnsQuery, DnsResolver, Resolver};
+pub use self::response::KafkaResponse;
+pub use self::stream::{Connect, KafkaConnector, KafkaStream};
 
-use std::fmt;
 use std::borrow::Cow;
+use std::fmt;
 
-use protocol::{Offset, PartitionId};
+use protocol::{Offset, PartitionId, Timestamp};
 
 pub type ConnectionId = u32;
 
@@ -45,12 +45,16 @@ macro_rules! topic_partition {
 
 /// A offset and metadata
 ///
-/// The Kafka offset commit API allows users to provide additional metadata (in the form of a string)
-/// when an offset is committed. This can be useful (for example) to store information about which
-/// node made the commit, what time the commit was made, etc.
+/// The Kafka offset commit API allows users to provide additional metadata (in the form of a
+/// string) when an offset is committed. This can be useful (for example) to store information
+/// about which node made the commit, what time the commit was made, etc.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OffsetAndMetadata<'a> {
+    /// Message offset to be committed.
     pub offset: Offset,
+    /// Timestamp of the commit
+    pub timestamp: Option<Timestamp>,
+    /// Any associated metadata the client wants to keep.
     pub metadata: Option<Cow<'a, str>>,
 }
 
