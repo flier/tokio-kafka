@@ -122,11 +122,11 @@ pub struct ProducedRecords {
 }
 
 /// The future of fetch records of partitions.
-pub type FetchRecords = StaticBoxFuture<HashMap<String, Vec<PartitionRecords>>>;
+pub type FetchRecords = StaticBoxFuture<HashMap<String, Vec<FetchedRecords>>>;
 
-pub struct PartitionRecords {
+pub struct FetchedRecords {
     /// The partition id
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// The error code
     pub error_code: KafkaCode,
     /// The offset found in the partition
@@ -138,13 +138,13 @@ pub struct PartitionRecords {
 }
 
 /// The future of partition offsets information.
-pub type ListOffsets = StaticBoxFuture<HashMap<String, Vec<PartitionOffset>>>;
+pub type ListOffsets = StaticBoxFuture<HashMap<String, Vec<ListedOffset>>>;
 
 /// The partition and offset
 #[derive(Clone, Debug)]
-pub struct PartitionOffset {
+pub struct ListedOffset {
     /// The partition id
-    pub partition: PartitionId,
+    pub partition_id: PartitionId,
     /// The error code
     pub error_code: KafkaCode,
     /// The offset found in the partition
@@ -153,7 +153,7 @@ pub struct PartitionOffset {
     pub timestamp: Option<Timestamp>,
 }
 
-impl PartitionOffset {
+impl ListedOffset {
     pub fn offset(&self) -> Option<Offset> {
         self.offsets.first().cloned()
     }
@@ -181,12 +181,12 @@ pub type OffsetFetch = StaticBoxFuture<HashMap<String, Vec<FetchedOffset>>>;
 pub struct FetchedOffset {
     /// The partition id
     pub partition: PartitionId,
+    /// The error code
+    pub error_code: KafkaCode,
     /// The offset found in the partition
     pub offset: Offset,
     /// Any associated metadata the client wants to keep.
     pub metadata: Option<String>,
-    /// The error code
-    pub error_code: KafkaCode,
 }
 
 /// The future of discover group coodinator
@@ -941,8 +941,8 @@ where
                                             );
 
                                             offsets_by_topic_partition.get(&tp).map(move |&fetch| {
-                                                PartitionRecords {
-                                                    partition: data.partition,
+                                                FetchedRecords {
+                                                    partition_id: data.partition,
                                                     error_code: data.error_code.into(),
                                                     fetch_offset: fetch.offset,
                                                     high_watermark: data.high_watermark,
@@ -950,12 +950,12 @@ where
                                                 }
                                             })
                                         })
-                                        .collect::<Vec<PartitionRecords>>()
+                                        .collect()
                                 };
 
                                 (topic_name.clone(), records)
                             })
-                            .collect::<Vec<(String, Vec<PartitionRecords>)>>()
+                            .collect::<Vec<(String, Vec<FetchedRecords>)>>()
                     });
 
                 requests.push(request);
@@ -1006,18 +1006,18 @@ where
                                     .partitions
                                     .into_iter()
                                     .map(|partition| {
-                                        PartitionOffset {
-                                            partition: partition.partition,
+                                        ListedOffset {
+                                            partition_id: partition.partition,
                                             error_code: partition.error_code.into(),
                                             offsets: partition.offsets,
                                             timestamp: partition.timestamp,
                                         }
                                     })
-                                    .collect::<Vec<PartitionOffset>>();
+                                    .collect();
 
                                 (topic.topic_name.clone(), partitions)
                             })
-                            .collect::<Vec<(String, Vec<PartitionOffset>)>>()
+                            .collect::<Vec<(String, Vec<ListedOffset>)>>()
                     });
 
                 requests.push(request);

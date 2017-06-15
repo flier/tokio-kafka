@@ -67,24 +67,24 @@ mod client;
 mod producer;
 mod consumer;
 
-pub use errors::{Error, ErrorKind, Result};
-pub use compression::Compression;
-pub use protocol::{ApiKey, ApiKeys, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId,
-                   RequiredAcks, Timestamp, ToMilliseconds, UsableApiVersion, UsableApiVersions};
-pub use serialization::{BytesDeserializer, BytesSerializer, Deserializer, NoopDeserializer,
-                        NoopSerializer, RawDeserializer, RawSerializer, Serializer};
-#[cfg(feature = "encoding")]
-pub use serialization::{StrEncodingDeserializer, StrEncodingSerializer};
-#[cfg(feature = "json")]
-pub use serialization::{JsonDeserializer, JsonSerializer};
-pub use network::TopicPartition;
 pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster,
                  DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,
                  DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS, KafkaClient,
-                 KafkaVersion, ListOffsets, LoadMetadata, Metadata, PartitionOffset,
-                 PartitionRecord, ProduceRecords, ToStaticBoxFuture, TopicRecord};
+                 KafkaVersion, ListOffsets, ListedOffset, LoadMetadata, Metadata, PartitionRecord,
+                 ProduceRecords, ToStaticBoxFuture, TopicRecord};
+pub use compression::Compression;
+pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer};
+pub use errors::{Error, ErrorKind, Result};
+pub use network::TopicPartition;
 pub use producer::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
                    DEFAULT_MAX_REQUEST_SIZE, DefaultPartitioner, GetTopic, KafkaProducer,
                    Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,
                    ProducerPartition, ProducerRecord, ProducerTopic, RecordMetadata, SendRecord};
-pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer};
+pub use protocol::{ApiKey, ApiKeys, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId,
+                   RequiredAcks, Timestamp, ToMilliseconds, UsableApiVersion, UsableApiVersions};
+pub use serialization::{BytesDeserializer, BytesSerializer, Deserializer, NoopDeserializer,
+                        NoopSerializer, RawDeserializer, RawSerializer, Serializer};
+#[cfg(feature = "json")]
+pub use serialization::{JsonDeserializer, JsonSerializer};
+#[cfg(feature = "encoding")]
+pub use serialization::{StrEncodingDeserializer, StrEncodingSerializer};

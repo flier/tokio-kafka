@@ -111,8 +111,10 @@ where
                         if let Some(offset) = partition.offset() {
                             match partition.error_code {
                                 KafkaCode::None => {
-                                    let tp =
-                                        topic_partition!(topic_name.clone(), partition.partition);
+                                    let tp = topic_partition!(
+                                        topic_name.clone(),
+                                        partition.partition_id
+                                    );
 
                                     subscriptions.borrow_mut().seek(&tp, offset);
                                 }
@@ -157,7 +159,7 @@ where
             .and_then(move |records| {
                 for (topic_name, records) in &records {
                     for record in records {
-                        let tp = topic_partition!(topic_name.clone(), record.partition);
+                        let tp = topic_partition!(topic_name.clone(), record.partition_id);
 
                         if let Some(mut state) = subscriptions
                                .borrow_mut()

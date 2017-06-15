@@ -19,8 +19,8 @@ use getopts::Options;
 use futures::Future;
 use futures::future;
 use tokio_core::reactor::Core;
-use tokio_kafka::{Client, Cluster, FetchOffset, KafkaClient, KafkaVersion, Metadata,
-                  PartitionOffset, TopicPartition};
+use tokio_kafka::{Client, Cluster, FetchOffset, KafkaClient, KafkaVersion, ListedOffset, Metadata,
+                  TopicPartition};
 
 const DEFAULT_BROKER: &'static str = "127.0.0.1:9092";
 
@@ -51,14 +51,18 @@ impl Config {
         let mut opts = Options::new();
 
         opts.optflag("h", "help", "print this help menu");
-        opts.optopt("b",
-                    "brokers",
-                    "Bootstrap broker(s) (host[:port], comma separated)",
-                    "HOSTS");
-        opts.optopt("",
-                    "broker-version",
-                    "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
-                    "VERSION");
+        opts.optopt(
+            "b",
+            "brokers",
+            "Bootstrap broker(s) (host[:port], comma separated)",
+            "HOSTS",
+        );
+        opts.optopt(
+            "",
+            "broker-version",
+            "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
+            "VERSION",
+        );
         opts.optopt("t", "topics", "Specify topics (comma separated)", "NAMES");
         opts.optflag("", "no-header", "Don't print headers");
         opts.optflag("", "no-host", "Don't print host:port of leaders");
@@ -75,37 +79,40 @@ impl Config {
             process::exit(0);
         }
 
-        let brokers = matches
-            .opt_str("b")
-            .map_or_else(|| vec![DEFAULT_BROKER.to_owned()], |s| {
+        let brokers = matches.opt_str("b").map_or_else(
+            || vec![DEFAULT_BROKER.to_owned()],
+            |s| {
                 s.split(',').map(|s| s.trim().to_owned()).collect()
-            });
+            },
+        );
 
-        let (api_version_request, broker_version) = matches
-            .opt_str("broker-version")
-            .map_or((false, None), |s| if s == "auto" {
-                (true, None)
-            } else {
-                (false, Some(s.parse().unwrap()))
-            });
+        let (api_version_request, broker_version) =
+            matches.opt_str("broker-version").map_or(
+                (false, None),
+                |s| if s == "auto" {
+                    (true, None)
+                } else {
+                    (false, Some(s.parse().unwrap()))
+                },
+            );
 
-        let topic_names = matches
-            .opt_str("t")
-            .map(|s| s.split(',').map(|s| s.trim().to_owned()).collect());
+        let topic_names = matches.opt_str("t").map(|s| {
+            s.split(',').map(|s| s.trim().to_owned()).collect()
+        });
 
         Ok(Config {
-               brokers: brokers
-                   .iter()
-                   .flat_map(|s| s.to_socket_addrs().unwrap())
-                   .collect(),
-               api_version_request: api_version_request,
-               broker_version: broker_version,
-               topic_names: topic_names,
-               show_header: !matches.opt_present("no-header"),
-               show_host: !matches.opt_present("no-host"),
-               show_size: !matches.opt_present("no-size"),
-               topic_separators: !matches.opt_present("no-empty-lines"),
-           })
+            brokers: brokers
+                .iter()
+                .flat_map(|s| s.to_socket_addrs().unwrap())
+                .collect(),
+            api_version_request: api_version_request,
+            broker_version: broker_version,
+            topic_names: topic_names,
+            show_header: !matches.opt_present("no-header"),
+            show_host: !matches.opt_present("no-host"),
+            show_size: !matches.opt_present("no-size"),
+            topic_separators: !matches.opt_present("no-empty-lines"),
+        })
     }
 }
 
@@ -140,22 +147,28 @@ fn main() {
             })
             .flat_map(|(topic_name, partitions)| {
                 partitions.iter().map(move |partition| {
-                                          TopicPartition {
-                                              topic_name: String::from(*topic_name).into(),
-                                              partition: partition.partition,
-                                          }
-                                      })
+                    TopicPartition {
+                        topic_name: String::from(*topic_name).into(),
+                        partition: partition.partition,
+                    }
+                })
             })
             .collect();
 
-        let requests = vec![client.list_offsets(topics
-                                                    .iter()
-                                                    .map(|tp| (tp.clone(), FetchOffset::Earliest))
-                                                    .collect()),
-                            client.list_offsets(topics
-                                                    .iter()
-                                                    .map(|tp| (tp.clone(), FetchOffset::Latest))
-                                                    .collect())];
+        let requests = vec![
+            client.list_offsets(
+                topics
+                    .iter()
+                    .map(|tp| (tp.clone(), FetchOffset::Earliest))
+                    .collect()
+            ),
+            client.list_offsets(
+                topics
+                    .iter()
+                    .map(|tp| (tp.clone(), FetchOffset::Latest))
+                    .collect()
+            ),
+        ];
 
         let topic_names = topics
             .iter()
@@ -163,35 +176,29 @@ fn main() {
             .collect();
 
         future::join_all(requests).map(|responses| {
-                                           dump_metadata(config,
-                                                         metadata,
-                                                         topic_names,
-                                                         &responses[0],
-                                                         &responses[1])
-                                       })
+            dump_metadata(config, metadata, topic_names, &responses[0], &responses[1])
+        })
     });
 
     core.run(work).unwrap();
 }
 
-fn dump_metadata<'a>(config: Config,
-                     metadata: Rc<Metadata>,
-                     topics: Vec<String>,
-                     earliest_offsets: &HashMap<String, Vec<PartitionOffset>>,
-                     latest_offsets: &HashMap<String, Vec<PartitionOffset>>) {
+fn dump_metadata<'a>(
+    config: Config,
+    metadata: Rc<Metadata>,
+    topics: Vec<String>,
+    earliest_offsets: &HashMap<String, Vec<ListedOffset>>,
+    latest_offsets: &HashMap<String, Vec<ListedOffset>>,
+) {
     let host_width = 2 +
-                     metadata
-                         .brokers()
-                         .iter()
-                         .map(|broker| broker.addr())
-                         .fold(0, |width, (host, port)| {
-        cmp::max(width, format!("{}:{}", host, port).len())
-    });
+        metadata.brokers().iter().map(|broker| broker.addr()).fold(
+            0,
+            |width, (host, port)| cmp::max(width, format!("{}:{}", host, port).len()),
+        );
     let topic_width = 2 +
-                      metadata
-                          .topic_names()
-                          .iter()
-                          .fold(0, |width, topic_name| cmp::max(width, topic_name.len()));
+        metadata.topic_names().iter().fold(0, |width, topic_name| {
+            cmp::max(width, topic_name.len())
+        });
 
     if config.show_header {
         print!("{1:0$} {2:4} {3:4}", topic_width, "topic", "p-id", "l-id");
@@ -221,52 +228,70 @@ fn dump_metadata<'a>(config: Config,
         }
 
         if let (Some(earliest), Some(latest)) =
-            (earliest_offsets.get(&topic_name), latest_offsets.get(&topic_name)) {
+            (
+                earliest_offsets.get(&topic_name),
+                latest_offsets.get(&topic_name),
+            )
+        {
 
             for partition_info in partitions.iter() {
                 if let Some(leader) = partition_info.leader() {
                     if let (Some(broker), Some(earliest_offset), Some(latest_offset)) =
-                        (metadata.find_broker(leader),
-                         earliest
-                             .iter()
-                             .find(|offset| offset.partition == partition_info.partition),
-                         latest
-                             .iter()
-                             .find(|offset| offset.partition == partition_info.partition)) {
+                        (
+                            metadata.find_broker(leader),
+                            earliest.iter().find(|offset| {
+                                offset.partition_id == partition_info.partition
+                            }),
+                            latest.iter().find(|offset| {
+                                offset.partition_id == partition_info.partition
+                            }),
+                        )
+                    {
 
-                        print!("{1:0$} {2:>4} {3:>4}",
-                               topic_width,
-                               topic_name,
-                               partition_info.partition,
-                               broker.id());
+                        print!(
+                            "{1:0$} {2:>4} {3:>4}",
+                            topic_width,
+                            topic_name,
+                            partition_info.partition,
+                            broker.id()
+                        );
 
                         if config.show_host {
                             let (host, port) = broker.addr();
                             print!(" {1:0$}", host_width, format!("({}:{})", host, port));
                         }
 
-                        print!(" {:>12} {:>12}",
-                               earliest_offset.offset().unwrap(),
-                               latest_offset.offset().unwrap());
+                        print!(
+                            " {:>12} {:>12}",
+                            earliest_offset.offset().unwrap(),
+                            latest_offset.offset().unwrap()
+                        );
 
                         if config.show_size {
-                            print!(" {:>12}",
-                                   format!("({})",
-                                           latest_offset.offset().unwrap() -
-                                           earliest_offset.offset().unwrap()));
+                            print!(
+                                " {:>12}",
+                                format!(
+                                    "({})",
+                                    latest_offset.offset().unwrap() - earliest_offset.offset().unwrap()
+                                )
+                            );
                         }
 
                         println!("")
                     } else {
-                        println!("{1:0$} - leader or offsets not found!\n",
-                                 topic_width,
-                                 topic_name);
+                        println!(
+                            "{1:0$} - leader or offsets not found!\n",
+                            topic_width,
+                            topic_name
+                        );
                     }
                 } else {
-                    println!("{1:0$} - partition #{2} haven't leader!\n",
-                             topic_width,
-                             topic_name,
-                             partition_info.partition);
+                    println!(
+                        "{1:0$} - partition #{2} haven't leader!\n",
+                        topic_width,
+                        topic_name,
+                        partition_info.partition
+                    );
                 }
             }
         } else {
