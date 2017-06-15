@@ -20,15 +20,17 @@ pub struct Fetcher<'a> {
 }
 
 impl<'a> Fetcher<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
-    pub fn new(client: KafkaClient<'a>,
-               subscriptions: Rc<RefCell<Subscriptions<'a>>>,
-               fetch_min_bytes: usize,
-               fetch_max_bytes: usize,
-               fetch_max_wait: Duration,
-               partition_fetch_bytes: usize)
-               -> Self {
+    pub fn new(
+        client: KafkaClient<'a>,
+        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        fetch_min_bytes: usize,
+        fetch_max_bytes: usize,
+        fetch_max_wait: Duration,
+        partition_fetch_bytes: usize,
+    ) -> Self {
         Fetcher {
             client: client,
             subscriptions: subscriptions,
@@ -41,7 +43,8 @@ impl<'a> Fetcher<'a>
 
     /// Update the fetch positions for the provided partitions.
     pub fn update_positions<I>(&self, partitions: I) -> UpdatePositions
-        where I: Iterator<Item = TopicPartition<'a>>
+    where
+        I: Iterator<Item = TopicPartition<'a>>,
     {
         let default_reset_strategy = self.subscriptions.borrow().default_reset_strategy();
 
@@ -50,31 +53,34 @@ impl<'a> Fetcher<'a>
                 .borrow_mut()
                 .assigned_state_mut(&tp)
                 .and_then(|state| if state.is_offset_reset_needed() {
-                              Some(tp)
-                          } else if state.has_committed() {
-                              state.need_offset_reset(default_reset_strategy);
+                    Some(tp)
+                } else if state.has_committed() {
+                    state.need_offset_reset(default_reset_strategy);
 
-                              Some(tp)
-                          } else {
-                              let committed = state
-                                  .committed
-                                  .as_ref()
-                                  .map_or(0, |committed| committed.offset);
+                    Some(tp)
+                } else {
+                    let committed = state.committed.as_ref().map_or(
+                        0,
+                        |committed| committed.offset,
+                    );
 
-                              debug!("Resetting offset for partition {} to the committed offset {}",
-                                     tp,
-                                     committed);
+                    debug!(
+                        "Resetting offset for partition {} to the committed offset {}",
+                        tp,
+                        committed
+                    );
 
-                              state.seek(committed);
+                    state.seek(committed);
 
-                              None
-                          })
+                    None
+                })
         }))
     }
 
     /// Reset offsets for the given partition using the offset reset strategy.
     fn reset_offsets<I>(&self, partitions: I) -> ResetOffsets
-        where I: Iterator<Item = TopicPartition<'a>>
+    where
+        I: Iterator<Item = TopicPartition<'a>>,
     {
         let mut offset_resets = Vec::new();
 
@@ -103,9 +109,15 @@ impl<'a> Fetcher<'a>
                 for (topic_name, partitions) in offsets {
                     for partition in partitions {
                         if let Some(offset) = partition.offset() {
-                            let tp = topic_partition!(topic_name.clone(), partition.partition);
+                            match partition.error_code {
+                                KafkaCode::None => {
+                                    let tp =
+                                        topic_partition!(topic_name.clone(), partition.partition);
 
-                            subscriptions.borrow_mut().seek(&tp, offset);
+                                    subscriptions.borrow_mut().seek(&tp, offset);
+                                }
+                                _ => bail!(ErrorKind::KafkaError(partition.error_code)),
+                            }
                         } else {
                             bail!(ErrorKind::KafkaError(KafkaCode::OffsetOutOfRange));
                         }
@@ -119,7 +131,8 @@ impl<'a> Fetcher<'a>
 
     /// Set-up a fetch request for any node that we have assigned partitions.
     pub fn fetch_records<I>(&self, partitions: I) -> FetchRecords
-        where I: Iterator<Item = TopicPartition<'a>>
+    where
+        I: Iterator<Item = TopicPartition<'a>>,
     {
         let subscriptions = self.subscriptions.clone();
 
@@ -141,7 +154,7 @@ impl<'a> Fetcher<'a>
                            self.fetch_min_bytes,
                            self.fetch_max_bytes,
                            fetch_partitions)
-            .map(move |records| {
+            .and_then(move |records| {
                 for (topic_name, records) in &records {
                     for record in records {
                         let tp = topic_partition!(topic_name.clone(), record.partition);
@@ -149,13 +162,35 @@ impl<'a> Fetcher<'a>
                         if let Some(mut state) = subscriptions
                                .borrow_mut()
                                .assigned_state_mut(&tp) {
-                            state.position = Some(record.offset);
-                            state.high_watermark = record.high_watermark;
+                            if !state.is_fetchable() {
+                                debug!("ignoring fetched records for {} since it is no longer fetchable", tp);
+                            } else {
+                                match record.error_code {
+                                    KafkaCode::None => {
+                                        if state.position != Some(record.fetch_offset) {
+                                            debug!("discarding stale fetch response for {} since its offset {} does not match the expected offset {:?}", tp, record.fetch_offset, state.position);
+                                            continue;
+                                        }
+
+                                        state.high_watermark = record.high_watermark;
+                                    }
+                                    KafkaCode::OffsetOutOfRange => {
+                                        if state.position != Some(record.fetch_offset) {
+                                            debug!("discarding stale fetch response for {} since its offset {} does not match the expected offset {:?}", tp, record.fetch_offset, state.position);
+                                        } else {
+                                            state.need_offset_reset(subscriptions.borrow().default_reset_strategy());
+                                        }
+                                    }
+                                    _ => {
+                                        bail!(ErrorKind::KafkaError(record.error_code))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
-                records
+                Ok(records)
             })
             .static_boxed()
     }

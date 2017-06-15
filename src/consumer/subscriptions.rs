@@ -133,6 +133,10 @@ pub struct TopicPartitionState<'a> {
 }
 
 impl<'a> TopicPartitionState<'a> {
+    pub fn is_fetchable(&self) -> bool {
+        !self.paused && self.position.is_some()
+    }
+
     pub fn has_valid_position(&self) -> bool {
         self.position.is_some()
     }

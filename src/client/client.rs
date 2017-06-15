@@ -102,7 +102,7 @@ pub struct PartitionOffset {
     /// The partition id
     pub partition: PartitionId,
     /// The error code
-    pub error_code: ErrorCode,
+    pub error_code: KafkaCode,
     /// The offset found in the partition
     pub offsets: Vec<Offset>,
     /// The timestamp associated with the returned offset
@@ -119,9 +119,9 @@ pub struct PartitionRecords {
     /// The partition id
     pub partition: PartitionId,
     /// The error code
-    pub error_code: ErrorCode,
+    pub error_code: KafkaCode,
     /// The offset found in the partition
-    pub offset: Offset,
+    pub fetch_offset: Offset,
     /// The offset at the end of the log for this partition.
     pub high_watermark: Offset,
     /// The message data fetched from this partition, in the format described above.
@@ -796,8 +796,8 @@ impl<'a> Inner<'a>
                                                 .map(move |&fetch| {
                                                     PartitionRecords {
                                                         partition: data.partition,
-                                                        error_code: data.error_code,
-                                                        offset: fetch.offset,
+                                                        error_code: data.error_code.into(),
+                                                        fetch_offset: fetch.offset,
                                                         high_watermark: data.high_watermark,
                                                         messages: data.message_set.messages,
                                                     }
@@ -861,7 +861,7 @@ impl<'a> Inner<'a>
                                     .map(|partition| {
                                              PartitionOffset {
                                                  partition: partition.partition,
-                                                 error_code: partition.error_code,
+                                                 error_code: partition.error_code.into(),
                                                  offsets: partition.offsets,
                                                  timestamp: partition.timestamp,
                                              }
