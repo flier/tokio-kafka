@@ -108,8 +108,18 @@ pub trait Client<'a>: 'static {
     ) -> SyncGroup;
 }
 
-/// The future of records metadata information.
-pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<(PartitionId, ErrorCode, Offset)>>>;
+/// The future of producing records.
+pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<ProducedRecords>>>;
+
+/// Produced records of partition.
+pub struct ProducedRecords {
+    /// The partition id
+    pub partition_id: PartitionId,
+    /// The error code
+    pub error_code: KafkaCode,
+    /// The offset found in the partition
+    pub base_offset: Offset,
+}
 
 /// The future of fetch records of partitions.
 pub type FetchRecords = StaticBoxFuture<HashMap<String, Vec<PartitionRecords>>>;
@@ -801,7 +811,11 @@ where
                                 .partitions
                                 .into_iter()
                                 .map(|partition| {
-                                    (partition.partition, partition.error_code, partition.offset)
+                                    ProducedRecords {
+                                        partition_id: partition.partition,
+                                        error_code: partition.error_code.into(),
+                                        base_offset: partition.offset,
+                                    }
                                 })
                                 .collect(),
                         )
