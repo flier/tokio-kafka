@@ -5,6 +5,7 @@ mod metadata;
 mod metrics;
 mod service;
 mod record;
+mod middleware;
 mod client;
 mod builder;
 
@@ -19,6 +20,7 @@ pub use self::config::{ClientConfig, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
                        DEFAULT_RETRY_BACKOFF_MILLIS};
 pub use self::metadata::{Metadata, TopicPartitions};
 pub use self::metrics::Metrics;
+pub use self::middleware::InFlightMiddleware;
 pub use self::record::{PartitionRecord, TopicRecord};
 pub use self::service::{FutureResponse, KafkaService};
 pub use self::version::KafkaVersion;
