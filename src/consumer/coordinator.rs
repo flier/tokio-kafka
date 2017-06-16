@@ -10,9 +10,9 @@ use futures::future::Either;
 use tokio_retry::Retry;
 use tokio_timer::Timer;
 
-use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
-             ConsumerGroupProtocol, Generation, KafkaClient, Metadata, OffsetCommit, OffsetFetch,
-             StaticBoxFuture, ToStaticBoxFuture};
+use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupMember,
+             ConsumerGroupProtocol, Generation, JoinGroup as JoinConsumerGroup, KafkaClient,
+             Metadata, OffsetCommit, OffsetFetch, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 use errors::{Error, ErrorKind, Result, ResultExt};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
@@ -63,7 +63,10 @@ enum State {
     /// the client is not part of a group
     Unjoined,
     /// the client has begun rebalancing
-    Rebalancing { coordinator: BrokerRef },
+    Rebalancing {
+        coordinator: BrokerRef,
+        generation: Generation,
+    },
     /// the client has joined and is sending heartbeats
     Stable {
         coordinator: BrokerRef,
@@ -80,8 +83,14 @@ impl State {
         }
     }
 
-    pub fn rebalance(&mut self, coordinator: BrokerRef) -> Self {
-        mem::replace(self, State::Rebalancing { coordinator: coordinator })
+    pub fn rebalance(&mut self, coordinator: BrokerRef, generation: Generation) -> Self {
+        mem::replace(
+            self,
+            State::Rebalancing {
+                coordinator: coordinator,
+                generation: generation,
+            },
+        )
     }
 
     pub fn joined(&mut self, coordinator: BrokerRef, generation: Generation) -> State {
@@ -275,9 +284,16 @@ where
     }
 
     fn heartbeat(&self, coordinator: BrokerRef, generation: Generation) -> Result<()> {
+        debug!(
+            "send heartbeat to the group `{}` per {} seconds",
+            generation.group_id,
+            self.heartbeat_interval.as_secs()
+        );
+
         let client = self.client.clone();
         let handle = self.client.handle().clone();
         let state = self.state.clone();
+
         let heartbeat = self.timer
             .interval_at(Instant::now() + self.heartbeat_interval,
                          self.heartbeat_interval)
@@ -285,7 +301,7 @@ where
             .for_each(move |_| {
                 let client = client.clone();
                 let state = state.clone();
-                let generation = generation.clone();
+
                 let matched = *state.borrow() ==
                               (State::Stable {
                                    coordinator: coordinator,
@@ -293,10 +309,15 @@ where
                                });
 
                 if matched {
-                    let send_heartbeat =
+                    let send_heartbeat = {
+                        let generation = generation.clone();
+
                         Retry::spawn(handle.clone(),
                                      client.retry_strategy(),
-                                     move || client.heartbeat(coordinator, generation.clone()));
+                                     move || client.heartbeat(coordinator, generation.clone()))
+                    };
+
+                    let generation = generation.clone();
 
                     Either::A(send_heartbeat
                                   .from_err()
@@ -306,7 +327,7 @@ where
                             Error(ErrorKind::KafkaError(KafkaCode::RebalanceInProgress), _) => {
                                 info!("group is loading or rebalancing, {}", err);
 
-                                state.borrow_mut().rebalance(coordinator);
+                                state.borrow_mut().rebalance(coordinator, generation.clone());
                             }
                             Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _) |
                             Error(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup), _) |
@@ -339,116 +360,106 @@ where
         Ok(())
     }
 
-    fn rejoin_group(&self) -> RejoinGroup {
-        let client = self.client.clone();
-        let member_id = self.state.borrow().member_id().unwrap_or_default();
-        let group_id = self.group_id.clone();
-        let session_timeout = self.session_timeout;
-        let rebalance_timeout = self.rebalance_timeout;
-        let group_protocols = self.group_protocols();
-        let state = self.state.clone();
+    fn group_coordinator(&self) -> GroupCoordinator {
+        match *self.state.borrow() {
+            State::Stable { coordinator, .. } |
+            State::Rebalancing { coordinator, .. } => Either::A(future::ok(coordinator)),
+            State::Unjoined => {
+                let group_id = self.group_id.clone();
 
-        let current_state = self.state.borrow();
-        match *current_state {
-            State::Stable {
-                coordinator,
-                ref generation,
-            } => Either::A(future::ok((coordinator, generation.clone()))),
-            State::Rebalancing { .. } |
-            State::Unjoined => Either::B({
-                client
-                    .group_coordinator(group_id.clone().into())
-                    .and_then(move |coordinator| {
-                        client.join_group(
-                            coordinator.as_ref(),
-                            group_id.clone().into(),
-                            session_timeout.as_millis() as i32,
-                            rebalance_timeout.as_millis() as i32,
-                            member_id.clone().into(),
-                            CONSUMER_PROTOCOL.into(),
-                            group_protocols,
-                        )
-                    })
-                    .and_then(move |_| {
-                        let current_state = state.borrow();
-
-                        match *current_state {
-                            State::Stable {
-                                coordinator,
-                                ref generation,
-                            } => Ok((coordinator, generation.clone())),
-                            _ => bail!(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress)),
-                        }
-                    })
-            }),
+                Either::B(self.client.group_coordinator(group_id.clone().into()).map(
+                    |coordinator| coordinator.as_ref(),
+                ))
+            }
         }.static_boxed()
+    }
+
+    fn join_group(&self, coordinator: BrokerRef, member_id: Option<String>) -> JoinConsumerGroup {
+        self.client.join_group(
+            coordinator,
+            self.group_id.clone().into(),
+            self.session_timeout.as_millis() as i32,
+            self.rebalance_timeout.as_millis() as i32,
+            member_id.unwrap_or_default().into(),
+            CONSUMER_PROTOCOL.into(),
+            self.group_protocols(),
+        )
     }
 }
 
-pub type RejoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
-
-impl<'a> Coordinator for ConsumerCoordinator<'a>
+impl<'a> ConsumerCoordinator<'a>
 where
     Self: 'static,
 {
-    fn join_group(&self) -> JoinGroup {
+    fn rejoin_group(&self) -> RejoinGroup {
         let inner = self.inner.clone();
-        let client = self.inner.client.clone();
-        let state = self.inner.state.clone();
-        let member_id = state.borrow().member_id().to_owned().unwrap_or_default();
-        let group_id = self.inner.group_id.clone();
-        let session_timeout = self.inner.session_timeout;
-        let rebalance_timeout = self.inner.rebalance_timeout;
-        let group_protocols = self.inner.group_protocols();
+        let client = inner.client.clone();
+        let group_id = inner.group_id.clone();
 
-        debug!("member `{}` is joining the `{}` group", member_id, group_id);
+        let member_id = match *self.inner.state.borrow() {
+            State::Stable {
+                coordinator,
+                ref generation,
+            } => {
+                debug!(
+                    "member `{}` already in the `{}` group (generation #{})",
+                    generation.member_id,
+                    generation.group_id,
+                    generation.generation_id
+                );
 
-        let group_coordinator = match *state.borrow() {
-            State::Stable { .. } => {
-                return Ok(()).static_boxed();
+                return future::ok((coordinator, generation.clone())).static_boxed();
             }
-            State::Rebalancing { coordinator } => Either::A(future::ok(coordinator)),
+            State::Rebalancing { ref generation, .. } => {
+                debug!(
+                    "member `{}` is rebalancing in the `{}` group",
+                    generation.member_id,
+                    generation.group_id,
+                );
+
+                Some(generation.member_id.clone())
+            }
             State::Unjoined => {
-                Either::B(
-                    self.inner
-                        .client
-                        .group_coordinator(group_id.clone().into())
-                        .map(|coordinator| coordinator.as_ref()),
-                )
+                debug!("member is joining the `{}` group", group_id);
+
+                None
             }
         };
 
-        self.inner
-            .client
+        client
             .metadata()
-            .join(group_coordinator)
+            .join(self.inner.group_coordinator())
             .and_then(move |(metadata, coordinator)| {
-                client
-                    .join_group(
-                        coordinator,
-                        group_id.clone().into(),
-                        session_timeout.as_millis() as i32,
-                        rebalance_timeout.as_millis() as i32,
-                        member_id.clone().into(),
-                        CONSUMER_PROTOCOL.into(),
-                        group_protocols,
+                debug!(
+                    "coordinator of group `{}` @ {}",
+                    group_id,
+                    metadata.find_broker(coordinator).map_or(
+                        coordinator
+                            .index()
+                            .to_string(),
+                        |broker| {
+                            format!("{}:{}", broker.host(), broker.port())
+                        },
                     )
-                    .and_then(move |consumer_group| {
+                );
+
+                inner.join_group(coordinator, member_id).and_then(
+                    move |consumer_group| {
                         let generation = consumer_group.generation();
 
                         let group_assignment = if !consumer_group.is_leader() {
                             debug!(
                                 "member `{}` joined group `{}` as follower",
-                                member_id,
-                                group_id
+                                generation.member_id,
+                                generation.group_id
                             );
 
                             None
                         } else {
                             debug!(
                                 "member `{}` joined group `{}` as leader",
-                                member_id,
-                                group_id
+                                generation.member_id,
+                                generation.group_id
                             );
 
                             match inner.perform_assignment(
@@ -457,14 +468,14 @@ where
                                 &consumer_group.members,
                             ) {
                                 Ok(group_assignment) => Some(group_assignment),
-                                Err(err) => return err.into(),
+                                Err(err) => return future::err(err).static_boxed(),
                             }
                         };
 
                         client
                             .sync_group(coordinator, generation.clone(), group_assignment)
                             .and_then(move |assignment| {
-                                debug!("group `{}` synced up", group_id);
+                                debug!("group `{}` synced up", generation.group_id);
 
                                 inner
                                     .synced_group(
@@ -474,13 +485,42 @@ where
                                         coordinator,
                                         generation.clone(),
                                     )
-                                    .and_then(|_| inner.heartbeat(coordinator, generation))
+                                    .and_then(|_| inner.heartbeat(coordinator, generation.clone()))
+                                    .map(|_| (coordinator, generation))
                             })
                             .static_boxed()
-                    })
+                    },
+                )
+            })
+            .static_boxed()
+    }
+}
+
+pub type RejoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
+
+pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
+
+impl<'a> Coordinator for ConsumerCoordinator<'a>
+where
+    Self: 'static,
+{
+    fn join_group(&self) -> JoinGroup {
+        let group_id = self.inner.group_id.clone();
+
+        debug!("coordinator is joining the `{}` group", group_id);
+
+        let state = self.inner.state.clone();
+
+        self.rejoin_group()
+            .map(|(_, generation)| {
+                info!(
+                    "member `{}` joined the `{}` group ",
+                    generation.member_id,
+                    generation.group_id,
+                );
             })
             .map_err(move |err| {
-                warn!("fail to join group, {}", err);
+                warn!("fail to join group `{}`, {}", group_id, err);
 
                 state.borrow_mut().leave();
 
@@ -490,42 +530,46 @@ where
     }
 
     fn leave_group(&self) -> LeaveGroup {
+        let group_id = self.inner.group_id.clone();
+
+        debug!("coordinator is leaving the `{}` group", group_id);
+
         let state = self.inner.state.clone();
         let state = state.borrow_mut().leave();
 
-        if let State::Stable {
-            coordinator,
-            generation,
-        } = state
-        {
-            let group_id = self.inner.group_id.clone();
+        match state {
+            State::Stable {
+                coordinator,
+                generation,
+            } => {
+                let member_id = generation.member_id.clone();
 
-            debug!(
-                "member `{}` is leaving the `{}` group",
-                generation.member_id,
-                group_id
-            );
+                self.inner
+                    .client
+                    .leave_group(coordinator, generation)
+                    .map(move |group_id| {
+                        debug!("member `{}` has leaved the `{}` group", member_id, group_id);
+                    })
+                    .map_err(move |err| {
+                        warn!("fail to leave the `{}` group, {}", group_id, err);
 
-            self.inner
-                .client
-                .leave_group(coordinator, generation)
-                .map(|group_id| {
-                    debug!("member has leaved the `{}` group", group_id);
-                })
-                .static_boxed()
-        } else {
-            ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress).into()
+                        err
+                    })
+                    .static_boxed()
+            }
+            _ => ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress).into(),
         }
     }
 
     fn commit_offset(&self) -> CommitOffset {
+        debug!("commit offsets to the `{}` group", self.inner.group_id);
+
         let client = self.inner.client.clone();
         let retention_time = self.inner.retention_time;
         let subscriptions = self.inner.subscriptions.clone();
         let consumed = subscriptions.borrow().consumed_partitions();
 
-        self.inner
-            .rejoin_group()
+        self.rejoin_group()
             .and_then(move |(coordinator, generation)| {
                 client.offset_commit(coordinator, generation, retention_time, consumed)
             })
@@ -533,12 +577,13 @@ where
     }
 
     fn fetch_offset(&self) -> FetchOffset {
+        debug!("fetch offsets of the `{}` group", self.inner.group_id);
+
         let client = self.inner.client.clone();
         let subscriptions = self.inner.subscriptions.clone();
         let assigned = subscriptions.borrow().assigned_partitions();
 
-        self.inner
-            .rejoin_group()
+        self.rejoin_group()
             .and_then(move |(coordinator, generation)| {
                 client.offset_fetch(coordinator, generation, assigned)
             })
