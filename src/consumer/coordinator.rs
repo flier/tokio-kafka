@@ -269,11 +269,12 @@ where
             .assign_from_subscribed(assignment.partitions)
             .chain_err(|| "fail to assign subscribed partitions")?;
 
-        self.state.borrow_mut().joined(
-            coordinator,
-            generation.clone(),
-        );
+        self.state.borrow_mut().joined(coordinator, generation);
 
+        Ok(())
+    }
+
+    fn heartbeat(&self, coordinator: BrokerRef, generation: Generation) -> Result<()> {
         let client = self.client.clone();
         let handle = self.client.handle().clone();
         let state = self.state.clone();
@@ -465,13 +466,15 @@ where
                             .and_then(move |assignment| {
                                 debug!("group `{}` synced up", group_id);
 
-                                inner.synced_group(
-                                    Schema::deserialize(&assignment[..]).chain_err(
-                                        || "fail to deserialize assignment",
-                                    )?,
-                                    coordinator,
-                                    generation,
-                                )
+                                inner
+                                    .synced_group(
+                                        Schema::deserialize(&assignment[..]).chain_err(
+                                            || "fail to deserialize assignment",
+                                        )?,
+                                        coordinator,
+                                        generation.clone(),
+                                    )
+                                    .and_then(|_| inner.heartbeat(coordinator, generation))
                             })
                             .static_boxed()
                     })
