@@ -126,7 +126,7 @@ impl<'a> Subscriptions<'a> {
         self.assignment.get_mut(tp).map(|state| state.seek(offset))
     }
 
-    pub fn consumed(&self) -> Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)> {
+    pub fn consumed_partitions(&self) -> Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)> {
         self.assignment
             .iter()
             .flat_map(|(tp, state)| {
@@ -135,6 +135,10 @@ impl<'a> Subscriptions<'a> {
                 })
             })
             .collect()
+    }
+
+    pub fn assigned_partitions(&self) -> Vec<TopicPartition<'a>> {
+        self.assignment.keys().cloned().collect()
     }
 }
 

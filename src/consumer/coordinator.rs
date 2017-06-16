@@ -11,7 +11,7 @@ use tokio_retry::Retry;
 use tokio_timer::Timer;
 
 use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
-             ConsumerGroupProtocol, Generation, KafkaClient, Metadata, OffsetCommit,
+             ConsumerGroupProtocol, Generation, KafkaClient, Metadata, OffsetCommit, OffsetFetch,
              StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 use errors::{Error, ErrorKind, Result, ResultExt};
@@ -27,6 +27,9 @@ pub trait Coordinator {
 
     /// Commit the specified offsets for the specified list of topics and partitions to Kafka.
     fn commit_offset(&self) -> CommitOffset;
+
+    /// Fetch the current committed offsets from the coordinator for a set of partitions.
+    fn fetch_offset(&self) -> FetchOffset;
 }
 
 pub type JoinGroup = StaticBoxFuture;
@@ -34,6 +37,8 @@ pub type JoinGroup = StaticBoxFuture;
 pub type LeaveGroup = StaticBoxFuture;
 
 pub type CommitOffset = OffsetCommit;
+
+pub type FetchOffset = OffsetFetch;
 
 /// Manages the coordination process with the consumer coordinator.
 pub struct ConsumerCoordinator<'a> {
@@ -514,12 +519,25 @@ where
         let client = self.inner.client.clone();
         let retention_time = self.inner.retention_time;
         let subscriptions = self.inner.subscriptions.clone();
-        let consumed = subscriptions.borrow().consumed();
+        let consumed = subscriptions.borrow().consumed_partitions();
 
         self.inner
             .rejoin_group()
             .and_then(move |(coordinator, generation)| {
                 client.offset_commit(coordinator, generation, retention_time, consumed)
+            })
+            .static_boxed()
+    }
+
+    fn fetch_offset(&self) -> FetchOffset {
+        let client = self.inner.client.clone();
+        let subscriptions = self.inner.subscriptions.clone();
+        let assigned = subscriptions.borrow().assigned_partitions();
+
+        self.inner
+            .rejoin_group()
+            .and_then(move |(coordinator, generation)| {
+                client.offset_fetch(coordinator, generation, assigned)
             })
             .static_boxed()
     }
