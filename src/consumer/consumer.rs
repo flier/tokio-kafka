@@ -5,7 +5,8 @@ use std::rc::Rc;
 use futures::{Async, Future, Poll, Stream};
 
 use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture, TopicRecord};
-use consumer::{ConsumerConfig, ConsumerCoordinator, Coordinator, Fetcher, Subscriptions};
+use consumer::{CommitOffset, ConsumerConfig, ConsumerCoordinator, Coordinator, Fetcher,
+               Subscriptions};
 use errors::{Error, ErrorKind};
 use serialization::Deserializer;
 
@@ -19,7 +20,8 @@ pub trait Consumer {
     type Topics: Stream<Item = TopicRecord<Self::Key, Self::Value>, Error = Error>;
 
     fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscriber<Self::Topics>
-        where S: AsRef<str> + Hash + Eq;
+    where
+        S: AsRef<str> + Hash + Eq;
 }
 
 /// A Kafka consumer that consumes records from a Kafka cluster.
@@ -35,38 +37,42 @@ struct Inner<'a, K, V> {
 }
 
 impl<'a, K, V> KafkaConsumer<'a, K, V>
-    where K: Deserializer,
-          V: Deserializer,
-          Self: 'static
+where
+    K: Deserializer,
+    V: Deserializer,
+    Self: 'static,
 {
-    pub fn new(client: KafkaClient<'a>,
-               config: ConsumerConfig,
-               key_deserializer: K,
-               value_deserializer: V)
-               -> Self {
+    pub fn new(
+        client: KafkaClient<'a>,
+        config: ConsumerConfig,
+        key_deserializer: K,
+        value_deserializer: V,
+    ) -> Self {
         KafkaConsumer {
             inner: Rc::new(Inner {
-                               client: client,
-                               config: config,
-                               key_deserializer: key_deserializer,
-                               value_deserializer: value_deserializer,
-                           }),
+                client: client,
+                config: config,
+                key_deserializer: key_deserializer,
+                value_deserializer: value_deserializer,
+            }),
         }
     }
 }
 
 impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
-    where K: Deserializer,
-          K::Item: Hash,
-          V: Deserializer,
-          Self: 'static
+where
+    K: Deserializer,
+    K::Item: Hash,
+    V: Deserializer,
+    Self: 'static,
 {
     type Key = K::Item;
     type Value = V::Item;
     type Topics = ConsumerTopics<'a, K, V>;
 
     fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscriber<Self::Topics>
-        where S: AsRef<str> + Hash + Eq
+    where
+        S: AsRef<str> + Hash + Eq,
     {
         let topic_names: Vec<String> = topic_names.iter().map(|s| s.as_ref().to_owned()).collect();
         let inner = self.inner.clone();
@@ -99,30 +105,36 @@ impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
                     .collect();
 
                 if not_found.is_empty() {
-                    let subscriptions =
-                        Rc::new(RefCell::new(Subscriptions::with_topics(topic_names.iter(),
-                                                                        default_reset_strategy)));
-                    let coordinator = ConsumerCoordinator::new(inner.client.clone(),
-                                                               group_id,
-                                                               subscriptions.clone(),
-                                                               session_timeout,
-                                                               rebalance_timeout,
-                                                               heartbeat_interval,
-                                                               assignors,
-                                                               timer);
+                    let subscriptions = Rc::new(RefCell::new(Subscriptions::with_topics(
+                        topic_names.iter(),
+                        default_reset_strategy,
+                    )));
+                    let coordinator = ConsumerCoordinator::new(
+                        inner.client.clone(),
+                        group_id,
+                        subscriptions.clone(),
+                        session_timeout,
+                        rebalance_timeout,
+                        heartbeat_interval,
+                        None,
+                        assignors,
+                        timer,
+                    );
 
-                    let fetcher = Fetcher::new(inner.client.clone(),
-                                               subscriptions,
-                                               fetch_min_bytes,
-                                               fetch_max_bytes,
-                                               fetch_max_wait,
-                                               partition_fetch_bytes);
+                    let fetcher = Fetcher::new(
+                        inner.client.clone(),
+                        subscriptions,
+                        fetch_min_bytes,
+                        fetch_max_bytes,
+                        fetch_max_wait,
+                        partition_fetch_bytes,
+                    );
 
                     Ok(ConsumerTopics {
-                           consumer: KafkaConsumer { inner: inner },
-                           coordinator: coordinator,
-                           fetcher: fetcher,
-                       })
+                        consumer: KafkaConsumer { inner: inner },
+                        coordinator: coordinator,
+                        fetcher: fetcher,
+                    })
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
                 }
@@ -140,28 +152,30 @@ pub struct ConsumerTopics<'a, K, V> {
 }
 
 impl<'a, K, V> ConsumerTopics<'a, K, V>
-    where K: Deserializer,
-          K::Item: Hash,
-          V: Deserializer,
-          Self: 'static
+where
+    K: Deserializer,
+    K::Item: Hash,
+    V: Deserializer,
+    Self: 'static,
 {
     pub fn commit(&mut self) -> Commit {
-        Ok(()).static_boxed()
+        self.coordinator.commit_offset()
     }
 
     /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
-    pub fn unsubscribe(mut self) -> Unsubscribe {
+    pub fn unsubscribe(self) -> Unsubscribe {
         self.coordinator.leave_group().static_boxed()
     }
 }
 
-pub type Commit = StaticBoxFuture;
+pub type Commit = CommitOffset;
 pub type Unsubscribe = StaticBoxFuture;
 
 impl<'a, K, V> Stream for ConsumerTopics<'a, K, V>
-    where K: Deserializer,
-          K::Item: Hash,
-          V: Deserializer
+where
+    K: Deserializer,
+    K::Item: Hash,
+    V: Deserializer,
 {
     type Item = TopicRecord<K::Item, V::Item>;
     type Error = Error;

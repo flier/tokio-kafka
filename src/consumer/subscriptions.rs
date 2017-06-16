@@ -125,6 +125,17 @@ impl<'a> Subscriptions<'a> {
     pub fn seek(&mut self, tp: &TopicPartition<'a>, offset: Offset) -> Option<Offset> {
         self.assignment.get_mut(tp).map(|state| state.seek(offset))
     }
+
+    pub fn consumed(&self) -> Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)> {
+        self.assignment
+            .iter()
+            .flat_map(|(tp, state)| {
+                state.position.map(|position| {
+                    (tp.clone(), offset_and_metadata!(position))
+                })
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Default)]

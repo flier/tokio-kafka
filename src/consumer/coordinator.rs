@@ -1,34 +1,39 @@
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::mem;
 use std::rc::Rc;
-use std::cell::RefCell;
 use std::time::{Duration, Instant};
-use std::iter::FromIterator;
-use std::collections::{HashMap, HashSet};
 
 use futures::{Future, Stream, future};
 use futures::future::Either;
-use tokio_timer::Timer;
 use tokio_retry::Retry;
+use tokio_timer::Timer;
 
+use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
+             ConsumerGroupProtocol, Generation, KafkaClient, Metadata, OffsetCommit,
+             StaticBoxFuture, ToStaticBoxFuture};
+use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 use errors::{Error, ErrorKind, Result, ResultExt};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
-use client::{BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupMember,
-             ConsumerGroupProtocol, Generation, KafkaClient, Metadata, StaticBoxFuture,
-             ToStaticBoxFuture};
-use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 
 /// Manages the coordination process with the consumer coordinator.
 pub trait Coordinator {
     /// Join the consumer group.
-    fn join_group(&mut self) -> JoinGroup;
+    fn join_group(&self) -> JoinGroup;
 
     /// Leave the current consumer group.
-    fn leave_group(&mut self) -> LeaveGroup;
+    fn leave_group(&self) -> LeaveGroup;
+
+    /// Commit the specified offsets for the specified list of topics and partitions to Kafka.
+    fn commit_offset(&self) -> CommitOffset;
 }
 
 pub type JoinGroup = StaticBoxFuture;
 
 pub type LeaveGroup = StaticBoxFuture;
+
+pub type CommitOffset = OffsetCommit;
 
 /// Manages the coordination process with the consumer coordinator.
 pub struct ConsumerCoordinator<'a> {
@@ -42,6 +47,7 @@ struct Inner<'a> {
     session_timeout: Duration,
     rebalance_timeout: Duration,
     heartbeat_interval: Duration,
+    retention_time: Option<Duration>,
     assignors: Vec<Box<PartitionAssignor>>,
     state: Rc<RefCell<State>>,
     timer: Rc<Timer>,
@@ -74,11 +80,13 @@ impl State {
     }
 
     pub fn joined(&mut self, coordinator: BrokerRef, generation: Generation) -> State {
-        mem::replace(self,
-                     State::Stable {
-                         coordinator: coordinator,
-                         generation: generation,
-                     })
+        mem::replace(
+            self,
+            State::Stable {
+                coordinator: coordinator,
+                generation: generation,
+            },
+        )
     }
 
     pub fn leave(&mut self) -> Self {
@@ -87,33 +95,37 @@ impl State {
 }
 
 impl<'a> ConsumerCoordinator<'a> {
-    pub fn new(client: KafkaClient<'a>,
-               group_id: String,
-               subscriptions: Rc<RefCell<Subscriptions<'a>>>,
-               session_timeout: Duration,
-               rebalance_timeout: Duration,
-               heartbeat_interval: Duration,
-               assignors: Vec<Box<PartitionAssignor>>,
-               timer: Rc<Timer>)
-               -> Self {
+    pub fn new(
+        client: KafkaClient<'a>,
+        group_id: String,
+        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        session_timeout: Duration,
+        rebalance_timeout: Duration,
+        heartbeat_interval: Duration,
+        retention_time: Option<Duration>,
+        assignors: Vec<Box<PartitionAssignor>>,
+        timer: Rc<Timer>,
+    ) -> Self {
         ConsumerCoordinator {
             inner: Rc::new(Inner {
-                               client: client,
-                               group_id: group_id,
-                               subscriptions: subscriptions,
-                               session_timeout: session_timeout,
-                               rebalance_timeout: rebalance_timeout,
-                               heartbeat_interval: heartbeat_interval,
-                               assignors: assignors,
-                               timer: timer,
-                               state: Rc::new(RefCell::new(State::Unjoined)),
-                           }),
+                client: client,
+                group_id: group_id,
+                subscriptions: subscriptions,
+                session_timeout: session_timeout,
+                rebalance_timeout: rebalance_timeout,
+                heartbeat_interval: heartbeat_interval,
+                retention_time: retention_time,
+                assignors: assignors,
+                timer: timer,
+                state: Rc::new(RefCell::new(State::Unjoined)),
+            }),
         }
     }
 }
 
 impl<'a> Inner<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
     fn group_protocols(&self) -> Vec<ConsumerGroupProtocol<'a>> {
         let topics: Vec<String> = self.subscriptions
@@ -126,38 +138,43 @@ impl<'a> Inner<'a>
         self.assignors
             .iter()
             .flat_map(move |assignor| {
-                let subscription =
-                    assignor.subscription(topics
-                                              .iter()
-                                              .map(|topic_name| topic_name.as_str().into())
-                                              .collect());
+                let subscription = assignor.subscription(
+                    topics
+                        .iter()
+                        .map(|topic_name| topic_name.as_str().into())
+                        .collect(),
+                );
 
                 Schema::serialize(&subscription)
-                    .map_err(|err| warn!("fail to serialize subscription schema, {}", err))
+                    .map_err(|err| {
+                        warn!("fail to serialize subscription schema, {}", err)
+                    })
                     .ok()
                     .map(|metadata| {
-                             ConsumerGroupProtocol {
-                                 protocol_name: assignor.name().into(),
-                                 protocol_metadata: metadata.into(),
-                             }
-                         })
+                        ConsumerGroupProtocol {
+                            protocol_name: assignor.name().into(),
+                            protocol_metadata: metadata.into(),
+                        }
+                    })
             })
             .collect()
     }
 
-    fn perform_assignment(&self,
-                          metadata: &Metadata,
-                          group_protocol: &str,
-                          members: &[ConsumerGroupMember])
-                          -> Result<Vec<ConsumerGroupAssignment<'a>>> {
-        let strategy =
-            group_protocol
-                .parse()
-                .chain_err(|| format!("fail to parse group protocol: {}", group_protocol))?;
+    fn perform_assignment(
+        &self,
+        metadata: &Metadata,
+        group_protocol: &str,
+        members: &[ConsumerGroupMember],
+    ) -> Result<Vec<ConsumerGroupAssignment<'a>>> {
+        let strategy = group_protocol.parse().chain_err(|| {
+            format!("fail to parse group protocol: {}", group_protocol)
+        })?;
         let assignor = self.assignors
             .iter()
             .find(|assigner| assigner.strategy() == strategy)
-            .ok_or_else(|| ErrorKind::UnsupportedAssignmentStrategy(group_protocol.to_owned()))?;
+            .ok_or_else(|| {
+                ErrorKind::UnsupportedAssignmentStrategy(group_protocol.to_owned())
+            })?;
 
         let mut subscripbed_topics = HashSet::new();
         let mut subscriptions = HashMap::new();
@@ -180,74 +197,77 @@ impl<'a> Inner<'a>
 
         let mut assigned_topics = HashSet::new();
 
-        assigned_topics.extend(assignment
-                                   .values()
-                                   .flat_map(|member| {
-                                                 member.partitions.iter().map(|tp| {
-                                                                                  tp.topic_name
-                                                                                      .clone()
-                                                                              })
-                                             }));
+        assigned_topics.extend(assignment.values().flat_map(|member| {
+            member.partitions.iter().map(|tp| tp.topic_name.clone())
+        }));
 
         let not_assigned_topics = &subscripbed_topics - &assigned_topics;
 
         if !not_assigned_topics.is_empty() {
-            warn!("The following subscribed topics are not assigned to any members in the group `{}`: {}",
-                  self.group_id,
-                  Vec::from_iter(not_assigned_topics.iter().cloned())
-                      .as_slice()
-                      .join(","));
+            warn!(
+                "The following subscribed topics are not assigned to any members in the group `{}`: {}",
+                self.group_id,
+                Vec::from_iter(not_assigned_topics.iter().cloned())
+                    .as_slice()
+                    .join(",")
+            );
         }
 
         let newly_added_topics = &assigned_topics - &subscripbed_topics;
 
         if !newly_added_topics.is_empty() {
-            info!("The following not-subscribed topics are assigned to group {}, and their metadata will be fetched from the brokers : {}",
-                  self.group_id,
-                  Vec::from_iter(newly_added_topics.iter().cloned())
-                      .as_slice()
-                      .join(","));
+            info!(
+                "The following not-subscribed topics are assigned to group {}, and their metadata will be fetched from the brokers : {}",
+                self.group_id,
+                Vec::from_iter(newly_added_topics.iter().cloned())
+                    .as_slice()
+                    .join(",")
+            );
 
             subscripbed_topics.extend(assigned_topics);
         }
 
-        self.subscriptions
-            .borrow_mut()
-            .group_subscribe(subscripbed_topics.iter());
+        self.subscriptions.borrow_mut().group_subscribe(
+            subscripbed_topics.iter(),
+        );
 
         let mut group_assignment = Vec::new();
 
         for (member_id, assignment) in assignment {
             group_assignment.push(ConsumerGroupAssignment {
-                                      member_id: String::from(member_id).into(),
-                                      member_assignment: Schema::serialize(&assignment)
-                                          .chain_err(|| "fail to serialize assignment schema")?
-                                          .into(),
-                                  })
+                member_id: String::from(member_id).into(),
+                member_assignment: Schema::serialize(&assignment)
+                    .chain_err(|| "fail to serialize assignment schema")?
+                    .into(),
+            })
         }
 
         Ok(group_assignment)
     }
 
-    fn synced_group(&self,
-                    assignment: Assignment<'a>,
-                    coordinator: BrokerRef,
-                    generation: Generation)
-                    -> Result<()> {
-        trace!("member `{}` synced up to generation # {} with {} partitions: {:?}",
-               generation.member_id,
-               generation.generation_id,
-               assignment.partitions.len(),
-               assignment.partitions);
+    fn synced_group(
+        &self,
+        assignment: Assignment<'a>,
+        coordinator: BrokerRef,
+        generation: Generation,
+    ) -> Result<()> {
+        trace!(
+            "member `{}` synced up to generation # {} with {} partitions: {:?}",
+            generation.member_id,
+            generation.generation_id,
+            assignment.partitions.len(),
+            assignment.partitions
+        );
 
         self.subscriptions
             .borrow_mut()
             .assign_from_subscribed(assignment.partitions)
             .chain_err(|| "fail to assign subscribed partitions")?;
 
-        self.state
-            .borrow_mut()
-            .joined(coordinator, generation.clone());
+        self.state.borrow_mut().joined(
+            coordinator,
+            generation.clone(),
+        );
 
         let client = self.client.clone();
         let handle = self.client.handle().clone();
@@ -312,20 +332,68 @@ impl<'a> Inner<'a>
 
         Ok(())
     }
+
+    fn rejoin_group(&self) -> RejoinGroup {
+        let client = self.client.clone();
+        let member_id = self.state.borrow().member_id().unwrap_or_default();
+        let group_id = self.group_id.clone();
+        let session_timeout = self.session_timeout;
+        let rebalance_timeout = self.rebalance_timeout;
+        let group_protocols = self.group_protocols();
+        let state = self.state.clone();
+
+        let current_state = self.state.borrow();
+        match *current_state {
+            State::Stable {
+                coordinator,
+                ref generation,
+            } => Either::A(future::ok((coordinator, generation.clone()))),
+            State::Rebalancing { .. } |
+            State::Unjoined => Either::B({
+                client
+                    .group_coordinator(group_id.clone().into())
+                    .and_then(move |coordinator| {
+                        client.join_group(
+                            coordinator.as_ref(),
+                            group_id.clone().into(),
+                            session_timeout.as_millis() as i32,
+                            rebalance_timeout.as_millis() as i32,
+                            member_id.clone().into(),
+                            CONSUMER_PROTOCOL.into(),
+                            group_protocols,
+                        )
+                    })
+                    .and_then(move |_| {
+                        let current_state = state.borrow();
+
+                        match *current_state {
+                            State::Stable {
+                                coordinator,
+                                ref generation,
+                            } => Ok((coordinator, generation.clone())),
+                            _ => bail!(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress)),
+                        }
+                    })
+            }),
+        }.static_boxed()
+    }
 }
 
+pub type RejoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
+
 impl<'a> Coordinator for ConsumerCoordinator<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
-    fn join_group(&mut self) -> JoinGroup {
+    fn join_group(&self) -> JoinGroup {
         let inner = self.inner.clone();
         let client = self.inner.client.clone();
-        let member_id = self.inner.state.borrow().member_id().unwrap_or_default();
+        let state = self.inner.state.clone();
+        let member_id = state.borrow().member_id().to_owned().unwrap_or_default();
         let group_id = self.inner.group_id.clone();
         let session_timeout = self.inner.session_timeout;
         let rebalance_timeout = self.inner.rebalance_timeout;
         let group_protocols = self.inner.group_protocols();
-        let state = self.inner.state.clone();
 
         debug!("member `{}` is joining the `{}` group", member_id, group_id);
 
@@ -335,10 +403,12 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
             }
             State::Rebalancing { coordinator } => Either::A(future::ok(coordinator)),
             State::Unjoined => {
-                Either::B(self.inner
-                              .client
-                              .group_coordinator(group_id.clone().into())
-                              .map(|coordinator| coordinator.as_ref()))
+                Either::B(
+                    self.inner
+                        .client
+                        .group_coordinator(group_id.clone().into())
+                        .map(|coordinator| coordinator.as_ref()),
+                )
             }
         };
 
@@ -348,30 +418,38 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
             .join(group_coordinator)
             .and_then(move |(metadata, coordinator)| {
                 client
-                    .join_group(coordinator,
-                                group_id.clone().into(),
-                                session_timeout.as_millis() as i32,
-                                rebalance_timeout.as_millis() as i32,
-                                member_id.clone().into(),
-                                CONSUMER_PROTOCOL.into(),
-                                group_protocols)
+                    .join_group(
+                        coordinator,
+                        group_id.clone().into(),
+                        session_timeout.as_millis() as i32,
+                        rebalance_timeout.as_millis() as i32,
+                        member_id.clone().into(),
+                        CONSUMER_PROTOCOL.into(),
+                        group_protocols,
+                    )
                     .and_then(move |consumer_group| {
                         let generation = consumer_group.generation();
 
                         let group_assignment = if !consumer_group.is_leader() {
-                            debug!("member `{}` joined group `{}` as follower",
-                                   member_id,
-                                   group_id);
+                            debug!(
+                                "member `{}` joined group `{}` as follower",
+                                member_id,
+                                group_id
+                            );
 
                             None
                         } else {
-                            debug!("member `{}` joined group `{}` as leader",
-                                   member_id,
-                                   group_id);
+                            debug!(
+                                "member `{}` joined group `{}` as leader",
+                                member_id,
+                                group_id
+                            );
 
-                            match inner.perform_assignment(&metadata,
-                                                           &consumer_group.protocol,
-                                                           &consumer_group.members) {
+                            match inner.perform_assignment(
+                                &metadata,
+                                &consumer_group.protocol,
+                                &consumer_group.members,
+                            ) {
                                 Ok(group_assignment) => Some(group_assignment),
                                 Err(err) => return err.into(),
                             }
@@ -380,47 +458,69 @@ impl<'a> Coordinator for ConsumerCoordinator<'a>
                         client
                             .sync_group(coordinator, generation.clone(), group_assignment)
                             .and_then(move |assignment| {
-                                          debug!("group `{}` synced up", group_id);
+                                debug!("group `{}` synced up", group_id);
 
-                                          inner.synced_group(Schema::deserialize(&assignment[..])
-                                                                 .chain_err(||"fail to deserialize assignment")?,
-                                                             coordinator,
-                                                             generation)
-                                      })
+                                inner.synced_group(
+                                    Schema::deserialize(&assignment[..]).chain_err(
+                                        || "fail to deserialize assignment",
+                                    )?,
+                                    coordinator,
+                                    generation,
+                                )
+                            })
                             .static_boxed()
                     })
             })
             .map_err(move |err| {
-                         warn!("fail to join group, {}", err);
+                warn!("fail to join group, {}", err);
 
-                         state.borrow_mut().leave();
+                state.borrow_mut().leave();
 
-                         err
-                     }).static_boxed()
+                err
+            })
+            .static_boxed()
     }
 
-    fn leave_group(&mut self) -> LeaveGroup {
-        let state = self.inner.state.borrow_mut().leave();
+    fn leave_group(&self) -> LeaveGroup {
+        let state = self.inner.state.clone();
+        let state = state.borrow_mut().leave();
 
         if let State::Stable {
-                   coordinator,
-                   generation,
-               } = state {
+            coordinator,
+            generation,
+        } = state
+        {
             let group_id = self.inner.group_id.clone();
 
-            debug!("member `{}` is leaving the `{}` group",
-                   generation.member_id,
-                   group_id);
+            debug!(
+                "member `{}` is leaving the `{}` group",
+                generation.member_id,
+                group_id
+            );
 
             self.inner
                 .client
                 .leave_group(coordinator, generation)
                 .map(|group_id| {
-                         debug!("member has leaved the `{}` group", group_id);
-                     })
+                    debug!("member has leaved the `{}` group", group_id);
+                })
                 .static_boxed()
         } else {
             ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress).into()
         }
+    }
+
+    fn commit_offset(&self) -> CommitOffset {
+        let client = self.inner.client.clone();
+        let retention_time = self.inner.retention_time;
+        let subscriptions = self.inner.subscriptions.clone();
+        let consumed = subscriptions.borrow().consumed();
+
+        self.inner
+            .rejoin_group()
+            .and_then(move |(coordinator, generation)| {
+                client.offset_commit(coordinator, generation, retention_time, consumed)
+            })
+            .static_boxed()
     }
 }

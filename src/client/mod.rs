@@ -12,8 +12,8 @@ mod builder;
 pub use self::builder::ClientBuilder;
 pub use self::client::{Client, ConsumerGroup, ConsumerGroupAssignment, ConsumerGroupMember,
                        ConsumerGroupProtocol, FetchRecords, Generation, KafkaClient, ListOffsets,
-                       ListedOffset, LoadMetadata, PartitionData, ProduceRecords, StaticBoxFuture,
-                       ToStaticBoxFuture};
+                       ListedOffset, LoadMetadata, OffsetCommit, OffsetFetch, PartitionData,
+                       ProduceRecords, StaticBoxFuture, ToStaticBoxFuture};
 pub use self::cluster::{Broker, BrokerRef, Cluster, PartitionInfo};
 pub use self::config::{ClientConfig, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
                        DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_REQUEST_TIMEOUT_MILLS,

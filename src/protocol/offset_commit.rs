@@ -9,6 +9,8 @@ use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, OFFSET_SIZE, Of
                STR_LEN_SIZE, TIMESTAMP_SIZE, Timestamp, WriteExt, parse_response_header,
                parse_string};
 
+pub const DEFAULT_RETENTION_TIME: i64 = -1;
+
 const GROUP_GENERATION_ID_SIZE: usize = 4;
 const RETENTION_TIME: usize = 8;
 
@@ -22,7 +24,7 @@ pub struct OffsetCommitRequest<'a> {
     /// The member id assigned by the group coordinator.
     pub member_id: Cow<'a, str>,
     /// Time period in ms to retain the offset.
-    pub retention_time: i64,
+    pub retention_time: Option<i64>,
     /// Topic to commit.
     pub topics: Vec<OffsetCommitTopic<'a>>,
 }
@@ -105,7 +107,7 @@ impl<'a> Encodable for OffsetCommitRequest<'a> {
             dst.put_str::<T, _>(Some(self.member_id.as_ref()))?;
         }
         if api_version > 1 {
-            dst.put_i64::<T>(self.retention_time);
+            dst.put_i64::<T>(self.retention_time.unwrap_or(DEFAULT_RETENTION_TIME));
         }
         dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
             buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
@@ -186,7 +188,7 @@ mod tests {
             group_id: "consumer".into(),
             group_generation_id: Default::default(),
             member_id: "member".into(),
-            retention_time: Default::default(),
+            retention_time: None,
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),
                 partitions: vec![OffsetCommitPartition {
@@ -241,7 +243,7 @@ mod tests {
             group_id: "consumer".into(),
             group_generation_id: 456,
             member_id: "member".into(),
-            retention_time: Default::default(),
+            retention_time: None,
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),
                 partitions: vec![OffsetCommitPartition {
@@ -299,7 +301,7 @@ mod tests {
             group_id: "consumer".into(),
             group_generation_id: 456,
             member_id: "member".into(),
-            retention_time: 789,
+            retention_time: Some(789),
             topics: vec![OffsetCommitTopic {
                 topic_name: "topic".into(),
                 partitions: vec![OffsetCommitPartition {

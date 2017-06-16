@@ -52,20 +52,27 @@ macro_rules! topic_partition {
 pub struct OffsetAndMetadata<'a> {
     /// Message offset to be committed.
     pub offset: Offset,
-    /// Timestamp of the commit
-    pub timestamp: Option<Timestamp>,
     /// Any associated metadata the client wants to keep.
     pub metadata: Option<Cow<'a, str>>,
+    /// Timestamp of the commit
+    pub timestamp: Option<Timestamp>,
 }
 
 #[macro_export]
-macro_rules! offset {
+macro_rules! offset_and_metadata {
     ($offset:expr) => ($crate::network::OffsetAndMetadata {
-        offset: offset,
+        offset: $offset,
         metadata: None,
+        timestamp: None,
     });
     ($offset:expr, $metadata:expr) => ($crate::network::OffsetAndMetadata {
-        offset: offset,
-        metadata: $metadata.into(),
+        offset: $offset,
+        metadata: Some($metadata.into()),
+        timestamp: None,
+    });
+    ($offset:expr, $metadata:expr, $timestamp:expr) => ($crate::network::OffsetAndMetadata {
+        offset: $offset,
+        metadata: Some($metadata.into()),
+        timestamp: Some($timestamp),
     });
 }

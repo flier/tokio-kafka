@@ -187,7 +187,7 @@ impl<'a> KafkaRequest<'a> {
         group_id: Cow<'a, str>,
         group_generation_id: GenerationId,
         member_id: Cow<'a, str>,
-        retention_time: Duration,
+        retention_time: Option<Duration>,
         offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
     ) -> KafkaRequest<'a> {
         let topics = offsets
@@ -222,7 +222,7 @@ impl<'a> KafkaRequest<'a> {
             group_id: group_id,
             group_generation_id: group_generation_id,
             member_id: member_id,
-            retention_time: retention_time.as_millis() as i64,
+            retention_time: retention_time.map(|t| t.as_millis() as i64),
             topics: topics,
         };
 
