@@ -197,7 +197,7 @@ impl<'a> KafkaRequest<'a> {
                     OffsetCommitPartition {
                         partition_id: tp.partition_id,
                         offset: offset.offset,
-                        timestamp: offset.timestamp.unwrap_or(DEFAULT_TIMESTAMP),
+                        timestamp: DEFAULT_TIMESTAMP,
                         metadata: offset.metadata.map(|s| s.into()),
                     },
                 );

@@ -1,8 +1,6 @@
 use bytes::{BufMut, ByteOrder, BytesMut};
 use std::borrow::Cow;
 
-use time::Timespec;
-
 use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
@@ -27,7 +25,7 @@ pub enum FetchOffset {
     /// Used to ask for all messages before a certain time (ms); unix
     /// timestamp in milliseconds.
     /// See https://cwiki.apache.org/confluence/display/KAFKA/Writing+a+Driver+for+Kafka#WritingaDriverforKafka-Offsets
-    ByTime(Timespec),
+    ByTime(Timestamp),
 }
 
 impl From<FetchOffset> for Offset {
@@ -35,7 +33,7 @@ impl From<FetchOffset> for Offset {
         match offset {
             FetchOffset::Earliest => -2,
             FetchOffset::Latest => -1,
-            FetchOffset::ByTime(t) => t.sec * 1000 + t.nsec as Offset / 1000_000,
+            FetchOffset::ByTime(ts) => ts,
         }
     }
 }

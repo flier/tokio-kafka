@@ -1,14 +1,17 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::rc::Rc;
 use std::time::Duration;
 
-use futures::Future;
+use futures::{Async, Future, Poll};
 
-use client::{Client, FetchRecords, KafkaClient, PartitionData, StaticBoxFuture, ToStaticBoxFuture};
+use client::{Client, FetchRecords, KafkaClient, ListOffsets, PartitionData, StaticBoxFuture,
+             ToStaticBoxFuture};
 use consumer::{OffsetResetStrategy, SeekTo, Subscriptions};
-use errors::ErrorKind;
+use errors::{Error, ErrorKind};
 use network::TopicPartition;
-use protocol::{FetchOffset, KafkaCode};
+use protocol::{FetchOffset, KafkaCode, Offset};
 
 pub struct Fetcher<'a> {
     client: KafkaClient<'a>,
@@ -201,8 +204,58 @@ where
             })
             .static_boxed()
     }
+
+    pub fn retrieve_offsets<T>(
+        &self,
+        partitions: Vec<(TopicPartition<'a>, FetchOffset)>,
+    ) -> RetrieveOffsets<'a, T> {
+        RetrieveOffsets::new(self.client.list_offsets(partitions))
+    }
 }
 
 pub type ResetOffsets = StaticBoxFuture;
 
 pub type UpdatePositions = StaticBoxFuture;
+
+pub struct RetrieveOffsets<'a, T: 'a> {
+    offsets: ListOffsets,
+    phantom: PhantomData<&'a T>,
+}
+
+impl<'a, T> RetrieveOffsets<'a, T> {
+    pub fn new(offsets: ListOffsets) -> RetrieveOffsets<'a, T> {
+        RetrieveOffsets {
+            offsets: offsets,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a> Future for RetrieveOffsets<'a, Offset> {
+    type Item = HashMap<TopicPartition<'a>, Offset>;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        match self.offsets.poll() {
+            Ok(Async::Ready(offsets)) => {
+                Ok(Async::Ready(
+                    offsets
+                        .into_iter()
+                        .flat_map(|(topic_name, partitions)| {
+                            partitions.into_iter().flat_map(move |listed| {
+                                listed.offset().map(|offset| {
+                                    (
+                                        topic_partition!(topic_name.clone(), listed.partition_id),
+                                        offset,
+                                    )
+                                })
+                            })
+                        })
+                        .collect(),
+                ))
+            }
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Err(err) => Err(err),
+        }
+    }
+}

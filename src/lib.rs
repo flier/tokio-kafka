@@ -75,7 +75,7 @@ pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster
 pub use compression::Compression;
 pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer};
 pub use errors::{Error, ErrorKind, Result};
-pub use network::TopicPartition;
+pub use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
 pub use producer::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
                    DEFAULT_MAX_REQUEST_SIZE, DefaultPartitioner, GetTopic, KafkaProducer,
                    Partitioner, Producer, ProducerBuilder, ProducerConfig, ProducerInterceptor,

@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -6,10 +7,10 @@ use futures::{Async, Future, Poll, Stream};
 
 use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture, TopicRecord};
 use consumer::{CommitOffset, ConsumerConfig, ConsumerCoordinator, Coordinator, Fetcher,
-               LeaveGroup, SeekTo, Subscriptions};
+               LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions};
 use errors::{Error, ErrorKind, Result};
-use network::{OffsetAndMetadata, TopicPartition};
-use protocol::Offset;
+use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
+use protocol::{FetchOffset, Offset, Timestamp};
 use serialization::Deserializer;
 
 /// A trait for consuming records from a Kafka cluster.
@@ -69,6 +70,21 @@ pub trait Subscribed<'a> {
 
     /// Resume specified partitions which have been paused with
     fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+
+    /// Look up the offsets for the given partitions by timestamp.
+    fn offsets_for_times(
+        &self,
+        partitions: HashMap<TopicPartition<'a>, Timestamp>,
+    ) -> OffsetsForTimes<'a>;
+
+    /// Get the first offset for the given partitions.
+    fn beginning_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> BeginningOffsets<'a>;
+
+    /// Get the last offset for the given partitions.
+    ///
+    /// The last offset of a partition is the offset of the upcoming message,
+    /// i.e. the offset of the last available message + 1.
+    fn end_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> EndOffsets<'a>;
 }
 
 pub type Unsubscribe = LeaveGroup;
@@ -76,6 +92,12 @@ pub type Unsubscribe = LeaveGroup;
 pub type Commit = CommitOffset;
 
 pub type Committed = StaticBoxFuture<OffsetAndMetadata>;
+
+pub type OffsetsForTimes<'a> = RetrieveOffsets<'a, OffsetAndTimestamp>;
+
+pub type BeginningOffsets<'a> = RetrieveOffsets<'a, Offset>;
+
+pub type EndOffsets<'a> = RetrieveOffsets<'a, Offset>;
 
 /// A Kafka consumer that consumes records from a Kafka cluster.
 pub struct KafkaConsumer<'a, K, V> {
@@ -174,14 +196,14 @@ where
                         timer,
                     );
 
-                    let fetcher = Rc::new(Fetcher::new(
+                    let fetcher = Fetcher::new(
                         inner.client.clone(),
                         subscriptions.clone(),
                         fetch_min_bytes,
                         fetch_max_bytes,
                         fetch_max_wait,
                         partition_fetch_bytes,
-                    ));
+                    );
 
                     Ok(ConsumerTopics {
                         consumer: KafkaConsumer { inner: inner },
@@ -201,7 +223,7 @@ pub struct ConsumerTopics<'a, K, V> {
     consumer: KafkaConsumer<'a, K, V>,
     subscriptions: Rc<RefCell<Subscriptions<'a>>>,
     coordinator: ConsumerCoordinator<'a>,
-    fetcher: Rc<Fetcher<'a>>,
+    fetcher: Fetcher<'a>,
 }
 
 
@@ -301,6 +323,36 @@ where
             self.subscriptions.borrow_mut().resume(&partition)?;
         }
         Ok(())
+    }
+
+    fn offsets_for_times(
+        &self,
+        partitions: HashMap<TopicPartition<'a>, Timestamp>,
+    ) -> OffsetsForTimes<'a> {
+        self.fetcher.retrieve_offsets(
+            partitions
+                .into_iter()
+                .map(|(tp, ts)| (tp, FetchOffset::ByTime(ts)))
+                .collect(),
+        )
+    }
+
+    fn beginning_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> BeginningOffsets<'a> {
+        self.fetcher.retrieve_offsets(
+            partitions
+                .into_iter()
+                .map(|tp| (tp, FetchOffset::Earliest))
+                .collect(),
+        )
+    }
+
+    fn end_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> EndOffsets<'a> {
+        self.fetcher.retrieve_offsets(
+            partitions
+                .into_iter()
+                .map(|tp| (tp, FetchOffset::Latest))
+                .collect(),
+        )
     }
 }
 
