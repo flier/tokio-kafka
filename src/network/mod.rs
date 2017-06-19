@@ -49,13 +49,43 @@ macro_rules! topic_partition {
 /// string) when an offset is committed. This can be useful (for example) to store information
 /// about which node made the commit, what time the commit was made, etc.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct OffsetAndMetadata<'a> {
+pub struct OffsetAndMetadata {
     /// Message offset to be committed.
     pub offset: Offset,
     /// Any associated metadata the client wants to keep.
-    pub metadata: Option<Cow<'a, str>>,
+    pub metadata: Option<String>,
     /// Timestamp of the commit
     pub timestamp: Option<Timestamp>,
+}
+
+impl OffsetAndMetadata {
+    pub fn new(offset: Offset) -> Self {
+        OffsetAndMetadata {
+            offset: offset,
+            metadata: None,
+            timestamp: None,
+        }
+    }
+
+    pub fn with_metadata(offset: Offset, metadata: Option<String>) -> Self {
+        OffsetAndMetadata {
+            offset: offset,
+            metadata: metadata,
+            timestamp: None,
+        }
+    }
+
+    pub fn with_metadata_and_timestamp(
+        offset: Offset,
+        metadata: Option<String>,
+        timestamp: Option<Timestamp>,
+    ) -> Self {
+        OffsetAndMetadata {
+            offset: offset,
+            metadata: metadata,
+            timestamp: timestamp,
+        }
+    }
 }
 
 #[macro_export]

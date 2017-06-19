@@ -188,7 +188,7 @@ impl<'a> KafkaRequest<'a> {
         group_generation_id: GenerationId,
         member_id: Cow<'a, str>,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
+        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
     ) -> KafkaRequest<'a> {
         let topics = offsets
             .into_iter()
@@ -198,7 +198,7 @@ impl<'a> KafkaRequest<'a> {
                         partition_id: tp.partition_id,
                         offset: offset.offset,
                         timestamp: offset.timestamp.unwrap_or(DEFAULT_TIMESTAMP),
-                        metadata: offset.metadata,
+                        metadata: offset.metadata.map(|s| s.into()),
                     },
                 );
                 topics

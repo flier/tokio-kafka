@@ -15,10 +15,11 @@ use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupM
              Metadata, OffsetCommit, OffsetFetch, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 use errors::{Error, ErrorKind, Result, ResultExt};
+use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
 
 /// Manages the coordination process with the consumer coordinator.
-pub trait Coordinator {
+pub trait Coordinator<'a> {
     /// Join the consumer group.
     fn join_group(&self) -> JoinGroup;
 
@@ -26,10 +27,14 @@ pub trait Coordinator {
     fn leave_group(&self) -> LeaveGroup;
 
     /// Commit the specified offsets for the specified list of topics and partitions to Kafka.
-    fn commit_offset(&self) -> CommitOffset;
+    fn commit_offsets(&self) -> CommitOffset;
+
+    /// Refresh the committed offsets for provided partitions.
+    fn refresh_committed_offsets(&self) -> RefreshCommittedOffsets;
 
     /// Fetch the current committed offsets from the coordinator for a set of partitions.
-    fn fetch_offset(&self) -> FetchOffset;
+    fn fetch_committed_offsets(&self, partitions: Vec<TopicPartition<'a>>)
+        -> FetchCommittedOffsets;
 }
 
 pub type JoinGroup = StaticBoxFuture;
@@ -38,7 +43,9 @@ pub type LeaveGroup = StaticBoxFuture;
 
 pub type CommitOffset = OffsetCommit;
 
-pub type FetchOffset = OffsetFetch;
+pub type RefreshCommittedOffsets = StaticBoxFuture;
+
+pub type FetchCommittedOffsets = OffsetFetch;
 
 /// Manages the coordination process with the consumer coordinator.
 pub struct ConsumerCoordinator<'a> {
@@ -500,7 +507,7 @@ pub type RejoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
 
 pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
 
-impl<'a> Coordinator for ConsumerCoordinator<'a>
+impl<'a> Coordinator<'a> for ConsumerCoordinator<'a>
 where
     Self: 'static,
 {
@@ -561,7 +568,7 @@ where
         }
     }
 
-    fn commit_offset(&self) -> CommitOffset {
+    fn commit_offsets(&self) -> CommitOffset {
         debug!("commit offsets to the `{}` group", self.inner.group_id);
 
         let client = self.inner.client.clone();
@@ -576,16 +583,48 @@ where
             .static_boxed()
     }
 
-    fn fetch_offset(&self) -> FetchOffset {
-        debug!("fetch offsets of the `{}` group", self.inner.group_id);
+    fn refresh_committed_offsets(&self) -> RefreshCommittedOffsets {
+        debug!(
+            "refresh committed offsets of the `{}` group",
+            self.inner.group_id
+        );
+
+        let subscriptions = self.inner.subscriptions.clone();
+
+        self.fetch_committed_offsets(self.inner.subscriptions.borrow().assigned_partitions())
+            .and_then(move |offsets| {
+                for (topic_name, partitions) in offsets {
+                    for partition in partitions {
+                        let tp = topic_partition!(topic_name.clone(), partition.partition_id);
+
+                        if let Some(state) = subscriptions.borrow_mut().assigned_state_mut(&tp) {
+                            state.committed = Some(OffsetAndMetadata::with_metadata(
+                                partition.offset,
+                                partition.metadata,
+                            ));
+                        }
+                    }
+                }
+
+                Ok(())
+            })
+            .static_boxed()
+    }
+
+    fn fetch_committed_offsets(
+        &self,
+        partitions: Vec<TopicPartition<'a>>,
+    ) -> FetchCommittedOffsets {
+        debug!(
+            "fetch committed offsets of the `{}` group: {:?}",
+            self.inner.group_id,
+            partitions
+        );
 
         let client = self.inner.client.clone();
-        let subscriptions = self.inner.subscriptions.clone();
-        let assigned = subscriptions.borrow().assigned_partitions();
-
         self.rejoin_group()
             .and_then(move |(coordinator, generation)| {
-                client.offset_fetch(coordinator, generation, assigned)
+                client.offset_fetch(coordinator, generation, partitions)
             })
             .static_boxed()
     }

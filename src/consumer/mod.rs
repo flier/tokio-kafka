@@ -16,4 +16,4 @@ pub use self::consumer::{Consumer, KafkaConsumer};
 pub use self::coordinator::{CommitOffset, ConsumerCoordinator, Coordinator, JoinGroup, LeaveGroup};
 pub use self::fetcher::Fetcher;
 pub use self::protocol::{CONSUMER_PROTOCOL, ConsumerProtocol};
-pub use self::subscriptions::{OffsetResetStrategy, Subscriptions, TopicPartitionState};
+pub use self::subscriptions::{OffsetResetStrategy, SeekTo, Subscriptions, TopicPartitionState};

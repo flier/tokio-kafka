@@ -67,7 +67,7 @@ pub trait Client<'a>: 'static {
         coordinator: BrokerRef,
         generation: Generation,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
+        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
     ) -> OffsetCommit;
 
     /// Fetch the current committed offsets from the coordinator for a set of partitions.
@@ -469,7 +469,7 @@ where
         coordinator: BrokerRef,
         generation: Generation,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
+        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
     ) -> OffsetCommit {
         let inner = self.inner.clone();
         self.metadata()
@@ -1047,7 +1047,7 @@ where
         group_generation_id: GenerationId,
         member_id: Cow<'a, str>,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)>,
+        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
     ) -> OffsetCommit {
         debug!("fetch offset to group `{}`: {:?}", group_id, offsets);
 

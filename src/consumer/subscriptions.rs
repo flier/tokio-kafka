@@ -21,7 +21,7 @@ pub struct Subscriptions<'a> {
 
     /// the partitions that are currently assigned,
     /// note that the order of partition matters
-    assignment: HashMap<TopicPartition<'a>, TopicPartitionState<'a>>,
+    assignment: HashMap<TopicPartition<'a>, TopicPartitionState>,
 }
 
 impl<'a> Subscriptions<'a> {
@@ -111,22 +111,38 @@ impl<'a> Subscriptions<'a> {
             .collect()
     }
 
-    pub fn assigned_state(&self, tp: &TopicPartition<'a>) -> Option<&TopicPartitionState<'a>> {
+    pub fn assigned_state(&self, tp: &TopicPartition<'a>) -> Option<&TopicPartitionState> {
         self.assignment.get(tp)
     }
 
     pub fn assigned_state_mut(
         &mut self,
         tp: &TopicPartition<'a>,
-    ) -> Option<&mut TopicPartitionState<'a>> {
+    ) -> Option<&mut TopicPartitionState> {
         self.assignment.get_mut(tp)
     }
 
-    pub fn seek(&mut self, tp: &TopicPartition<'a>, offset: Offset) -> Option<Offset> {
-        self.assignment.get_mut(tp).map(|state| state.seek(offset))
+    pub fn seek(&mut self, tp: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
+        self.assignment
+            .get_mut(tp)
+            .ok_or_else(|| {
+                ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp))
+                    .into()
+            })
+            .map(|state| match pos {
+                SeekTo::Beginning => {
+                    state.need_offset_reset(OffsetResetStrategy::Earliest);
+                }
+                SeekTo::Position(offset) => {
+                    state.seek(offset);
+                }
+                SeekTo::End => {
+                    state.need_offset_reset(OffsetResetStrategy::Latest);
+                }
+            })
     }
 
-    pub fn consumed_partitions(&self) -> Vec<(TopicPartition<'a>, OffsetAndMetadata<'a>)> {
+    pub fn consumed_partitions(&self) -> Vec<(TopicPartition<'a>, OffsetAndMetadata)> {
         self.assignment
             .iter()
             .flat_map(|(tp, state)| {
@@ -140,10 +156,48 @@ impl<'a> Subscriptions<'a> {
     pub fn assigned_partitions(&self) -> Vec<TopicPartition<'a>> {
         self.assignment.keys().cloned().collect()
     }
+
+    pub fn subscription(&self) -> Vec<String> {
+        self.subscription.iter().cloned().collect()
+    }
+
+    pub fn paused_partitions(&self) -> Vec<TopicPartition<'a>> {
+        self.assignment
+            .iter()
+            .filter(|&(_, state)| state.paused)
+            .map(|(tp, _)| tp.clone())
+            .collect()
+    }
+
+    pub fn pause(&mut self, tp: &TopicPartition<'a>) -> Result<()> {
+        self.assignment
+            .get_mut(tp)
+            .map(|state| { state.paused = true; })
+            .ok_or_else(|| {
+                ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp))
+                    .into()
+            })
+    }
+
+    pub fn resume(&mut self, tp: &TopicPartition<'a>) -> Result<()> {
+        self.assignment
+            .get_mut(tp)
+            .map(|state| { state.paused = true; })
+            .ok_or_else(|| {
+                ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp))
+                    .into()
+            })
+    }
+}
+
+pub enum SeekTo {
+    Beginning,
+    Position(Offset),
+    End,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct TopicPartitionState<'a> {
+pub struct TopicPartitionState {
     /// whether this partition has been paused by the user
     pub paused: bool,
     /// last consumed position
@@ -151,12 +205,12 @@ pub struct TopicPartitionState<'a> {
     /// the high watermark from last fetch
     pub high_watermark: Offset,
     /// last committed position
-    pub committed: Option<OffsetAndMetadata<'a>>,
+    pub committed: Option<OffsetAndMetadata>,
     /// the strategy to use if the offset needs resetting
     pub reset_strategy: Option<OffsetResetStrategy>,
 }
 
-impl<'a> TopicPartitionState<'a> {
+impl TopicPartitionState {
     pub fn is_fetchable(&self) -> bool {
         !self.paused && self.position.is_some()
     }

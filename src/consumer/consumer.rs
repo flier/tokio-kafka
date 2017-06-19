@@ -6,8 +6,10 @@ use futures::{Async, Future, Poll, Stream};
 
 use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture, TopicRecord};
 use consumer::{CommitOffset, ConsumerConfig, ConsumerCoordinator, Coordinator, Fetcher,
-               Subscriptions};
-use errors::{Error, ErrorKind};
+               LeaveGroup, SeekTo, Subscriptions};
+use errors::{Error, ErrorKind, Result};
+use network::{OffsetAndMetadata, TopicPartition};
+use protocol::Offset;
 use serialization::Deserializer;
 
 /// A trait for consuming records from a Kafka cluster.
@@ -19,10 +21,61 @@ pub trait Consumer {
     /// The type of `Stream` to receive records from topics
     type Topics: Stream<Item = TopicRecord<Self::Key, Self::Value>, Error = Error>;
 
-    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscriber<Self::Topics>
+    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
     where
         S: AsRef<str> + Hash + Eq;
 }
+
+pub type Subscribe<T> = StaticBoxFuture<T>;
+
+/// A trait for to the subscribed list of topics.
+pub trait Subscribed<'a> {
+    /// Get the set of partitions currently assigned to this consumer.
+    fn assigment(&self) -> Vec<TopicPartition<'a>>;
+
+    /// Get the current subscription.
+    fn subscription(&self) -> Vec<String>;
+
+    /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
+    fn unsubscribe(self) -> Unsubscribe;
+
+    /// Commit offsets returned on the last record for all the subscribed list of topics and
+    /// partitions.
+    fn commit(&mut self) -> Commit;
+
+    /// Overrides the fetch offsets that the consumer will use on the next record
+    fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()>;
+
+    /// Seek to the first offset for each of the given partitions.
+    fn seek_to_beginning(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+
+    /// Seek to the last offset for each of the given partitions.
+    fn seek_to_end(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+
+    /// Get the offset of the next record that will be fetched (if a record with that offset
+    /// exists).
+    fn position(&self, partition: &TopicPartition<'a>) -> Result<Option<Offset>>;
+
+    /// Get the last committed offset for the given partition
+    /// (whether the commit happened by this process or another).
+    /// This offset will be used as the position for the consumer in the event of a failure.
+    fn committed(&self, partition: TopicPartition<'a>) -> Committed;
+
+    /// Get the set of partitions that were previously paused by a call to `pause`
+    fn paused(&self) -> Vec<TopicPartition<'a>>;
+
+    /// Suspend fetching from the requested partitions.
+    fn pause(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+
+    /// Resume specified partitions which have been paused with
+    fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+}
+
+pub type Unsubscribe = LeaveGroup;
+
+pub type Commit = CommitOffset;
+
+pub type Committed = StaticBoxFuture<OffsetAndMetadata>;
 
 /// A Kafka consumer that consumes records from a Kafka cluster.
 pub struct KafkaConsumer<'a, K, V> {
@@ -70,7 +123,7 @@ where
     type Value = V::Item;
     type Topics = ConsumerTopics<'a, K, V>;
 
-    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscriber<Self::Topics>
+    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
     where
         S: AsRef<str> + Hash + Eq,
     {
@@ -121,17 +174,18 @@ where
                         timer,
                     );
 
-                    let fetcher = Fetcher::new(
+                    let fetcher = Rc::new(Fetcher::new(
                         inner.client.clone(),
-                        subscriptions,
+                        subscriptions.clone(),
                         fetch_min_bytes,
                         fetch_max_bytes,
                         fetch_max_wait,
                         partition_fetch_bytes,
-                    );
+                    ));
 
                     Ok(ConsumerTopics {
                         consumer: KafkaConsumer { inner: inner },
+                        subscriptions: subscriptions,
                         coordinator: coordinator,
                         fetcher: fetcher,
                     })
@@ -143,33 +197,112 @@ where
     }
 }
 
-pub type Subscriber<T> = StaticBoxFuture<T>;
-
 pub struct ConsumerTopics<'a, K, V> {
     consumer: KafkaConsumer<'a, K, V>,
+    subscriptions: Rc<RefCell<Subscriptions<'a>>>,
     coordinator: ConsumerCoordinator<'a>,
-    fetcher: Fetcher<'a>,
+    fetcher: Rc<Fetcher<'a>>,
 }
 
-impl<'a, K, V> ConsumerTopics<'a, K, V>
+
+impl<'a, K, V> Subscribed<'a> for ConsumerTopics<'a, K, V>
 where
     K: Deserializer,
     K::Item: Hash,
     V: Deserializer,
     Self: 'static,
 {
-    pub fn commit(&mut self) -> Commit {
-        self.coordinator.commit_offset()
+    fn assigment(&self) -> Vec<TopicPartition<'a>> {
+        self.subscriptions.borrow().assigned_partitions()
     }
 
-    /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
-    pub fn unsubscribe(self) -> Unsubscribe {
-        self.coordinator.leave_group().static_boxed()
+    fn subscription(&self) -> Vec<String> {
+        self.subscriptions.borrow().subscription()
+    }
+
+    fn unsubscribe(self) -> Unsubscribe {
+        self.coordinator.leave_group()
+    }
+
+    fn commit(&mut self) -> Commit {
+        self.coordinator.commit_offsets()
+    }
+
+    fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
+        self.subscriptions.borrow_mut().seek(partition, pos)
+    }
+
+    fn seek_to_beginning(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+        for partition in partitions {
+            self.seek(partition, SeekTo::Beginning)?;
+        }
+        Ok(())
+    }
+
+    fn seek_to_end(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+        for partition in partitions {
+            self.seek(partition, SeekTo::End)?;
+        }
+        Ok(())
+    }
+
+    fn position(&self, partition: &TopicPartition<'a>) -> Result<Option<Offset>> {
+        self.subscriptions
+            .borrow()
+            .assigned_state(&partition)
+            .ok_or_else(|| {
+                ErrorKind::IllegalArgument(
+                    format!("No current assignment for partition {}", partition),
+                ).into()
+            })
+            .map(|state| state.position)
+    }
+
+    fn committed(&self, tp: TopicPartition<'a>) -> Committed {
+        let topic_name = String::from(tp.topic_name.to_owned());
+        let partition_id = tp.partition_id;
+
+        self.coordinator
+            .fetch_committed_offsets(vec![tp])
+            .and_then(move |offsets| {
+                offsets
+                    .get(&topic_name)
+                    .and_then(|partitions| {
+                        partitions
+                            .iter()
+                            .find(|partition| partition.partition_id == partition_id)
+                            .map(move |fetched| {
+                                OffsetAndMetadata::with_metadata(
+                                    fetched.offset,
+                                    fetched.metadata.clone(),
+                                )
+                            })
+                    })
+                    .ok_or_else(|| {
+                        ErrorKind::NoOffsetForPartition(topic_name, partition_id).into()
+                    })
+            })
+            .static_boxed()
+    }
+
+    fn paused(&self) -> Vec<TopicPartition<'a>> {
+        self.subscriptions.borrow().paused_partitions()
+    }
+
+    fn pause(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+        for partition in partitions {
+            self.subscriptions.borrow_mut().pause(&partition)?;
+        }
+        Ok(())
+    }
+
+    fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+        for partition in partitions {
+            self.subscriptions.borrow_mut().resume(&partition)?;
+        }
+        Ok(())
     }
 }
-
-pub type Commit = CommitOffset;
-pub type Unsubscribe = StaticBoxFuture;
 
 impl<'a, K, V> Stream for ConsumerTopics<'a, K, V>
 where

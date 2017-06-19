@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures::Future;
 
 use client::{Client, FetchRecords, KafkaClient, PartitionData, StaticBoxFuture, ToStaticBoxFuture};
-use consumer::{OffsetResetStrategy, Subscriptions};
+use consumer::{OffsetResetStrategy, SeekTo, Subscriptions};
 use errors::ErrorKind;
 use network::TopicPartition;
 use protocol::{FetchOffset, KafkaCode};
@@ -118,7 +118,10 @@ where
                                         partition.partition_id
                                     );
 
-                                    subscriptions.borrow_mut().seek(&tp, offset);
+                                    subscriptions.borrow_mut().seek(
+                                        &tp,
+                                        SeekTo::Position(offset),
+                                    )?
                                 }
                                 _ => bail!(ErrorKind::KafkaError(partition.error_code)),
                             }
