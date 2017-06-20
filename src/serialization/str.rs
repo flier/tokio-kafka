@@ -8,11 +8,11 @@ use serialization::{Deserializer, Serializer};
 
 /// Serialize `String` with UTF-8 encoding
 #[derive(Clone, Debug, Default)]
-pub struct StrSerializer<T> {
+pub struct StringSerializer<T> {
     phantom: PhantomData<T>,
 }
 
-impl<T> Serializer for StrSerializer<T>
+impl<T> Serializer for StringSerializer<T>
 where
     T: AsRef<str>,
 {
@@ -32,11 +32,11 @@ where
 
 /// Deserialize `String` as UTF-8 encoding
 #[derive(Clone, Debug, Default)]
-pub struct StrDeserializer<T> {
+pub struct StringDeserializer<T> {
     phantom: PhantomData<T>,
 }
 
-impl Deserializer for StrDeserializer<String> {
+impl Deserializer for StringDeserializer<String> {
     type Item = String;
     type Error = Error;
 
@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn test_seraizlie() {
-        let serializer = StrSerializer::default();
+        let serializer = StringSerializer::default();
         let mut buf = Vec::new();
         let data = vec![230, 181, 139, 232, 175, 149];
 
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        let deserializer = StrDeserializer::default();
+        let deserializer = StringDeserializer::default();
         let data = vec![230, 181, 139, 232, 175, 149];
         let mut cur = Cursor::new(data.clone());
         let mut s = String::new();

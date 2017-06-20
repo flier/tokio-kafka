@@ -83,7 +83,8 @@ pub use producer::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGE
 pub use protocol::{ApiKey, ApiKeys, ErrorCode, FetchOffset, KafkaCode, Offset, PartitionId,
                    RequiredAcks, Timestamp, ToMilliseconds, UsableApiVersion, UsableApiVersions};
 pub use serialization::{BytesDeserializer, BytesSerializer, Deserializer, NoopDeserializer,
-                        NoopSerializer, RawDeserializer, RawSerializer, Serializer};
+                        NoopSerializer, RawDeserializer, RawSerializer, Serializer,
+                        StringDeserializer, StringSerializer};
 #[cfg(feature = "json")]
 pub use serialization::{JsonDeserializer, JsonSerializer};
 #[cfg(feature = "encoding")]

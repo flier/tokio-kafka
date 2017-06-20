@@ -2,19 +2,22 @@ mod noop;
 mod raw;
 mod bytes;
 mod str;
-#[cfg(feature = "encoding")]
-mod encoding;
-#[cfg(feature = "json")]
-mod json;
 
 pub use self::bytes::{BytesDeserializer, BytesSerializer};
-#[cfg(feature = "encoding")]
-pub use self::encoding::{StrEncodingDeserializer, StrEncodingSerializer};
-#[cfg(feature = "json")]
-pub use self::json::{JsonDeserializer, JsonSerializer};
 pub use self::noop::{NoopDeserializer, NoopSerializer};
 pub use self::raw::{RawDeserializer, RawSerializer};
-pub use self::str::{StrDeserializer, StrSerializer};
+pub use self::str::{StringDeserializer, StringSerializer};
+
+#[cfg(feature = "encoding")]
+mod encoding;
+#[cfg(feature = "encoding")]
+pub use self::encoding::{StrEncodingDeserializer, StrEncodingSerializer};
+
+#[cfg(feature = "json")]
+mod json;
+#[cfg(feature = "json")]
+pub use self::json::{JsonDeserializer, JsonSerializer};
+
 
 use std::mem;
 use std::result::Result;
