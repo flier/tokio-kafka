@@ -6,15 +6,9 @@ use errors::{Error, Result};
 use serialization::{Deserializer, Serializer};
 
 /// Serialize type to nothing
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct NoopSerializer<T> {
     phantom: PhantomData<T>,
-}
-
-impl<T> Clone for NoopSerializer<T> {
-    fn clone(&self) -> Self {
-        NoopSerializer { phantom: PhantomData }
-    }
 }
 
 impl<T> Serializer for NoopSerializer<T> {
@@ -36,15 +30,9 @@ impl<T> Serializer for NoopSerializer<T> {
 }
 
 /// Deserialize type from nothing
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct NoopDeserializer<T> {
     phantom: PhantomData<T>,
-}
-
-impl<T> Clone for NoopDeserializer<T> {
-    fn clone(&self) -> Self {
-        NoopDeserializer { phantom: PhantomData }
-    }
 }
 
 impl<T> Deserializer for NoopDeserializer<T> {

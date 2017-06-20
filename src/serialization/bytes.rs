@@ -7,18 +7,12 @@ use errors::{Error, ErrorKind, Result};
 use serialization::{Deserializer, Serializer};
 
 /// Serialize `Buf` like type to it's raw bytes
-#[derive(Debug, Default)]
-pub struct BytesSerializer<T, B> {
-    phantom: PhantomData<(T, B)>,
+#[derive(Clone, Debug, Default)]
+pub struct BytesSerializer<T> {
+    phantom: PhantomData<T>,
 }
 
-impl<T, B> Clone for BytesSerializer<T, B> {
-    fn clone(&self) -> Self {
-        BytesSerializer { phantom: PhantomData }
-    }
-}
-
-impl<T, B> Serializer for BytesSerializer<T, B>
+impl<T, B> Serializer for BytesSerializer<T>
 where
     T: IntoBuf<Buf = B>,
     B: Buf,
@@ -42,18 +36,9 @@ where
 }
 
 /// Deserialize `Buf` like type from it's raw bytes
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BytesDeserializer<T> {
     phantom: PhantomData<T>,
-}
-
-impl<T> Clone for BytesDeserializer<T>
-where
-    T: BufMut,
-{
-    fn clone(&self) -> Self {
-        BytesDeserializer { phantom: PhantomData }
-    }
 }
 
 impl<T> Deserializer for BytesDeserializer<T>

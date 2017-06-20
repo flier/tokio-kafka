@@ -7,7 +7,7 @@ use std::rc::Rc;
 use bytes::IntoBuf;
 use futures::{Async, Future, Poll, Stream};
 
-use client::{FetchRecords, KafkaClient, StaticBoxFuture, ToStaticBoxFuture, TopicRecord};
+use client::{FetchRecords, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup,
                KafkaConsumer, LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions};
 use errors::{Error, ErrorKind, Result};
@@ -129,9 +129,9 @@ enum State<'a, K, V> {
 
 impl<'a, K, V> Stream for SubscribedTopics<'a, K, V>
 where
-    K: Deserializer,
+    K: Deserializer + Clone,
     K::Item: Hash,
-    V: Deserializer,
+    V: Deserializer + Clone,
     Self: 'static,
 {
     type Item = ConsumerRecord<'a, K::Item, V::Item>;

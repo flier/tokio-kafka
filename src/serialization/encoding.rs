@@ -25,7 +25,7 @@ where
 }
 
 /// Serialize `String` base on the special encoding
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StrEncodingSerializer<E, T> {
     encoding: E,
     phantom: PhantomData<T>,
@@ -40,22 +40,9 @@ impl<E, T> StrEncodingSerializer<E, T> {
     }
 }
 
-impl<E, T> Clone for StrEncodingSerializer<E, T>
-where
-    E: Encoding + Clone,
-    T: AsRef<str>,
-{
-    fn clone(&self) -> Self {
-        StrEncodingSerializer {
-            encoding: self.encoding.clone(),
-            phantom: PhantomData,
-        }
-    }
-}
-
 impl<E, T> Serializer for StrEncodingSerializer<E, T>
 where
-    E: Encoding + Clone,
+    E: Encoding,
     T: AsRef<str>,
 {
     type Item = T;
@@ -80,7 +67,7 @@ where
 }
 
 /// Deserialize `String` base on the special encoding
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StrEncodingDeserializer<E, T> {
     encoding: E,
     phantom: PhantomData<T>,
@@ -95,22 +82,9 @@ impl<E, T> StrEncodingDeserializer<E, T> {
     }
 }
 
-impl<E, T> Clone for StrEncodingDeserializer<E, T>
-where
-    E: Encoding + Clone,
-    T: BufMut,
-{
-    fn clone(&self) -> Self {
-        StrEncodingDeserializer {
-            encoding: self.encoding.clone(),
-            phantom: PhantomData,
-        }
-    }
-}
-
 impl<E, T> Deserializer for StrEncodingDeserializer<E, T>
 where
-    E: Encoding + Clone,
+    E: Encoding,
     T: BufMut,
 {
     type Item = T;

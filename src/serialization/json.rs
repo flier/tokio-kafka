@@ -10,7 +10,7 @@ use errors::{Error, Result};
 use serialization::{Deserializer, Serializer};
 
 /// Serialize `String` with UTF-8 encoding
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct JsonSerializer<T> {
     pretty: bool,
     phantom: PhantomData<T>,
@@ -20,18 +20,6 @@ impl<T> JsonSerializer<T> {
     pub fn pretty() -> Self {
         JsonSerializer {
             pretty: true,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<T> Clone for JsonSerializer<T>
-where
-    T: serde::Serialize,
-{
-    fn clone(&self) -> Self {
-        JsonSerializer {
-            pretty: self.pretty,
             phantom: PhantomData,
         }
     }
@@ -62,18 +50,9 @@ where
 }
 
 /// Deserialize `String` as UTF-8 encoding
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct JsonDeserializer<T> {
     phantom: PhantomData<T>,
-}
-
-impl<'de, T> Clone for JsonDeserializer<T>
-where
-    T: serde::Deserialize<'de>,
-{
-    fn clone(&self) -> Self {
-        JsonDeserializer { phantom: PhantomData }
-    }
 }
 
 impl<'de, T> Deserializer for JsonDeserializer<T>

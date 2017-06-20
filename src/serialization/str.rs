@@ -7,15 +7,9 @@ use errors::{Error, Result};
 use serialization::{Deserializer, Serializer};
 
 /// Serialize `String` with UTF-8 encoding
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StrSerializer<T> {
     phantom: PhantomData<T>,
-}
-
-impl<T> Clone for StrSerializer<T> {
-    fn clone(&self) -> Self {
-        StrSerializer { phantom: PhantomData }
-    }
 }
 
 impl<T> Serializer for StrSerializer<T>
@@ -37,15 +31,9 @@ where
 }
 
 /// Deserialize `String` as UTF-8 encoding
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct StrDeserializer<T> {
     phantom: PhantomData<T>,
-}
-
-impl<T> Clone for StrDeserializer<T> {
-    fn clone(&self) -> Self {
-        StrDeserializer { phantom: PhantomData }
-    }
 }
 
 impl Deserializer for StrDeserializer<String> {

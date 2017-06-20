@@ -23,7 +23,7 @@ use bytes::{Buf, BufMut, Bytes};
 use bytes::buf::FromBuf;
 
 /// A trait for serializing type to Kafka record
-pub trait Serializer: Clone {
+pub trait Serializer {
     /// The type of value that this serializer will serialize.
     type Item;
     /// The type of error that this serializer will return if it fails.
@@ -46,7 +46,7 @@ pub trait Serializer: Clone {
 }
 
 /// A trait for deserializing type from Kafka record
-pub trait Deserializer: Clone {
+pub trait Deserializer {
     /// The type of value that this deserializer will deserialize.
     type Item;
     /// The type of error that this deserializer will return if it fails.

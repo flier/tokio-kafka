@@ -59,12 +59,7 @@ struct Inner<'a, K, V> {
     value_deserializer: V,
 }
 
-impl<'a, K, V> KafkaConsumer<'a, K, V>
-where
-    K: Deserializer,
-    V: Deserializer,
-    Self: 'static,
-{
+impl<'a, K, V> KafkaConsumer<'a, K, V> {
     pub fn new(
         client: KafkaClient<'a>,
         config: ConsumerConfig,
@@ -80,11 +75,21 @@ where
             }),
         }
     }
+}
 
+impl<'a, K, V> KafkaConsumer<'a, K, V>
+where
+    K: Deserializer + Clone,
+{
     pub fn key_deserializer(&self) -> K {
         self.inner.key_deserializer.clone()
     }
+}
 
+impl<'a, K, V> KafkaConsumer<'a, K, V>
+where
+    V: Deserializer + Clone,
+{
     pub fn value_deserializer(&self) -> V {
         self.inner.value_deserializer.clone()
     }
@@ -92,9 +97,9 @@ where
 
 impl<'a, K, V> Consumer<'a> for KafkaConsumer<'a, K, V>
 where
-    K: Deserializer,
+    K: Deserializer + Clone,
     K::Item: Hash,
-    V: Deserializer,
+    V: Deserializer + Clone,
     Self: 'static,
 {
     type Key = K::Item;

@@ -10,15 +10,9 @@ use errors::{Error, ErrorKind, Result};
 use serialization::{Deserializer, Serializer};
 
 /// Serialize type to it's raw data
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RawSerializer<T> {
     phantom: PhantomData<T>,
-}
-
-impl<T> Clone for RawSerializer<T> {
-    fn clone(&self) -> Self {
-        RawSerializer { phantom: PhantomData }
-    }
 }
 
 impl<T> Serializer for RawSerializer<T> {
@@ -46,15 +40,9 @@ impl<T> Serializer for RawSerializer<T> {
 }
 
 /// Deserialize type from it's raw data
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RawDeserializer<T> {
     phantom: PhantomData<T>,
-}
-
-impl<T> Clone for RawDeserializer<T> {
-    fn clone(&self) -> Self {
-        RawDeserializer { phantom: PhantomData }
-    }
 }
 
 impl<T> Deserializer for RawDeserializer<T> {
