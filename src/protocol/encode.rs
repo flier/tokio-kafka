@@ -1,6 +1,6 @@
-use std::str;
 use std::i16;
 use std::i32;
+use std::str;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
 
@@ -24,9 +24,12 @@ pub trait WriteExt: BufMut + Sized {
             Some(v) if v.as_ref().len() > i16::MAX as usize => {
                 bail!(ErrorKind::EncodeError("string exceeds the maximum size."))
             }
-            Some(v) if !v.as_ref().is_empty() => {
+            Some(v) => {
                 self.put_i16::<T>(v.as_ref().len() as i16);
-                self.put_slice(v.as_ref().as_bytes());
+
+                if !v.as_ref().is_empty() {
+                    self.put_slice(v.as_ref().as_bytes());
+                }
             }
             _ => {
                 self.put_i16::<T>(-1);
@@ -41,9 +44,12 @@ pub trait WriteExt: BufMut + Sized {
             Some(v) if v.as_ref().len() > i32::MAX as usize => {
                 bail!(ErrorKind::EncodeError("bytes exceeds the maximum size."))
             }
-            Some(v) if !v.as_ref().is_empty() => {
+            Some(v) => {
                 self.put_i32::<T>(v.as_ref().len() as i32);
-                self.put_slice(v.as_ref());
+
+                if !v.as_ref().is_empty() {
+                    self.put_slice(v.as_ref());
+                }
             }
             _ => {
                 self.put_i32::<T>(-1);
@@ -54,8 +60,9 @@ pub trait WriteExt: BufMut + Sized {
     }
 
     fn put_array<T, E, F>(&mut self, items: &[E], mut callback: F) -> Result<()>
-        where T: ByteOrder,
-              F: FnMut(&mut Self, &E) -> Result<()>
+    where
+        T: ByteOrder,
+        F: FnMut(&mut Self, &E) -> Result<()>,
     {
         if items.len() > i32::MAX as usize {
             bail!(ErrorKind::EncodeError("array exceeds the maximum size."))
@@ -75,9 +82,9 @@ impl<T: BufMut> WriteExt for T {}
 
 #[cfg(test)]
 mod tests {
-    use std::str;
-    use std::slice;
     use std::iter::repeat;
+    use std::slice;
+    use std::str;
 
     use bytes::BigEndian;
 
@@ -118,9 +125,11 @@ mod tests {
         // write too long nullable string
         let s = repeat(20).take(i16::MAX as usize + 1).collect::<Vec<u8>>();
 
-        assert!(buf.put_str::<BigEndian, _>(Some(String::from_utf8(s).unwrap()))
-                    .err()
-                    .is_some());
+        assert!(
+            buf.put_str::<BigEndian, _>(Some(String::from_utf8(s).unwrap()))
+                .err()
+                .is_some()
+        );
     }
 
     #[test]
