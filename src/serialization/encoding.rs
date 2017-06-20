@@ -7,10 +7,13 @@ use encoding::{ByteWriter, DecoderTrap, EncoderTrap, Encoding};
 use errors::{Error, Result};
 use serialization::{Deserializer, Serializer};
 
-struct BufWriter<B>(B) where B: BufMut;
+struct BufWriter<B>(B)
+where
+    B: BufMut;
 
 impl<B> ByteWriter for BufWriter<B>
-    where B: BufMut
+where
+    B: BufMut,
 {
     fn write_byte(&mut self, b: u8) {
         self.0.put_u8(b)
@@ -22,15 +25,13 @@ impl<B> ByteWriter for BufWriter<B>
 }
 
 /// Serialize `String` base on the special encoding
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct StrEncodingSerializer<E, T> {
     encoding: E,
     phantom: PhantomData<T>,
 }
 
-impl<E, T> StrEncodingSerializer<E, T>
-    where E: Encoding
-{
+impl<E, T> StrEncodingSerializer<E, T> {
     pub fn new(encoding: E) -> Self {
         StrEncodingSerializer {
             encoding: encoding,
@@ -39,37 +40,53 @@ impl<E, T> StrEncodingSerializer<E, T>
     }
 }
 
+impl<E, T> Clone for StrEncodingSerializer<E, T>
+where
+    E: Encoding + Clone,
+    T: AsRef<str>,
+{
+    fn clone(&self) -> Self {
+        StrEncodingSerializer {
+            encoding: self.encoding.clone(),
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<E, T> Serializer for StrEncodingSerializer<E, T>
-    where E: Encoding,
-          T: AsRef<str>
+where
+    E: Encoding + Clone,
+    T: AsRef<str>,
 {
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<B: BufMut>(&self,
-                               _topic_name: &str,
-                               data: Self::Item,
-                               buf: &mut B)
-                               -> Result<()> {
+    fn serialize_to<B: BufMut>(
+        &self,
+        _topic_name: &str,
+        data: Self::Item,
+        buf: &mut B,
+    ) -> Result<()> {
         let mut w = BufWriter(buf);
 
-        self.encoding
-            .encode_to(data.as_ref(), EncoderTrap::Strict, &mut w)?;
+        self.encoding.encode_to(
+            data.as_ref(),
+            EncoderTrap::Strict,
+            &mut w,
+        )?;
 
         Ok(())
     }
 }
 
 /// Deserialize `String` base on the special encoding
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct StrEncodingDeserializer<E, T> {
     encoding: E,
     phantom: PhantomData<T>,
 }
 
-impl<E, T> StrEncodingDeserializer<E, T>
-    where E: Encoding
-{
+impl<E, T> StrEncodingDeserializer<E, T> {
     pub fn new(encoding: E) -> Self {
         StrEncodingDeserializer {
             encoding: encoding,
@@ -78,22 +95,39 @@ impl<E, T> StrEncodingDeserializer<E, T>
     }
 }
 
+impl<E, T> Clone for StrEncodingDeserializer<E, T>
+where
+    E: Encoding + Clone,
+    T: BufMut,
+{
+    fn clone(&self) -> Self {
+        StrEncodingDeserializer {
+            encoding: self.encoding.clone(),
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<E, T> Deserializer for StrEncodingDeserializer<E, T>
-    where E: Encoding,
-          T: BufMut
+where
+    E: Encoding + Clone,
+    T: BufMut,
 {
     type Item = T;
     type Error = Error;
 
-    fn deserialize_to<B: Buf>(&self,
-                              _topic_name: &str,
-                              buf: &mut B,
-                              data: &mut Self::Item)
-                              -> Result<()> {
+    fn deserialize_to<B: Buf>(
+        &self,
+        _topic_name: &str,
+        buf: &mut B,
+        data: &mut Self::Item,
+    ) -> Result<()> {
         let len = buf.remaining();
-        data.put_slice(self.encoding
-                           .decode(buf.bytes(), DecoderTrap::Strict)?
-                           .as_bytes());
+        data.put_slice(
+            self.encoding
+                .decode(buf.bytes(), DecoderTrap::Strict)?
+                .as_bytes(),
+        );
         buf.advance(len);
         Ok(())
     }
@@ -121,8 +155,10 @@ mod tests {
 
         assert_eq!(&buf, &data);
 
-        assert_eq!(serializer.serialize("topic", "测试").unwrap(),
-                   Bytes::from(data));
+        assert_eq!(
+            serializer.serialize("topic", "测试").unwrap(),
+            Bytes::from(data)
+        );
     }
 
     #[test]
@@ -141,7 +177,9 @@ mod tests {
 
         cur.set_position(0);
 
-        assert_eq!(deserializer.deserialize("topic", &mut cur).unwrap(),
-                   "测试".as_bytes());
+        assert_eq!(
+            deserializer.deserialize("topic", &mut cur).unwrap(),
+            "测试".as_bytes()
+        );
     }
 }

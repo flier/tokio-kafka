@@ -6,20 +6,27 @@ use errors::{Error, Result};
 use serialization::{Deserializer, Serializer};
 
 /// Serialize type to nothing
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct NoopSerializer<T> {
     phantom: PhantomData<T>,
+}
+
+impl<T> Clone for NoopSerializer<T> {
+    fn clone(&self) -> Self {
+        NoopSerializer { phantom: PhantomData }
+    }
 }
 
 impl<T> Serializer for NoopSerializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<B: BufMut>(&self,
-                               _topic_name: &str,
-                               _data: Self::Item,
-                               _buf: &mut B)
-                               -> Result<()> {
+    fn serialize_to<B: BufMut>(
+        &self,
+        _topic_name: &str,
+        _data: Self::Item,
+        _buf: &mut B,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -29,20 +36,27 @@ impl<T> Serializer for NoopSerializer<T> {
 }
 
 /// Deserialize type from nothing
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct NoopDeserializer<T> {
     phantom: PhantomData<T>,
+}
+
+impl<T> Clone for NoopDeserializer<T> {
+    fn clone(&self) -> Self {
+        NoopDeserializer { phantom: PhantomData }
+    }
 }
 
 impl<T> Deserializer for NoopDeserializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn deserialize_to<B: Buf>(&self,
-                              _topic_name: &str,
-                              buf: &mut B,
-                              _data: &mut Self::Item)
-                              -> Result<()> {
+    fn deserialize_to<B: Buf>(
+        &self,
+        _topic_name: &str,
+        buf: &mut B,
+        _data: &mut Self::Item,
+    ) -> Result<()> {
         let len = buf.remaining();
         buf.advance(len);
         Ok(())
@@ -82,9 +96,11 @@ mod tests {
         assert_eq!(cur.position(), 4);
         assert!(s.is_empty());
 
-        assert!(deserializer
-                    .deserialize("topic", &mut cur)
-                    .unwrap()
-                    .is_empty());
+        assert!(
+            deserializer
+                .deserialize("topic", &mut cur)
+                .unwrap()
+                .is_empty()
+        );
     }
 }

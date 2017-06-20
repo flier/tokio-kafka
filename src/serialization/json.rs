@@ -1,5 +1,5 @@
-use std::str;
 use std::marker::PhantomData;
+use std::str;
 
 use bytes::{Buf, BufMut};
 
@@ -10,7 +10,7 @@ use errors::{Error, Result};
 use serialization::{Deserializer, Serializer};
 
 /// Serialize `String` with UTF-8 encoding
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct JsonSerializer<T> {
     pretty: bool,
     phantom: PhantomData<T>,
@@ -25,17 +25,31 @@ impl<T> JsonSerializer<T> {
     }
 }
 
+impl<T> Clone for JsonSerializer<T>
+where
+    T: serde::Serialize,
+{
+    fn clone(&self) -> Self {
+        JsonSerializer {
+            pretty: self.pretty,
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<T> Serializer for JsonSerializer<T>
-    where T: serde::Serialize
+where
+    T: serde::Serialize,
 {
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<B: BufMut>(&self,
-                               _topic_name: &str,
-                               data: Self::Item,
-                               buf: &mut B)
-                               -> Result<()> {
+    fn serialize_to<B: BufMut>(
+        &self,
+        _topic_name: &str,
+        data: Self::Item,
+        buf: &mut B,
+    ) -> Result<()> {
         let to_vec = if self.pretty {
             serde_json::to_vec_pretty
         } else {
@@ -48,22 +62,33 @@ impl<T> Serializer for JsonSerializer<T>
 }
 
 /// Deserialize `String` as UTF-8 encoding
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct JsonDeserializer<T> {
     phantom: PhantomData<T>,
 }
 
+impl<'de, T> Clone for JsonDeserializer<T>
+where
+    T: serde::Deserialize<'de>,
+{
+    fn clone(&self) -> Self {
+        JsonDeserializer { phantom: PhantomData }
+    }
+}
+
 impl<'de, T> Deserializer for JsonDeserializer<T>
-    where T: serde::Deserialize<'de>
+where
+    T: serde::Deserialize<'de>,
 {
     type Item = T;
     type Error = Error;
 
-    fn deserialize_to<B: Buf>(&self,
-                              _topic_name: &str,
-                              buf: &mut B,
-                              data: &mut Self::Item)
-                              -> Result<()> {
+    fn deserialize_to<B: Buf>(
+        &self,
+        _topic_name: &str,
+        buf: &mut B,
+        data: &mut Self::Item,
+    ) -> Result<()> {
         let len = buf.remaining();
         let v: Value = serde_json::from_slice(buf.bytes())?;
         *data = T::deserialize(v)?;
@@ -74,8 +99,8 @@ impl<'de, T> Deserializer for JsonDeserializer<T>
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
     use std::io::Cursor;
+    use std::time::Duration;
 
     use bytes::Bytes;
 
