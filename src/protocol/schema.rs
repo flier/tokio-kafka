@@ -1,15 +1,15 @@
+use std::fmt;
 use std::i16;
 use std::i32;
-use std::isize;
-use std::fmt;
-use std::str;
 use std::io::prelude::*;
+use std::isize;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::result::Result as StdResult;
+use std::str;
 
-use serde::ser::{self, Serialize, SerializeSeq};
 use serde::de::{self, Deserialize, Visitor};
+use serde::ser::{self, Serialize, SerializeSeq};
 
 use byteorder::{BigEndian, ByteOrder, NativeEndian, ReadBytesExt, WriteBytesExt};
 
@@ -27,8 +27,9 @@ impl Schema {
     }
 
     pub fn deserialize<'de, T, R>(input: R) -> Result<T>
-        where T: Deserialize<'de>,
-              R: Read + Clone
+    where
+        T: Deserialize<'de>,
+        R: Read + Clone,
     {
         let mut deserializer = SchemaDeserializer::<BigEndian, R>::new(input);
         Ok(T::deserialize(&mut deserializer)?)
@@ -131,7 +132,8 @@ impl<T> DerefMut for Nullable<T> {
 
 impl Serialize for VarInt {
     fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
-        where S: ser::Serializer
+    where
+        S: ser::Serializer,
     {
         let mut buf = Vec::with_capacity(8);
         let mut v = ((self.0 << 1) ^ (self.0 >> 31)) as u32;
@@ -146,7 +148,8 @@ impl Serialize for VarInt {
 
 impl<'de> Deserialize<'de> for VarInt {
     fn deserialize<D>(deserializer: D) -> StdResult<Self, D::Error>
-        where D: de::Deserializer<'de>
+    where
+        D: de::Deserializer<'de>,
     {
         deserializer.deserialize_newtype_struct("VarInt", VarIntVisitor)
     }
@@ -162,7 +165,8 @@ impl<'de> Visitor<'de> for VarIntVisitor {
     }
 
     fn visit_seq<A>(self, mut seq: A) -> StdResult<Self::Value, A::Error>
-        where A: de::SeqAccess<'de>
+    where
+        A: de::SeqAccess<'de>,
     {
         let mut value = 0;
         let mut i = 0;
@@ -172,7 +176,10 @@ impl<'de> Visitor<'de> for VarIntVisitor {
                 value |= ((b & 0x7f) as u32) << i;
                 i += 7;
                 if i > 28 {
-                    return Err(de::Error::invalid_value(de::Unexpected::Unsigned(b as u64), &self));
+                    return Err(de::Error::invalid_value(
+                        de::Unexpected::Unsigned(b as u64),
+                        &self,
+                    ));
                 }
             } else {
                 value |= (b as u32) << i;
@@ -190,7 +197,8 @@ impl<'de> Visitor<'de> for VarIntVisitor {
 
 impl Serialize for VarLong {
     fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
-        where S: ser::Serializer
+    where
+        S: ser::Serializer,
     {
         let mut buf = Vec::with_capacity(16);
         let mut v = ((self.0 << 1) ^ (self.0 >> 63)) as u64;
@@ -205,7 +213,8 @@ impl Serialize for VarLong {
 
 impl<'de> Deserialize<'de> for VarLong {
     fn deserialize<D>(deserializer: D) -> StdResult<Self, D::Error>
-        where D: de::Deserializer<'de>
+    where
+        D: de::Deserializer<'de>,
     {
         deserializer.deserialize_newtype_struct("VarLong", VarLongVisitor)
     }
@@ -221,7 +230,8 @@ impl<'de> Visitor<'de> for VarLongVisitor {
     }
 
     fn visit_seq<A>(self, mut seq: A) -> StdResult<Self::Value, A::Error>
-        where A: de::SeqAccess<'de>
+    where
+        A: de::SeqAccess<'de>,
     {
         let mut value = 0;
         let mut i = 0;
@@ -231,7 +241,10 @@ impl<'de> Visitor<'de> for VarLongVisitor {
                 value |= ((b & 0x7f) as u64) << i;
                 i += 7;
                 if i > 63 {
-                    return Err(de::Error::invalid_value(de::Unexpected::Unsigned(b as u64), &self));
+                    return Err(de::Error::invalid_value(
+                        de::Unexpected::Unsigned(b as u64),
+                        &self,
+                    ));
                 }
             } else {
                 value |= (b as u64) << i;
@@ -249,7 +262,8 @@ impl<'de> Visitor<'de> for VarLongVisitor {
 
 impl Serialize for Nullable<String> {
     fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
-        where S: ser::Serializer
+    where
+        S: ser::Serializer,
     {
         if let Some(ref v) = self.0 {
             serializer.serialize_str(v)
@@ -261,7 +275,8 @@ impl Serialize for Nullable<String> {
 
 impl Serialize for Nullable<Vec<u8>> {
     fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
-        where S: ser::Serializer
+    where
+        S: ser::Serializer,
     {
         if let Some(ref v) = self.0 {
             let mut seq = serializer.serialize_seq(Some(v.len()))?;
@@ -279,7 +294,8 @@ impl Serialize for Nullable<Vec<u8>> {
 
 impl<'de> Deserialize<'de> for Nullable<String> {
     fn deserialize<D>(deserializer: D) -> StdResult<Self, D::Error>
-        where D: de::Deserializer<'de>
+    where
+        D: de::Deserializer<'de>,
     {
         let visitor = NullableVisitor::<String>::new();
 
@@ -289,7 +305,8 @@ impl<'de> Deserialize<'de> for Nullable<String> {
 
 impl<'de> Deserialize<'de> for Nullable<Vec<u8>> {
     fn deserialize<D>(deserializer: D) -> StdResult<Self, D::Error>
-        where D: de::Deserializer<'de>
+    where
+        D: de::Deserializer<'de>,
     {
         let visitor = NullableVisitor::<Vec<u8>>::new();
 
@@ -315,7 +332,8 @@ impl<'de> de::Visitor<'de> for NullableVisitor<String> {
     }
 
     fn visit_str<E>(self, v: &str) -> StdResult<Self::Value, E>
-        where E: de::Error
+    where
+        E: de::Error,
     {
         if v.is_empty() {
             Ok(Nullable(None))
@@ -333,7 +351,8 @@ impl<'de> de::Visitor<'de> for NullableVisitor<Vec<u8>> {
     }
 
     fn visit_seq<A>(self, mut seq: A) -> StdResult<Self::Value, A::Error>
-        where A: de::SeqAccess<'de>
+    where
+        A: de::SeqAccess<'de>,
     {
         let mut v = Vec::with_capacity(seq.size_hint().unwrap_or(16));
 
@@ -380,69 +399,95 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
     type SerializeStructVariant = ser::Impossible<Self::Ok, Self::Error>;
 
     fn serialize_bool(mut self, v: bool) -> Result<()> {
+        trace!("serialize bool: {}", v);
+
         self.buf.write_u8(if v { 1 } else { 0 })?;
 
         Ok(())
     }
     fn serialize_i8(mut self, v: i8) -> Result<()> {
+        trace!("serialize i8: {}", v);
+
         self.buf.write_i8(v)?;
 
         Ok(())
     }
     fn serialize_i16(mut self, v: i16) -> Result<()> {
+        trace!("serialize i16: {}", v);
+
         self.buf.write_i16::<O>(v)?;
 
         Ok(())
     }
     fn serialize_i32(mut self, v: i32) -> Result<()> {
+        trace!("serialize i32: {}", v);
+
         self.buf.write_i32::<O>(v)?;
 
         Ok(())
     }
     fn serialize_i64(mut self, v: i64) -> Result<()> {
+        trace!("serialize i64: {}", v);
+
         self.buf.write_i64::<O>(v)?;
 
         Ok(())
     }
     fn serialize_u8(mut self, v: u8) -> Result<()> {
+        trace!("serialize u8: {}", v);
+
         self.buf.write_u8(v)?;
 
         Ok(())
     }
     fn serialize_u16(mut self, v: u16) -> Result<()> {
+        trace!("serialize u16: {}", v);
+
         self.buf.write_u16::<O>(v)?;
 
         Ok(())
     }
     fn serialize_u32(mut self, v: u32) -> Result<()> {
+        trace!("serialize u32: {}", v);
+
         self.buf.write_u32::<O>(v)?;
 
         Ok(())
     }
     fn serialize_u64(mut self, v: u64) -> Result<()> {
+        trace!("serialize u64: {}", v);
+
         self.buf.write_u64::<O>(v)?;
 
         Ok(())
     }
     fn serialize_f32(self, v: f32) -> Result<()> {
+        trace!("serialize f32: {}", v);
+
         self.buf.write_f32::<O>(v)?;
 
         Ok(())
     }
     fn serialize_f64(self, v: f64) -> Result<()> {
+        trace!("serialize f64: {}", v);
+
         self.buf.write_f64::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_char(self, _v: char) -> Result<()> {
+    fn serialize_char(self, v: char) -> Result<()> {
+        trace!("serialize char: {}", v);
+
         bail!(ErrorKind::SchemaError("unsupported type: char".to_owned()))
     }
     fn serialize_str(mut self, v: &str) -> Result<()> {
-        trace!("serialize str, len={}", v.len());
+        trace!("serialize str, len={}: {}", v.len(), v);
 
         if v.len() > i16::MAX as usize {
-            bail!(ErrorKind::SchemaError(format!("string length {} is larger than the maximum string length.",
-                                                 v.len())))
+            bail!(ErrorKind::SchemaError(format!(
+                "string length {} is larger than the maximum string length.",
+                v.len()
+            )))
         }
 
         self.buf.write_i16::<O>(v.len() as i16)?;
@@ -451,7 +496,7 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
         Ok(())
     }
     fn serialize_bytes(mut self, v: &[u8]) -> Result<()> {
-        trace!("serialize bytes, len={}", v.len());
+        trace!("serialize bytes, len={}\n{}", v.len(), hexdump!(v));
 
         self.buf.write_all(v)?;
 
@@ -461,7 +506,8 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
         Ok(())
     }
     fn serialize_some<T: ?Sized>(self, value: &T) -> Result<()>
-        where T: Serialize
+    where
+        T: Serialize,
     {
         value.serialize(self)
     }
@@ -469,37 +515,51 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
         bail!(ErrorKind::SchemaError("unsupported type: unit".to_owned()))
     }
     fn serialize_unit_struct(self, name: &'static str) -> Result<()> {
-        bail!(ErrorKind::SchemaError(format!("unsupported type: unit struct `{}`", name)))
+        bail!(ErrorKind::SchemaError(
+            format!("unsupported type: unit struct `{}`", name),
+        ))
     }
-    fn serialize_unit_variant(self,
-                              name: &'static str,
-                              _variant_index: u32,
-                              _variant: &'static str)
-                              -> Result<()> {
-        bail!(ErrorKind::SchemaError(format!("unsupported type: unit variant `{}`", name)))
+    fn serialize_unit_variant(
+        self,
+        name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+    ) -> Result<()> {
+        bail!(ErrorKind::SchemaError(
+            format!("unsupported type: unit variant `{}`", name),
+        ))
     }
     fn serialize_newtype_struct<T: ?Sized>(self, name: &'static str, _value: &T) -> Result<()>
-        where T: Serialize
+    where
+        T: Serialize,
     {
-        bail!(ErrorKind::SchemaError(format!("unsupported type: new type struct `{}`", name)))
+        bail!(ErrorKind::SchemaError(
+            format!("unsupported type: new type struct `{}`", name),
+        ))
     }
-    fn serialize_newtype_variant<T: ?Sized>(self,
-                                            name: &'static str,
-                                            _variant_index: u32,
-                                            _variant: &'static str,
-                                            _value: &T)
-                                            -> Result<()>
-        where T: Serialize
+    fn serialize_newtype_variant<T: ?Sized>(
+        self,
+        name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _value: &T,
+    ) -> Result<()>
+    where
+        T: Serialize,
     {
-        bail!(ErrorKind::SchemaError(format!("unsupported type: new type variant `{}`", name)))
+        bail!(ErrorKind::SchemaError(
+            format!("unsupported type: new type variant `{}`", name),
+        ))
     }
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
         trace!("serialize seq with {} elements", len.unwrap_or_default());
 
         if let Some(len) = len {
             if len > i32::MAX as usize {
-                bail!(ErrorKind::SchemaError(format!("bytes length {} is larger than the maximum bytes length.",
-                                                     len)));
+                bail!(ErrorKind::SchemaError(format!(
+                    "bytes length {} is larger than the maximum bytes length.",
+                    len
+                )));
             }
 
             self.buf.write_i32::<O>(len as i32)?;
@@ -514,26 +574,34 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
 
         bail!(ErrorKind::SchemaError("unsupported tuple".to_owned()))
     }
-    fn serialize_tuple_struct(self,
-                              name: &'static str,
-                              len: usize)
-                              -> Result<Self::SerializeTupleStruct> {
+    fn serialize_tuple_struct(
+        self,
+        name: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleStruct> {
         trace!("serialize tuple struct `{}` with {} elements", name, len);
 
-        bail!(ErrorKind::SchemaError(format!("unsupported tuple struct `{}`", name)))
+        bail!(ErrorKind::SchemaError(
+            format!("unsupported tuple struct `{}`", name),
+        ))
     }
-    fn serialize_tuple_variant(self,
-                               name: &'static str,
-                               _variant_index: u32,
-                               variant: &'static str,
-                               len: usize)
-                               -> Result<Self::SerializeTupleVariant> {
-        trace!("serialize tuple variant `{}::{}` with {} elements",
-               name,
-               variant,
-               len);
+    fn serialize_tuple_variant(
+        self,
+        name: &'static str,
+        _variant_index: u32,
+        variant: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleVariant> {
+        trace!(
+            "serialize tuple variant `{}::{}` with {} elements",
+            name,
+            variant,
+            len
+        );
 
-        bail!(ErrorKind::SchemaError(format!("unsupported tuple variant: {}", name)))
+        bail!(ErrorKind::SchemaError(
+            format!("unsupported tuple variant: {}", name),
+        ))
     }
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
         trace!("serialize map with {} items", len.unwrap_or_default());
@@ -545,18 +613,23 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
 
         Ok(self)
     }
-    fn serialize_struct_variant(self,
-                                name: &'static str,
-                                _variant_index: u32,
-                                variant: &'static str,
-                                len: usize)
-                                -> Result<Self::SerializeStructVariant> {
-        trace!("serialize struct variant `{}::{}` with {} elements",
-               name,
-               variant,
-               len);
+    fn serialize_struct_variant(
+        self,
+        name: &'static str,
+        _variant_index: u32,
+        variant: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeStructVariant> {
+        trace!(
+            "serialize struct variant `{}::{}` with {} elements",
+            name,
+            variant,
+            len
+        );
 
-        bail!(ErrorKind::SchemaError(format!("unsupported struct variant: {}", name)))
+        bail!(ErrorKind::SchemaError(
+            format!("unsupported struct variant: {}", name),
+        ))
     }
 }
 
@@ -565,7 +638,8 @@ impl<'a, O: ByteOrder> ser::SerializeSeq for &'a mut SchemaSerializer<O> {
     type Error = Error;
 
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<()>
-        where T: Serialize
+    where
+        T: Serialize,
     {
         value.serialize(&mut **self)
     }
@@ -579,7 +653,8 @@ impl<'a, O: ByteOrder> ser::SerializeStruct for &'a mut SchemaSerializer<O> {
     type Error = Error;
 
     fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> Result<()>
-        where T: Serialize
+    where
+        T: Serialize,
     {
         trace!("serialize field `{}`", key);
 
@@ -606,18 +681,21 @@ impl<O, R> SchemaDeserializer<O, R> {
 }
 
 impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
-    where O: ByteOrder,
-          R: Read + Clone
+where
+    O: ByteOrder,
+    R: Read + Clone,
 {
     type Error = Error;
 
     fn deserialize_any<V>(self, _visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         unimplemented!()
     }
     fn deserialize_bool<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_u8()? != 0;
 
@@ -626,7 +704,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_bool(v)
     }
     fn deserialize_i8<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_i8()?;
 
@@ -635,7 +714,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_i8(v)
     }
     fn deserialize_i16<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_i16::<O>()?;
 
@@ -644,7 +724,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_i16(v)
     }
     fn deserialize_i32<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_i32::<O>()?;
 
@@ -653,7 +734,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_i32(v)
     }
     fn deserialize_i64<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_i64::<O>()?;
 
@@ -662,7 +744,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_i64(v)
     }
     fn deserialize_u8<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_u8()?;
 
@@ -671,7 +754,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_u8(v)
     }
     fn deserialize_u16<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_u16::<O>()?;
 
@@ -680,7 +764,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_u16(v)
     }
     fn deserialize_u32<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_u32::<O>()?;
 
@@ -689,7 +774,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_u32(v)
     }
     fn deserialize_u64<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_u64::<O>()?;
 
@@ -698,7 +784,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_u64(v)
     }
     fn deserialize_f32<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_f32::<O>()?;
 
@@ -707,7 +794,8 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_f32(v)
     }
     fn deserialize_f64<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let v = self.input.read_f64::<O>()?;
 
@@ -716,14 +804,16 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_f64(v)
     }
     fn deserialize_char<V>(self, _visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize char");
 
         unimplemented!()
     }
     fn deserialize_str<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let len = self.input.read_i16::<O>()?;
 
@@ -744,14 +834,16 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         }
     }
     fn deserialize_string<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize string");
 
         self.deserialize_str(visitor)
     }
     fn deserialize_bytes<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let len = self.input.read_i32::<O>()?;
 
@@ -768,48 +860,56 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         }
     }
     fn deserialize_byte_buf<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize bytes buf");
 
         self.deserialize_bytes(visitor)
     }
     fn deserialize_option<V>(self, _visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize option");
 
         unimplemented!()
     }
     fn deserialize_unit<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize unit");
 
         visitor.visit_unit()
     }
-    fn deserialize_unit_struct<V>(self,
-                                  name: &'static str,
-                                  _visitor: V)
-                                  -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    fn deserialize_unit_struct<V>(
+        self,
+        name: &'static str,
+        _visitor: V,
+    ) -> StdResult<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize unit struct `{}`", name);
 
         unimplemented!()
     }
-    fn deserialize_newtype_struct<V>(self,
-                                     name: &'static str,
-                                     visitor: V)
-                                     -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    fn deserialize_newtype_struct<V>(
+        self,
+        name: &'static str,
+        visitor: V,
+    ) -> StdResult<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize new type struct `{}`", name);
 
         visitor.visit_seq(SeqVisitor::<O, R>::new(self, isize::MAX))
     }
     fn deserialize_seq<V>(self, visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let len = self.input.read_i32::<O>()?;
 
@@ -818,63 +918,75 @@ impl<'de, 'a, O, R> de::Deserializer<'de> for &'a mut SchemaDeserializer<O, R>
         visitor.visit_seq(SeqVisitor::<O, R>::new(self, len as isize))
     }
     fn deserialize_tuple<V>(self, len: usize, _visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize tuple with {} elements", len);
 
         unimplemented!()
     }
-    fn deserialize_tuple_struct<V>(self,
-                                   name: &'static str,
-                                   len: usize,
-                                   _visitor: V)
-                                   -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    fn deserialize_tuple_struct<V>(
+        self,
+        name: &'static str,
+        len: usize,
+        _visitor: V,
+    ) -> StdResult<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize tuple struct `{}` with {} elements", name, len);
 
         unimplemented!()
     }
     fn deserialize_map<V>(self, _visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize map");
 
         unimplemented!()
     }
-    fn deserialize_struct<V>(self,
-                             name: &'static str,
-                             fields: &'static [&'static str],
-                             visitor: V)
-                             -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    fn deserialize_struct<V>(
+        self,
+        name: &'static str,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> StdResult<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize struct `{}` with {} fields", name, fields.len());
 
         visitor.visit_seq(StructVisitor::<O, R>::new(self, name, fields))
     }
-    fn deserialize_enum<V>(self,
-                           name: &'static str,
-                           variants: &'static [&'static str],
-                           _visitor: V)
-                           -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    fn deserialize_enum<V>(
+        self,
+        name: &'static str,
+        variants: &'static [&'static str],
+        _visitor: V,
+    ) -> StdResult<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
     {
-        trace!("deserialize enum `{}` with {} variants",
-               name,
-               variants.len());
+        trace!(
+            "deserialize enum `{}` with {} variants",
+            name,
+            variants.len()
+        );
 
         unimplemented!()
     }
     fn deserialize_identifier<V>(self, _visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize identitfier");
 
         unimplemented!()
     }
     fn deserialize_ignored_any<V>(self, _visitor: V) -> StdResult<V::Value, Self::Error>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         trace!("deserialize ignored any");
 
@@ -899,13 +1011,15 @@ impl<'a, O: 'a, R: 'a> SeqVisitor<'a, O, R> {
 }
 
 impl<'a, 'de, O, R> de::SeqAccess<'de> for SeqVisitor<'a, O, R>
-    where O: 'a + ByteOrder,
-          R: 'a + Read + Clone
+where
+    O: 'a + ByteOrder,
+    R: 'a + Read + Clone,
 {
     type Error = Error;
 
     fn next_element_seed<T>(&mut self, seed: T) -> StdResult<Option<T::Value>, Self::Error>
-        where T: de::DeserializeSeed<'de>
+    where
+        T: de::DeserializeSeed<'de>,
     {
         if self.pos >= self.len {
             Ok(None)
@@ -935,10 +1049,11 @@ struct StructVisitor<'a, O: 'a, R: 'a> {
 }
 
 impl<'a, O: 'a, R: 'a> StructVisitor<'a, O, R> {
-    pub fn new(deserializer: &'a mut SchemaDeserializer<O, R>,
-               name: &'static str,
-               fields: &'static [&'static str])
-               -> Self {
+    pub fn new(
+        deserializer: &'a mut SchemaDeserializer<O, R>,
+        name: &'static str,
+        fields: &'static [&'static str],
+    ) -> Self {
         StructVisitor {
             deserializer: deserializer,
             name: name,
@@ -949,20 +1064,24 @@ impl<'a, O: 'a, R: 'a> StructVisitor<'a, O, R> {
 }
 
 impl<'a, 'de, O, R> de::SeqAccess<'de> for StructVisitor<'a, O, R>
-    where O: 'a + ByteOrder,
-          R: 'a + Read + Clone
+where
+    O: 'a + ByteOrder,
+    R: 'a + Read + Clone,
 {
     type Error = Error;
 
     fn next_element_seed<T>(&mut self, seed: T) -> StdResult<Option<T::Value>, Self::Error>
-        where T: de::DeserializeSeed<'de>
+    where
+        T: de::DeserializeSeed<'de>,
     {
         if self.pos >= self.fields.len() {
             Ok(None)
         } else {
-            trace!("deserialize `{}::{}` field",
-                   self.name,
-                   self.fields[self.pos]);
+            trace!(
+                "deserialize `{}::{}` field",
+                self.name,
+                self.fields[self.pos]
+            );
 
             self.pos += 1;
             seed.deserialize(&mut *self.deserializer).map(Some)
