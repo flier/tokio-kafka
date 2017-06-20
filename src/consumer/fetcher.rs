@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::iter::IntoIterator;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::time::Duration;
-use std::iter::IntoIterator;
 
 use futures::{Async, Future, Poll};
 
@@ -57,19 +57,15 @@ where
                 .borrow_mut()
                 .assigned_state_mut(&tp)
                 .and_then(|state| if state.is_offset_reset_needed() {
-                    Some(tp)
-                } else if state.has_committed() {
-                    state.need_offset_reset(default_reset_strategy);
+                    debug!("resetting offset to {:?}", state.reset_strategy);
 
                     Some(tp)
-                } else {
-                    let committed = state.committed.as_ref().map_or(
-                        0,
-                        |committed| committed.offset,
-                    );
-
+                } else if let Some(committed) = state.committed.as_ref().map(|committed| {
+                    committed.offset
+                })
+                {
                     debug!(
-                        "Resetting offset for partition {} to the committed offset {}",
+                        "resetting offset for partition {} to the committed offset {}",
                         tp,
                         committed
                     );
@@ -77,6 +73,12 @@ where
                     state.seek(committed);
 
                     None
+                } else {
+                    debug!("resetting offset to {:?}", default_reset_strategy);
+
+                    state.need_offset_reset(default_reset_strategy);
+
+                    Some(tp)
                 })
         }))
     }
@@ -147,7 +149,8 @@ where
     {
         let subscriptions = self.subscriptions.clone();
 
-        let fetch_partitions = partitions.into_iter()
+        let fetch_partitions = partitions
+            .into_iter()
             .flat_map(|tp| {
                 subscriptions.borrow().assigned_state(&tp).map(|state| {
                     let fetch_data = PartitionData {

@@ -9,7 +9,7 @@ use futures::{Async, Future, Poll, Stream};
 
 use client::{FetchRecords, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup,
-               KafkaConsumer, LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions};
+               KafkaConsumer, LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions, UpdatePositions};
 use errors::{Error, ErrorKind, Result};
 use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
 use protocol::{FetchOffset, Offset, Timestamp};
@@ -123,6 +123,7 @@ where
 
 enum State<'a, K, V> {
     Joining(JoinGroup),
+    Updating(UpdatePositions),
     Fetching(FetchRecords),
     Fetched(Box<Iterator<Item = ConsumerRecord<'a, K, V>>>),
 }
@@ -147,13 +148,34 @@ where
                         Ok(Async::Ready(_)) => {
                             let partitions = self.subscriptions.borrow().assigned_partitions();
 
-                            next_state = State::Fetching(self.fetcher.fetch_records(partitions))
+                            trace!("updating postion of partitions: {:?}", partitions);
+
+                            next_state = State::Updating(self.fetcher.update_positions(partitions))
                         }
                         Ok(Async::NotReady) => {
                             return Ok(Async::NotReady);
                         }
                         Err(err) => {
                             warn!("fail to join the group, {}", err);
+
+                            return Err(err);
+                        }
+                    }
+                }
+                State::Updating(ref mut update_positions) => {
+                    match update_positions.poll() {
+                        Ok(Async::Ready(_)) => {
+                            let partitions = self.subscriptions.borrow().assigned_partitions();
+
+                            trace!("fetching records of partitions: {:?}", partitions);
+
+                            next_state = State::Fetching(self.fetcher.fetch_records(partitions))
+                        }
+                        Ok(Async::NotReady) => {
+                            return Ok(Async::NotReady);
+                        }
+                        Err(err) => {
+                            warn!("fail to update positions, {}", err);
 
                             return Err(err);
                         }

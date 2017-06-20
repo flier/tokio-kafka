@@ -980,6 +980,8 @@ where
     }
 
     fn list_offsets(&self, topics: TopicsByBroker<'a, FetchOffset>) -> ListOffsets {
+        debug!("list offsets of topics: {:?}", topics);
+
         let requests = {
             let mut requests = Vec::new();
 
