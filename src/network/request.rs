@@ -104,7 +104,7 @@ impl<'a> KafkaRequest<'a> {
     ) -> KafkaRequest<'a> {
         let request = FetchRequest {
             header: RequestHeader {
-                api_key: ApiKeys::ListOffsets as ApiKey,
+                api_key: ApiKeys::Fetch as ApiKey,
                 api_version: api_version,
                 correlation_id: correlation_id,
                 client_id: client_id,
@@ -254,7 +254,7 @@ impl<'a> KafkaRequest<'a> {
             .collect();
         let request = OffsetFetchRequest {
             header: RequestHeader {
-                api_key: ApiKeys::OffsetCommit as ApiKey,
+                api_key: ApiKeys::OffsetFetch as ApiKey,
                 api_version: api_version,
                 correlation_id: correlation_id,
                 client_id: client_id,
@@ -320,7 +320,7 @@ impl<'a> KafkaRequest<'a> {
     ) -> KafkaRequest<'a> {
         let request = JoinGroupRequest {
             header: RequestHeader {
-                api_key: ApiKeys::LeaveGroup as ApiKey,
+                api_key: ApiKeys::JoinGroup as ApiKey,
                 api_version: api_version,
                 correlation_id: correlation_id,
                 client_id: client_id,
