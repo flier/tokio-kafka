@@ -13,18 +13,19 @@ extern crate tokio_file_unix;
 extern crate tokio_kafka;
 
 use std::env;
-use std::process;
-use std::path::Path;
 use std::net::ToSocketAddrs;
+use std::path::Path;
+use std::process;
 
 use getopts::Options;
 
 use futures::{Future, Stream, future};
 use tokio_core::reactor::Core;
 
-use tokio_kafka::{BytesDeserializer, Consumer, ConsumerBuilder};
+use tokio_kafka::{Consumer, ConsumerBuilder, StringDeserializer};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
+const DEFAULT_CLIENT_ID: &str = "consumer-1";
 const DEFAULT_TOPIC: &str = "my-topic";
 
 error_chain!{
@@ -40,8 +41,9 @@ error_chain!{
 #[derive(Clone, Debug)]
 struct Config {
     brokers: Vec<String>,
+    client_id: String,
     topics: Vec<String>,
-    group: String,
+    group_id: String,
     no_commit: bool,
 }
 
@@ -52,12 +54,15 @@ impl Config {
         let mut opts = Options::new();
 
         opts.optflag("h", "help", "print this help menu");
-        opts.optopt("b",
-                    "brokers",
-                    "Bootstrap broker(s) (host[:port], comma separated)",
-                    "HOSTS");
+        opts.optopt(
+            "b",
+            "brokers",
+            "Bootstrap broker(s) (host[:port], comma separated)",
+            "HOSTS",
+        );
+        opts.optopt("", "client-id", "Specify the client id", "ID");
         opts.optopt("t", "topics", "Specify topics (comma separated)", "NAMES");
-        opts.optopt("g", "group", "Specify the consumer group", "NAME");
+        opts.optopt("g", "group-id", "Specify the consumer group", "NAME");
         opts.optflag("", "no-commit", "Do not commit group offsets");
 
         let m = opts.parse(&args[1..])?;
@@ -70,19 +75,28 @@ impl Config {
             process::exit(0);
         }
 
-        let brokers = m.opt_str("b")
-            .map_or_else(|| vec![DEFAULT_BROKER.to_owned()],
-                         |s| s.split(',').map(|s| s.trim().to_owned()).collect());
-        let topics = m.opt_str("t")
-            .map_or_else(|| vec![DEFAULT_TOPIC.to_owned()],
-                         |s| s.split(',').map(|s| s.trim().to_owned()).collect());
+        let brokers = m.opt_str("b").map_or_else(
+            || vec![DEFAULT_BROKER.to_owned()],
+            |s| {
+                s.split(',').map(|s| s.trim().to_owned()).collect()
+            },
+        );
+        let topics = m.opt_str("t").map_or_else(
+            || vec![DEFAULT_TOPIC.to_owned()],
+            |s| {
+                s.split(',').map(|s| s.trim().to_owned()).collect()
+            },
+        );
 
         Ok(Config {
-               brokers: brokers,
-               topics: topics,
-               group: m.opt_str("g").unwrap_or_default(),
-               no_commit: m.opt_present("no-commit"),
-           })
+            brokers: brokers,
+            client_id: m.opt_str("client-id").unwrap_or(
+                DEFAULT_CLIENT_ID.to_owned(),
+            ),
+            topics: topics,
+            group_id: m.opt_str("g").unwrap_or_default(),
+            no_commit: m.opt_present("no-commit"),
+        })
     }
 }
 
@@ -99,16 +113,17 @@ fn main() {
 fn run(config: Config) -> Result<()> {
     let mut core = Core::new()?;
 
-    let hosts = config
-        .brokers
-        .iter()
-        .flat_map(|s| s.to_socket_addrs().unwrap());
+    let hosts = config.brokers.iter().flat_map(
+        |s| s.to_socket_addrs().unwrap(),
+    );
 
     let handle = core.handle();
 
     let builder = ConsumerBuilder::from_hosts(hosts, handle)
-        .with_key_deserializer(BytesDeserializer::<Vec<u8>>::default())
-        .with_value_deserializer(BytesDeserializer::<Vec<u8>>::default());
+        .with_client_id(config.client_id)
+        .with_group_id(config.group_id)
+        .with_key_deserializer(StringDeserializer::default())
+        .with_value_deserializer(StringDeserializer::default());
 
     let mut consumer = builder.build()?;
 
@@ -116,13 +131,15 @@ fn run(config: Config) -> Result<()> {
         .subscribe(&config.topics)
         .and_then(|topics| {
             topics.for_each(|record| {
-                                debug!("consume record: key={:?}, value={:?}, ts={:?}",
-                                       record.key,
-                                       record.value,
-                                       record.timestamp);
+                debug!(
+                    "consume record: key={:?}, value={:?}, ts={:?}",
+                    record.key,
+                    record.value,
+                    record.timestamp
+                );
 
-                                future::ok(())
-                            })
+                future::ok(())
+            })
         })
         .map(|_| ())
         .map_err(Error::from);

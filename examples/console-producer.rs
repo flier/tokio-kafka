@@ -35,6 +35,7 @@ use tokio_kafka::{BytesSerializer, Compression, DEFAULT_ACK_TIMEOUT_MILLIS, DEFA
                   RequiredAcks, TopicRecord};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
+const DEFAULT_CLIENT_ID: &str = "producer-1";
 const DEFAULT_TOPIC: &str = "my-topic";
 
 error_chain!{
@@ -53,6 +54,7 @@ unsafe impl Sync for Error {}
 #[derive(Clone, Debug)]
 struct Config {
     brokers: Vec<String>,
+    client_id: String,
     api_version_request: bool,
     broker_version: Option<KafkaVersion>,
     topic_name: String,
@@ -78,6 +80,7 @@ impl Config {
             "Bootstrap broker(s) (host[:port], comma separated)",
             "HOSTS",
         );
+        opts.optopt("", "client-id", "Specify the client id", "ID");
         opts.optopt(
             "",
             "broker-version",
@@ -141,6 +144,9 @@ impl Config {
 
         Ok(Config {
             brokers: brokers,
+            client_id: m.opt_str("client-id").unwrap_or(
+                DEFAULT_CLIENT_ID.to_owned(),
+            ),
             api_version_request: api_version_request,
             broker_version: broker_version,
             topic_name: m.opt_str("topic").unwrap_or_else(
@@ -256,6 +262,7 @@ where
     let handle = core.handle();
 
     let mut builder = ProducerBuilder::from_hosts(hosts, handle.clone())
+        .with_client_id(config.client_id)
         .with_max_connection_idle(config.idle_timeout)
         .with_required_acks(config.required_acks)
         .with_compression(config.compression)

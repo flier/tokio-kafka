@@ -1,14 +1,14 @@
-use std::time::Duration;
-use std::ops::{Deref, DerefMut};
 use std::net::SocketAddr;
+use std::ops::{Deref, DerefMut};
+use std::time::Duration;
 
 use tokio_core::reactor::Handle;
 
+use client::{KafkaClient, KafkaVersion};
+use consumer::{AssignmentStrategy, ConsumerConfig, KafkaConsumer};
 use errors::{ErrorKind, Result};
 use protocol::ToMilliseconds;
 use serialization::{Deserializer, NoopDeserializer};
-use client::{KafkaClient, KafkaVersion};
-use consumer::{AssignmentStrategy, ConsumerConfig, KafkaConsumer};
 
 /// A `KafkaConsumer` builder easing the process of setting up various configuration settings.
 pub struct ConsumerBuilder<'a, K, V> {
@@ -65,7 +65,8 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
 
     /// Construct a `ProducerBuilder` from brokers
     pub fn from_hosts<I>(hosts: I, handle: Handle) -> Self
-        where I: Iterator<Item = SocketAddr>
+    where
+        I: Iterator<Item = SocketAddr>,
     {
         Self::from_config(ConsumerConfig::from_hosts(hosts), handle)
     }
@@ -98,7 +99,8 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the request broker's supported API versions to adjust functionality to available protocol features.
+    /// Sets the request broker's supported API versions to adjust functionality to available
+    /// protocol features.
     pub fn with_api_version_request(mut self) -> Self {
         self.config.api_version_request = true;
         self
@@ -123,8 +125,8 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
     }
 
     /// Sets the unique string that identifies the consumer group this consumer belongs to.
-    pub fn with_group_id(mut self, group_id: &str) -> Self {
-        self.config.group_id = group_id.to_owned();
+    pub fn with_group_id(mut self, group_id: String) -> Self {
+        self.config.group_id = group_id;
         self
     }
 
@@ -134,13 +136,15 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the frequency in milliseconds that the consumer offsets are auto-committed to Kafka.
+    /// Sets the frequency in milliseconds that the consumer offsets are auto-committed to
+    /// Kafka.
     pub fn with_auto_commit_interval(mut self, auto_commit_interval: Duration) -> Self {
         self.config.auto_commit_interval = auto_commit_interval.as_millis();
         self
     }
 
-    /// Sets the expected time between heartbeats to the consumer coordinator when using Kafka's group management facilities.
+    /// Sets the expected time between heartbeats to the consumer coordinator when using
+    /// Kafka's group management facilities.
     pub fn with_heartbeat_interval(mut self, heartbeat_interval: Duration) -> Self {
         self.config.heartbeat_interval = heartbeat_interval.as_millis();
         self
@@ -152,21 +156,25 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the partition assignment strategy to use when elected group leader assigns partitions to group members.
-    pub fn with_assignment_strategy(mut self,
-                                    assignment_strategy: Vec<AssignmentStrategy>)
-                                    -> Self {
+    /// Sets the partition assignment strategy to use when elected group leader assigns
+    /// partitions to group members.
+    pub fn with_assignment_strategy(
+        mut self,
+        assignment_strategy: Vec<AssignmentStrategy>,
+    ) -> Self {
         self.config.assignment_strategy = assignment_strategy;
         self
     }
 
-    /// Sets timeout used to detect consumer failures when using Kafka's group management facility.
+    /// Sets timeout used to detect consumer failures when using Kafka's group management
+    /// facility.
     pub fn with_session_timeout(mut self, session_timeout: Duration) -> Self {
         self.config.session_timeout = session_timeout.as_millis();
         self
     }
 
-    /// Sets the maximum delay between invocations of poll() when using consumer group management.
+    /// Sets the maximum delay between invocations of poll() when using consumer group
+    /// management.
     pub fn with_rebalance_timeout(mut self, rebalance_timeout: Duration) -> Self {
         self.config.rebalance_timeout = rebalance_timeout.as_millis();
         self
@@ -186,7 +194,8 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
 }
 
 impl<'a, V> ConsumerBuilder<'a, NoopDeserializer<()>, V>
-    where V: Deserializer
+where
+    V: Deserializer,
 {
     /// Sets the key serializer to empty
     pub fn without_key_deserializer(mut self) -> Self {
@@ -196,7 +205,8 @@ impl<'a, V> ConsumerBuilder<'a, NoopDeserializer<()>, V>
 }
 
 impl<'a, K> ConsumerBuilder<'a, K, NoopDeserializer<()>>
-    where K: Deserializer
+where
+    K: Deserializer,
 {
     /// Sets the value serializer to empty
     pub fn without_value_deserializer(mut self) -> Self {
@@ -206,24 +216,31 @@ impl<'a, K> ConsumerBuilder<'a, K, NoopDeserializer<()>>
 }
 
 impl<'a, K, V> ConsumerBuilder<'a, K, V>
-    where K: Deserializer,
-          V: Deserializer,
-          Self: 'static
+where
+    K: Deserializer,
+    V: Deserializer,
+    Self: 'static,
 {
     /// Construct a `KafkaConsumer`
     pub fn build(self) -> Result<KafkaConsumer<'a, K, V>> {
         let client = if let Some(client) = self.client {
             client
         } else {
-            KafkaClient::from_config(self.config.client.clone(),
-                                     self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?)
+            KafkaClient::from_config(
+                self.config.client.clone(),
+                self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?,
+            )
         };
 
-        Ok(KafkaConsumer::new(client,
-                              self.config,
-                              self.key_deserializer
-                                  .ok_or(ErrorKind::ConfigError("missed key serializer"))?,
-                              self.value_deserializer
-                                  .ok_or(ErrorKind::ConfigError("missed value serializer"))?))
+        Ok(KafkaConsumer::new(
+            client,
+            self.config,
+            self.key_deserializer.ok_or(ErrorKind::ConfigError(
+                "missed key serializer",
+            ))?,
+            self.value_deserializer.ok_or(ErrorKind::ConfigError(
+                "missed value serializer",
+            ))?,
+        ))
     }
 }
