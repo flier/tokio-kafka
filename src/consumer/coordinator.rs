@@ -23,6 +23,9 @@ pub trait Coordinator<'a> {
     /// Join the consumer group.
     fn join_group(&self) -> JoinGroup;
 
+    /// Rejoin the consumer group if need.
+    fn rejoin_group(&self) -> JoinGroup;
+
     /// Leave the current consumer group.
     fn leave_group(&self) -> LeaveGroup;
 
@@ -37,7 +40,7 @@ pub trait Coordinator<'a> {
         -> FetchCommittedOffsets;
 }
 
-pub type JoinGroup = StaticBoxFuture;
+pub type JoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
 
 pub type LeaveGroup = StaticBoxFuture;
 
@@ -394,11 +397,40 @@ where
     }
 }
 
-impl<'a> ConsumerCoordinator<'a>
+pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
+
+impl<'a> Coordinator<'a> for ConsumerCoordinator<'a>
 where
     Self: 'static,
 {
-    fn rejoin_group(&self) -> RejoinGroup {
+    fn join_group(&self) -> JoinGroup {
+        let group_id = self.inner.group_id.clone();
+
+        debug!("coordinator is joining the `{}` group", group_id);
+
+        let state = self.inner.state.clone();
+
+        self.rejoin_group()
+            .map(|(coordinator, generation)| {
+                info!(
+                    "member `{}` joined the `{}` group ",
+                    generation.member_id,
+                    generation.group_id,
+                );
+
+                (coordinator, generation)
+            })
+            .map_err(move |err| {
+                warn!("fail to join group `{}`, {}", group_id, err);
+
+                state.borrow_mut().leave();
+
+                err
+            })
+            .static_boxed()
+    }
+
+    fn rejoin_group(&self) -> JoinGroup {
         let inner = self.inner.clone();
         let client = inner.client.clone();
         let group_id = inner.group_id.clone();
@@ -498,40 +530,6 @@ where
                             .static_boxed()
                     },
                 )
-            })
-            .static_boxed()
-    }
-}
-
-pub type RejoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
-
-pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
-
-impl<'a> Coordinator<'a> for ConsumerCoordinator<'a>
-where
-    Self: 'static,
-{
-    fn join_group(&self) -> JoinGroup {
-        let group_id = self.inner.group_id.clone();
-
-        debug!("coordinator is joining the `{}` group", group_id);
-
-        let state = self.inner.state.clone();
-
-        self.rejoin_group()
-            .map(|(_, generation)| {
-                info!(
-                    "member `{}` joined the `{}` group ",
-                    generation.member_id,
-                    generation.group_id,
-                );
-            })
-            .map_err(move |err| {
-                warn!("fail to join group `{}`, {}", group_id, err);
-
-                state.borrow_mut().leave();
-
-                err
             })
             .static_boxed()
     }

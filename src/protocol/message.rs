@@ -9,8 +9,8 @@ use time;
 
 use crc::crc32;
 
-use errors::{ErrorKind, Result};
 use compression::Compression;
+use errors::{ErrorKind, Result};
 use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, OFFSET_SIZE, Offset, ParseTag, Record,
                TIMESTAMP_SIZE, Timestamp, WriteExt, parse_opt_bytes};
 
@@ -29,7 +29,8 @@ const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
 /// One structure common to both the produce and fetch requests is the message set format.
 /// A message in kafka is a key-value pair with a small amount of associated metadata.
 /// A message set is just a sequence of messages with offset and size information.
-///  This format happens to be used both for the on-disk storage on the broker and the on-the-wire format.
+/// This format happens to be used both for the on-disk storage on the broker and the on-the-wire
+/// format.
 ///
 /// `MessageSet` => [Offset `MessageSize` Message]
 ///   Offset => int64
@@ -49,10 +50,10 @@ impl Deref for MessageSet {
 
 impl Record for MessageSet {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.messages
-            .iter()
-            .fold(ARRAY_LEN_SIZE, // The size, in bytes, of the message set that follows.
-                  |size, message| size + message.size(api_version))
+        self.messages.iter().fold(
+            ARRAY_LEN_SIZE, // The size, in bytes, of the message set that follows.
+            |size, message| size + message.size(api_version),
+        )
     }
 }
 
@@ -86,7 +87,7 @@ pub struct Message {
 impl Record for Message {
     fn size(&self, api_version: ApiVersion) -> usize {
         let record_overhead_size = RECORD_HEADER_SIZE +
-                                   if api_version > 0 { TIMESTAMP_SIZE } else { 0 };
+            if api_version > 0 { TIMESTAMP_SIZE } else { 0 };
         let key_size = BYTES_LEN_SIZE + self.key.as_ref().map_or(0, |b| b.len());
         let value_size = BYTES_LEN_SIZE + self.value.as_ref().map_or(0, |b| b.len());
 
@@ -149,11 +150,12 @@ impl MessageSetEncoder {
         Ok(())
     }
 
-    fn encode_message<T: ByteOrder>(&self,
-                                    message: &Message,
-                                    offset: Offset,
-                                    buf: &mut BytesMut)
-                                    -> Result<()> {
+    fn encode_message<T: ByteOrder>(
+        &self,
+        message: &Message,
+        offset: Offset,
+        buf: &mut BytesMut,
+    ) -> Result<()> {
         buf.put_i64::<T>(offset);
         let size_off = buf.len();
         buf.put_i32::<T>(0);
@@ -161,20 +163,23 @@ impl MessageSetEncoder {
         buf.put_i32::<T>(0);
         let data_off = buf.len();
         buf.put_i8(self.api_version as i8);
-        buf.put_i8((self.compression.unwrap_or(message.compression) as i8 &
-                    COMPRESSION_CODEC_MASK) |
-                   if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
-                       TIMESTAMP_TYPE_MASK
-                   } else {
-                       0
-                   });
+        buf.put_i8(
+            (self.compression.unwrap_or(message.compression) as i8 & COMPRESSION_CODEC_MASK) |
+                if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
+                    TIMESTAMP_TYPE_MASK
+                } else {
+                    0
+                },
+        );
 
         if self.api_version > 0 {
-            buf.put_i64::<T>(message
-                                 .timestamp
-                                 .as_ref()
-                                 .map(|timestamp| timestamp.value())
-                                 .unwrap_or_default());
+            buf.put_i64::<T>(
+                message
+                    .timestamp
+                    .as_ref()
+                    .map(|timestamp| timestamp.value())
+                    .unwrap_or_default(),
+            );
         }
 
         buf.put_bytes::<T, _>(message.key.as_ref())?;
@@ -251,11 +256,12 @@ pub struct MessageSetBuilder {
 }
 
 impl MessageSetBuilder {
-    pub fn new(api_version: ApiVersion,
-               compression: Compression,
-               write_limit: usize,
-               base_offset: Offset)
-               -> Self {
+    pub fn new(
+        api_version: ApiVersion,
+        compression: Compression,
+        write_limit: usize,
+        base_offset: Offset,
+    ) -> Self {
         MessageSetBuilder {
             api_version: api_version,
             compression: compression,
@@ -276,35 +282,38 @@ impl MessageSetBuilder {
         !self.message_set.is_empty() && self.write_limit <= self.estimated_bytes()
     }
 
-    pub fn has_room_for(&self,
-                        timestamp: Timestamp,
-                        key: Option<&Bytes>,
-                        value: Option<&Bytes>)
-                        -> bool {
+    pub fn has_room_for(
+        &self,
+        timestamp: Timestamp,
+        key: Option<&Bytes>,
+        value: Option<&Bytes>,
+    ) -> bool {
         self.message_set.is_empty() ||
-        self.write_limit >= self.estimated_bytes() + self.record_size(timestamp, key, value)
+            self.write_limit >= self.estimated_bytes() + self.record_size(timestamp, key, value)
     }
 
-    /// Estimate the written bytes to the underlying byte buffer based on uncompressed written bytes
+    /// Estimate the written bytes to the underlying byte buffer based on uncompressed written
+    /// bytes
     fn estimated_bytes(&self) -> usize {
         (self.written_uncompressed as f32 *
-         match self.compression {
-             Compression::None => 1.0,
-             Compression::GZIP | Compression::Snappy | Compression::LZ4 => 0.5,
-         } * COMPRESSION_RATE_ESTIMATION_FACTOR) as usize
+             match self.compression {
+                 Compression::None => 1.0,
+                 Compression::GZIP | Compression::Snappy | Compression::LZ4 => 0.5,
+             } * COMPRESSION_RATE_ESTIMATION_FACTOR) as usize
     }
 
-    fn record_size(&self,
-                   _timestamp: Timestamp,
-                   key: Option<&Bytes>,
-                   value: Option<&Bytes>)
-                   -> usize {
+    fn record_size(
+        &self,
+        _timestamp: Timestamp,
+        key: Option<&Bytes>,
+        value: Option<&Bytes>,
+    ) -> usize {
         let record_overhead_size = RECORD_HEADER_SIZE +
-                                   if self.api_version > 0 {
-                                       TIMESTAMP_SIZE
-                                   } else {
-                                       0
-                                   };
+            if self.api_version > 0 {
+                TIMESTAMP_SIZE
+            } else {
+                0
+            };
         let key_size = BYTES_LEN_SIZE + key.map_or(0, |b| b.len());
         let value_size = BYTES_LEN_SIZE + value.map_or(0, |b| b.len());
 
@@ -313,20 +322,21 @@ impl MessageSetBuilder {
 
     #[cfg(any(feature = "gzip", feature = "snappy", feature = "lz4"))]
     fn wrap<T: ByteOrder>(&self, compression: Compression) -> Result<MessageSet> {
-        let mut buf = BytesMut::with_capacity((self.message_set.size(self.api_version) * 6 / 5)
-                                                  .next_power_of_two());
+        let mut buf = BytesMut::with_capacity(
+            (self.message_set.size(self.api_version) * 6 / 5).next_power_of_two(),
+        );
         let encoder = MessageSetEncoder::new(self.api_version, Some(Compression::None));
         encoder.encode::<T>(&self.message_set, &mut buf)?;
         let compressed = compression.compress(self.api_version, &buf)?;
         Ok(MessageSet {
-               messages: vec![Message{
+            messages: vec![Message{
                             offset: 0,
                             timestamp: Some(MessageTimestamp::default()),
                             compression:compression,
                             key: None,
                             value: Some(Bytes::from(compressed)),
                         }],
-           })
+        })
     }
 
     pub fn build<T: ByteOrder>(self) -> Result<MessageSet> {
@@ -345,22 +355,24 @@ impl MessageSetBuilder {
         self.last_offset.map_or(self.base_offset, |off| off + 1)
     }
 
-    pub fn push(&mut self,
-                timestamp: Timestamp,
-                key: Option<Bytes>,
-                value: Option<Bytes>)
-                -> Result<Offset> {
+    pub fn push(
+        &mut self,
+        timestamp: Timestamp,
+        key: Option<Bytes>,
+        value: Option<Bytes>,
+    ) -> Result<Offset> {
         let offset = self.next_offset();
 
         self.push_with_offset(offset, timestamp, key, value)
     }
 
-    pub fn push_with_offset(&mut self,
-                            offset: Offset,
-                            timestamp: Timestamp,
-                            key: Option<Bytes>,
-                            value: Option<Bytes>)
-                            -> Result<Offset> {
+    pub fn push_with_offset(
+        &mut self,
+        offset: Offset,
+        timestamp: Timestamp,
+        key: Option<Bytes>,
+        value: Option<Bytes>,
+    ) -> Result<Offset> {
         if let Some(last_offset) = self.last_offset {
             if offset <= last_offset {
                 bail!(ErrorKind::IllegalArgument(format!("offset {} following previous offset {}.", offset, last_offset)))
@@ -378,15 +390,13 @@ impl MessageSetBuilder {
         let record_size = self.record_size(timestamp, key.as_ref(), value.as_ref());
         let relative_offset = offset - self.base_offset;
 
-        self.message_set
-            .messages
-            .push(Message {
-                      offset: relative_offset,
-                      timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
-                      compression: self.compression,
-                      key: key,
-                      value: value,
-                  });
+        self.message_set.messages.push(Message {
+            offset: relative_offset,
+            timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
+            compression: self.compression,
+            key: key,
+            value: value,
+        });
 
         self.last_offset = Some(offset);
 

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::time::Duration;
+use std::iter::IntoIterator;
 
 use futures::{Async, Future, Poll};
 
@@ -47,11 +48,11 @@ where
     /// Update the fetch positions for the provided partitions.
     pub fn update_positions<I>(&self, partitions: I) -> UpdatePositions
     where
-        I: Iterator<Item = TopicPartition<'a>>,
+        I: IntoIterator<Item = TopicPartition<'a>>,
     {
         let default_reset_strategy = self.subscriptions.borrow().default_reset_strategy();
 
-        self.reset_offsets(partitions.flat_map(|tp| {
+        self.reset_offsets(partitions.into_iter().flat_map(|tp| {
             self.subscriptions
                 .borrow_mut()
                 .assigned_state_mut(&tp)
@@ -83,7 +84,7 @@ where
     /// Reset offsets for the given partition using the offset reset strategy.
     fn reset_offsets<I>(&self, partitions: I) -> ResetOffsets
     where
-        I: Iterator<Item = TopicPartition<'a>>,
+        I: IntoIterator<Item = TopicPartition<'a>>,
     {
         let mut offset_resets = Vec::new();
 
@@ -142,11 +143,11 @@ where
     /// Set-up a fetch request for any node that we have assigned partitions.
     pub fn fetch_records<I>(&self, partitions: I) -> FetchRecords
     where
-        I: Iterator<Item = TopicPartition<'a>>,
+        I: IntoIterator<Item = TopicPartition<'a>>,
     {
         let subscriptions = self.subscriptions.clone();
 
-        let fetch_partitions = partitions
+        let fetch_partitions = partitions.into_iter()
             .flat_map(|tp| {
                 subscriptions.borrow().assigned_state(&tp).map(|state| {
                     let fetch_data = PartitionData {

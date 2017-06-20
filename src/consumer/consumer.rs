@@ -1,103 +1,51 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 
-use futures::{Async, Future, Poll, Stream};
+use futures::{Future, Stream};
 
-use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture, TopicRecord};
-use consumer::{CommitOffset, ConsumerConfig, ConsumerCoordinator, Coordinator, Fetcher,
-               LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions};
-use errors::{Error, ErrorKind, Result};
-use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
-use protocol::{FetchOffset, Offset, Timestamp};
+use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
+use consumer::{ConsumerConfig, ConsumerCoordinator, Fetcher, SubscribedTopics, Subscriptions};
+use errors::{Error, ErrorKind};
+use protocol::{MessageTimestamp, Offset, PartitionId};
 use serialization::Deserializer;
 
 /// A trait for consuming records from a Kafka cluster.
-pub trait Consumer {
+pub trait Consumer<'a> {
     /// The type of key
     type Key: Hash;
     /// The type of value
     type Value;
     /// The type of `Stream` to receive records from topics
-    type Topics: Stream<Item = TopicRecord<Self::Key, Self::Value>, Error = Error>;
+    type Topics: Stream<Item = ConsumerRecord<'a, Self::Key, Self::Value>, Error = Error>;
 
     fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
     where
         S: AsRef<str> + Hash + Eq;
 }
 
-pub type Subscribe<T> = StaticBoxFuture<T>;
-
-/// A trait for to the subscribed list of topics.
-pub trait Subscribed<'a> {
-    /// Get the set of partitions currently assigned to this consumer.
-    fn assigment(&self) -> Vec<TopicPartition<'a>>;
-
-    /// Get the current subscription.
-    fn subscription(&self) -> Vec<String>;
-
-    /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
-    fn unsubscribe(self) -> Unsubscribe;
-
-    /// Commit offsets returned on the last record for all the subscribed list of topics and
-    /// partitions.
-    fn commit(&mut self) -> Commit;
-
-    /// Overrides the fetch offsets that the consumer will use on the next record
-    fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()>;
-
-    /// Seek to the first offset for each of the given partitions.
-    fn seek_to_beginning(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
-
-    /// Seek to the last offset for each of the given partitions.
-    fn seek_to_end(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
-
-    /// Get the offset of the next record that will be fetched (if a record with that offset
-    /// exists).
-    fn position(&self, partition: &TopicPartition<'a>) -> Result<Option<Offset>>;
-
-    /// Get the last committed offset for the given partition
-    /// (whether the commit happened by this process or another).
-    /// This offset will be used as the position for the consumer in the event of a failure.
-    fn committed(&self, partition: TopicPartition<'a>) -> Committed;
-
-    /// Get the set of partitions that were previously paused by a call to `pause`
-    fn paused(&self) -> Vec<TopicPartition<'a>>;
-
-    /// Suspend fetching from the requested partitions.
-    fn pause(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
-
-    /// Resume specified partitions which have been paused with
-    fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
-
-    /// Look up the offsets for the given partitions by timestamp.
-    fn offsets_for_times(
-        &self,
-        partitions: HashMap<TopicPartition<'a>, Timestamp>,
-    ) -> OffsetsForTimes<'a>;
-
-    /// Get the first offset for the given partitions.
-    fn beginning_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> BeginningOffsets<'a>;
-
-    /// Get the last offset for the given partitions.
-    ///
-    /// The last offset of a partition is the offset of the upcoming message,
-    /// i.e. the offset of the last available message + 1.
-    fn end_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> EndOffsets<'a>;
+/// A key/value pair to be received from Kafka.
+///
+/// This also consists of a topic name and a partition number from which the record is being
+/// received, an offset that points to the record in a Kafka partition, and a timestamp as marked
+/// by the corresponding `ConsumerRecord`.
+pub struct ConsumerRecord<'a, K, V> {
+    /// The topic this record is received from
+    pub topic_name: Cow<'a, str>,
+    /// The partition from which this record is received
+    pub partition_id: PartitionId,
+    /// The position of this record in the corresponding Kafka partition.
+    pub offset: Offset,
+    /// The key (or None if no key is specified)
+    pub key: Option<K>,
+    /// The value
+    pub value: Option<V>,
+    /// The timestamp of this record
+    pub timestamp: Option<MessageTimestamp>,
 }
 
-pub type Unsubscribe = LeaveGroup;
-
-pub type Commit = CommitOffset;
-
-pub type Committed = StaticBoxFuture<OffsetAndMetadata>;
-
-pub type OffsetsForTimes<'a> = RetrieveOffsets<'a, OffsetAndTimestamp>;
-
-pub type BeginningOffsets<'a> = RetrieveOffsets<'a, Offset>;
-
-pub type EndOffsets<'a> = RetrieveOffsets<'a, Offset>;
+pub type Subscribe<T> = StaticBoxFuture<T>;
 
 /// A Kafka consumer that consumes records from a Kafka cluster.
 pub struct KafkaConsumer<'a, K, V> {
@@ -132,9 +80,17 @@ where
             }),
         }
     }
+
+    pub fn key_deserializer(&self) -> K {
+        self.inner.key_deserializer.clone()
+    }
+
+    pub fn value_deserializer(&self) -> V {
+        self.inner.value_deserializer.clone()
+    }
 }
 
-impl<'a, K, V> Consumer for KafkaConsumer<'a, K, V>
+impl<'a, K, V> Consumer<'a> for KafkaConsumer<'a, K, V>
 where
     K: Deserializer,
     K::Item: Hash,
@@ -143,7 +99,7 @@ where
 {
     type Key = K::Item;
     type Value = V::Item;
-    type Topics = ConsumerTopics<'a, K, V>;
+    type Topics = SubscribedTopics<'a, K, V>;
 
     fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
     where
@@ -205,167 +161,16 @@ where
                         partition_fetch_bytes,
                     );
 
-                    Ok(ConsumerTopics {
-                        consumer: KafkaConsumer { inner: inner },
-                        subscriptions: subscriptions,
-                        coordinator: coordinator,
-                        fetcher: fetcher,
-                    })
+                    SubscribedTopics::new(
+                        KafkaConsumer { inner: inner },
+                        subscriptions,
+                        coordinator,
+                        fetcher,
+                    )
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
                 }
             })
             .static_boxed()
-    }
-}
-
-pub struct ConsumerTopics<'a, K, V> {
-    consumer: KafkaConsumer<'a, K, V>,
-    subscriptions: Rc<RefCell<Subscriptions<'a>>>,
-    coordinator: ConsumerCoordinator<'a>,
-    fetcher: Fetcher<'a>,
-}
-
-
-impl<'a, K, V> Subscribed<'a> for ConsumerTopics<'a, K, V>
-where
-    K: Deserializer,
-    K::Item: Hash,
-    V: Deserializer,
-    Self: 'static,
-{
-    fn assigment(&self) -> Vec<TopicPartition<'a>> {
-        self.subscriptions.borrow().assigned_partitions()
-    }
-
-    fn subscription(&self) -> Vec<String> {
-        self.subscriptions.borrow().subscription()
-    }
-
-    fn unsubscribe(self) -> Unsubscribe {
-        self.coordinator.leave_group()
-    }
-
-    fn commit(&mut self) -> Commit {
-        self.coordinator.commit_offsets()
-    }
-
-    fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
-        self.subscriptions.borrow_mut().seek(partition, pos)
-    }
-
-    fn seek_to_beginning(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
-        for partition in partitions {
-            self.seek(partition, SeekTo::Beginning)?;
-        }
-        Ok(())
-    }
-
-    fn seek_to_end(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
-        for partition in partitions {
-            self.seek(partition, SeekTo::End)?;
-        }
-        Ok(())
-    }
-
-    fn position(&self, partition: &TopicPartition<'a>) -> Result<Option<Offset>> {
-        self.subscriptions
-            .borrow()
-            .assigned_state(&partition)
-            .ok_or_else(|| {
-                ErrorKind::IllegalArgument(
-                    format!("No current assignment for partition {}", partition),
-                ).into()
-            })
-            .map(|state| state.position)
-    }
-
-    fn committed(&self, tp: TopicPartition<'a>) -> Committed {
-        let topic_name = String::from(tp.topic_name.to_owned());
-        let partition_id = tp.partition_id;
-
-        self.coordinator
-            .fetch_committed_offsets(vec![tp])
-            .and_then(move |offsets| {
-                offsets
-                    .get(&topic_name)
-                    .and_then(|partitions| {
-                        partitions
-                            .iter()
-                            .find(|partition| partition.partition_id == partition_id)
-                            .map(move |fetched| {
-                                OffsetAndMetadata::with_metadata(
-                                    fetched.offset,
-                                    fetched.metadata.clone(),
-                                )
-                            })
-                    })
-                    .ok_or_else(|| {
-                        ErrorKind::NoOffsetForPartition(topic_name, partition_id).into()
-                    })
-            })
-            .static_boxed()
-    }
-
-    fn paused(&self) -> Vec<TopicPartition<'a>> {
-        self.subscriptions.borrow().paused_partitions()
-    }
-
-    fn pause(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
-        for partition in partitions {
-            self.subscriptions.borrow_mut().pause(&partition)?;
-        }
-        Ok(())
-    }
-
-    fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
-        for partition in partitions {
-            self.subscriptions.borrow_mut().resume(&partition)?;
-        }
-        Ok(())
-    }
-
-    fn offsets_for_times(
-        &self,
-        partitions: HashMap<TopicPartition<'a>, Timestamp>,
-    ) -> OffsetsForTimes<'a> {
-        self.fetcher.retrieve_offsets(
-            partitions
-                .into_iter()
-                .map(|(tp, ts)| (tp, FetchOffset::ByTime(ts)))
-                .collect(),
-        )
-    }
-
-    fn beginning_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> BeginningOffsets<'a> {
-        self.fetcher.retrieve_offsets(
-            partitions
-                .into_iter()
-                .map(|tp| (tp, FetchOffset::Earliest))
-                .collect(),
-        )
-    }
-
-    fn end_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> EndOffsets<'a> {
-        self.fetcher.retrieve_offsets(
-            partitions
-                .into_iter()
-                .map(|tp| (tp, FetchOffset::Latest))
-                .collect(),
-        )
-    }
-}
-
-impl<'a, K, V> Stream for ConsumerTopics<'a, K, V>
-where
-    K: Deserializer,
-    K::Item: Hash,
-    V: Deserializer,
-{
-    type Item = TopicRecord<K::Item, V::Item>;
-    type Error = Error;
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        Ok(Async::NotReady)
     }
 }
