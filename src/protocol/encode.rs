@@ -97,7 +97,7 @@ mod tests {
         // write empty nullable string
         buf.put_str::<BigEndian, _>(Some("")).unwrap();
 
-        assert_eq!(buf.as_slice(), &[255, 255]);
+        assert_eq!(buf.as_slice(), &[0, 0]);
 
         buf.clear();
 
@@ -139,7 +139,7 @@ mod tests {
         // write empty nullable bytes
         buf.put_bytes::<BigEndian, _>(Some(&b""[..])).unwrap();
 
-        assert_eq!(buf.as_slice(), &[255, 255, 255, 255]);
+        assert_eq!(buf.as_slice(), &[0, 0, 0, 0]);
 
         buf.clear();
 
