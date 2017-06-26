@@ -113,7 +113,7 @@ impl Default for ClientConfig {
 }
 
 impl ClientConfig {
-    /// Construct a `ClientConfig` from brokers
+    /// Construct a `ClientConfig` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I) -> Self
     where
         I: IntoIterator<Item = SocketAddr>,

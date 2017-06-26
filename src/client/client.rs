@@ -346,7 +346,7 @@ where
         ClientBuilder::with_config(config, handle)
     }
 
-    /// Construct a `ClientBuilder` from bootstrap servers
+    /// Construct a `ClientBuilder` from  bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ClientBuilder<'a>
     where
         I: IntoIterator<Item = SocketAddr>,

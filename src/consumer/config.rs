@@ -204,6 +204,7 @@ impl Default for ConsumerConfig {
 }
 
 impl ConsumerConfig {
+    /// Construct a `ConsumerConfig` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I) -> Self
     where
         I: IntoIterator<Item = SocketAddr>,

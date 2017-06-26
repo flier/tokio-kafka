@@ -107,7 +107,7 @@ where
         }
     }
 
-    /// Construct a `ProducerBuilder` from brokers
+    /// Construct a `ProducerBuilder` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
         I: IntoIterator<Item = SocketAddr>,

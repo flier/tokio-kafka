@@ -81,12 +81,12 @@ impl<'a, K, V> KafkaConsumer<'a, K, V> {
         }
     }
 
-    /// Construct a `KafkaConsumer` from ConsumerConfig
+    /// Construct a `ConsumerBuilder` from ConsumerConfig
     pub fn with_config(config: ConsumerConfig, handle: Handle) -> ConsumerBuilder<'a, K, V> {
         ConsumerBuilder::with_config(config, handle)
     }
 
-    /// Construct a `KafkaConsumer` from bootstrap servers
+    /// Construct a `ConsumerBuilder` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ConsumerBuilder<'a, K, V>
     where
         I: IntoIterator<Item = SocketAddr>,

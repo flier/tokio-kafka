@@ -64,7 +64,7 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         }
     }
 
-    /// Construct a `ConsumerBuilder` from bootstrap servers
+    /// Construct a `ConsumerBuilder` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
         I: IntoIterator<Item = SocketAddr>,

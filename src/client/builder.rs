@@ -41,7 +41,7 @@ impl<'a> ClientBuilder<'a> {
         }
     }
 
-    /// Construct a `ClientBuilder` from brokers
+    /// Construct a `ClientBuilder` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
         I: IntoIterator<Item = SocketAddr>,

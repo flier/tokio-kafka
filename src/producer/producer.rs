@@ -112,7 +112,7 @@ where
         ProducerBuilder::with_config(config, handle)
     }
 
-    /// Construct a `ProducerBuilder` from bootstrap servers
+    /// Construct a `ProducerBuilder` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, P>
     where
         I: IntoIterator<Item = SocketAddr>,
