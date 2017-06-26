@@ -1,8 +1,10 @@
 version: 1.0.{build}
 
 environment:
-  RUST_BACKTRACE: 1
-  RUST_LOG: tokio_kafka=trace
+  global:
+    PROJECT_NAME: tokio-kafka
+    RUST_BACKTRACE: 1
+    RUST_LOG: tokio_kafka=trace
 
   matrix:
     # Stable channel
@@ -33,9 +35,6 @@ environment:
     - TARGET: x86_64-pc-windows-msvc
       CHANNEL: nightly
 
-matrix:
-  fast_finish: true
-clone_depth: 1
 build: false
 
 install:
