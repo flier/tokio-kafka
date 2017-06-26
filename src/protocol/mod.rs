@@ -32,7 +32,7 @@ pub use self::code::{ErrorCode, KafkaCode};
 pub use self::encode::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, PARTITION_ID_SIZE,
                        REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE, WriteExt};
 pub use self::fetch::{DEFAULT_RESPONSE_MAX_BYTES, FetchPartition, FetchRequest, FetchResponse,
-                      FetchTopic};
+                      FetchTopic, FetchTopicData};
 pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordinatorRequest,
                       GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse,
                       JoinGroupMember, JoinGroupProtocol, JoinGroupRequest, JoinGroupResponse,

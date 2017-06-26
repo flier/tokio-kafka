@@ -28,9 +28,9 @@ use client::{Broker, BrokerRef, ClientConfig, Cluster, InFlightMiddleware, Kafka
 use errors::{Error, ErrorKind, Result};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
-               FetchOffset, FetchPartition, FetchTopic, GenerationId, JoinGroupMember,
-               JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset, PartitionId,
-               RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions};
+               FetchOffset, FetchPartition, FetchTopic, FetchTopicData, GenerationId,
+               JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset,
+               PartitionId, RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions};
 
 /// A trait for communicating with the Kafka cluster.
 pub trait Client<'a>: 'static {
@@ -893,62 +893,7 @@ where
                     } else {
                         bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                     })
-                    .map(|records| {
-                        records
-                            .into_iter()
-                            .map(move |topic| {
-                                let topic_name = topic.topic_name;
-
-                                let offsets_by_topic_partition =
-                                    {
-                                        let topic_name = Cow::from(topic_name.as_str());
-
-                                        offsets_by_topic
-                                            .get(&topic_name)
-                                            .map(move |offsets| {
-                                                offsets.iter().map(
-                                                    |&(partition_id, ref fetch_data)| {
-                                                        let tp = topic_partition!(
-                                                            topic_name.clone(),
-                                                            partition_id
-                                                        );
-
-                                                        (tp, fetch_data)
-                                                    },
-                                                ).collect::<HashMap<TopicPartition, &PartitionData>>()
-                                            })
-                                            .unwrap_or_default()
-                                    };
-
-                                let records = {
-                                    let topic_name = Cow::from(topic_name.as_str());
-
-                                    topic
-                                        .partitions
-                                        .into_iter()
-                                        .flat_map(move |data| {
-                                            let tp = topic_partition!(
-                                                topic_name.clone(),
-                                                data.partition_id
-                                            );
-
-                                            offsets_by_topic_partition.get(&tp).map(move |&fetch| {
-                                                FetchedRecords {
-                                                    partition_id: data.partition_id,
-                                                    error_code: data.error_code.into(),
-                                                    fetch_offset: fetch.offset,
-                                                    high_watermark: data.high_watermark,
-                                                    messages: data.message_set.messages,
-                                                }
-                                            })
-                                        })
-                                        .collect()
-                                };
-
-                                (topic_name.clone(), records)
-                            })
-                            .collect::<Vec<(String, Vec<FetchedRecords>)>>()
-                    });
+                    .map(|topics| Self::as_fetched_records(offsets_by_topic, topics));
 
                 requests.push(request);
             }
@@ -970,6 +915,60 @@ where
                 })
             })
             .static_boxed()
+    }
+
+    fn as_fetched_records(
+        offsets_by_topic: HashMap<Cow<'a, str>, Vec<(PartitionId, PartitionData)>>,
+        topics: Vec<FetchTopicData>,
+    ) -> Vec<(String, Vec<FetchedRecords>)> {
+        topics
+            .into_iter()
+            .map(move |topic| {
+                let topic_name = topic.topic_name;
+
+                let offsets_by_topic_partition = {
+                    let topic_name = Cow::from(topic_name.as_str());
+
+                    offsets_by_topic
+                        .get(&topic_name)
+                        .map(move |offsets| {
+                            offsets
+                                .iter()
+                                .map(|&(partition_id, ref fetch_data)| {
+                                    let tp = topic_partition!(topic_name.clone(), partition_id);
+
+                                    (tp, fetch_data)
+                                })
+                                .collect::<HashMap<TopicPartition, &PartitionData>>()
+                        })
+                        .unwrap_or_default()
+                };
+
+                let records = {
+                    let topic_name = Cow::from(topic_name.as_str());
+
+                    topic
+                        .partitions
+                        .into_iter()
+                        .flat_map(move |data| {
+                            let tp = topic_partition!(topic_name.clone(), data.partition_id);
+
+                            offsets_by_topic_partition.get(&tp).map(move |&fetch| {
+                                FetchedRecords {
+                                    partition_id: data.partition_id,
+                                    error_code: data.error_code.into(),
+                                    fetch_offset: fetch.offset,
+                                    high_watermark: data.high_watermark,
+                                    messages: data.message_set.messages,
+                                }
+                            })
+                        })
+                        .collect()
+                };
+
+                (topic_name.clone(), records)
+            })
+            .collect()
     }
 
     fn list_offsets(&self, topics: TopicsByBroker<'a, FetchOffset>) -> ListOffsets {
