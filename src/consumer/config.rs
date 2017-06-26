@@ -206,7 +206,7 @@ impl Default for ConsumerConfig {
 impl ConsumerConfig {
     pub fn with_bootstrap_servers<I>(hosts: I) -> Self
     where
-        I: Iterator<Item = SocketAddr>,
+        I: IntoIterator<Item = SocketAddr>,
     {
         ConsumerConfig {
             client: ClientConfig::with_bootstrap_servers(hosts),

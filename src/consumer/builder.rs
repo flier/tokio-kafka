@@ -67,7 +67,7 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
     /// Construct a `ConsumerBuilder` from bootstrap servers
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
-        I: Iterator<Item = SocketAddr>,
+        I: IntoIterator<Item = SocketAddr>,
     {
         Self::with_config(ConsumerConfig::with_bootstrap_servers(hosts), handle)
     }

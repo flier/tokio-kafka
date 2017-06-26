@@ -349,7 +349,7 @@ where
     /// Construct a `ClientBuilder` from bootstrap servers
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ClientBuilder<'a>
     where
-        I: Iterator<Item = SocketAddr>,
+        I: IntoIterator<Item = SocketAddr>,
     {
         ClientBuilder::with_bootstrap_servers(hosts, handle)
     }
@@ -906,7 +906,9 @@ where
                     } else {
                         bail!(ErrorKind::UnexpectedResponse(res.api_key()))
                     })
-                    .map(|topics| Self::as_fetched_records(offsets_by_topic, topics));
+                    .map(|topics| {
+                        Self::extract_fetched_records(offsets_by_topic, topics)
+                    });
 
                 requests.push(request);
             }
@@ -930,7 +932,7 @@ where
             .static_boxed()
     }
 
-    fn as_fetched_records(
+    fn extract_fetched_records(
         offsets_by_topic: HashMap<Cow<'a, str>, Vec<(PartitionId, PartitionData)>>,
         topics: Vec<FetchTopicData>,
     ) -> Vec<(String, Vec<FetchedRecords>)> {

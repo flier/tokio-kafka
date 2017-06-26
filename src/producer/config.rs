@@ -1,4 +1,3 @@
-
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
@@ -95,7 +94,7 @@ impl Default for ProducerConfig {
 impl ProducerConfig {
     pub fn with_bootstrap_servers<I>(hosts: I) -> Self
     where
-        I: Iterator<Item = SocketAddr>,
+        I: IntoIterator<Item = SocketAddr>,
     {
         ProducerConfig {
             client: ClientConfig::with_bootstrap_servers(hosts),

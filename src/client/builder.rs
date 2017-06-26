@@ -44,7 +44,7 @@ impl<'a> ClientBuilder<'a> {
     /// Construct a `ClientBuilder` from brokers
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
-        I: Iterator<Item = SocketAddr>,
+        I: IntoIterator<Item = SocketAddr>,
     {
         Self::with_config(ClientConfig::with_bootstrap_servers(hosts), handle)
     }

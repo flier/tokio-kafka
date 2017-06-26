@@ -1,4 +1,3 @@
-
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -117,10 +116,10 @@ impl ClientConfig {
     /// Construct a `ClientConfig` from brokers
     pub fn with_bootstrap_servers<I>(hosts: I) -> Self
     where
-        I: Iterator<Item = SocketAddr>,
+        I: IntoIterator<Item = SocketAddr>,
     {
         ClientConfig {
-            hosts: hosts.collect(),
+            hosts: hosts.into_iter().collect(),
             ..Default::default()
         }
     }

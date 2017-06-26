@@ -115,7 +115,7 @@ where
     /// Construct a `ProducerBuilder` from bootstrap servers
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, P>
     where
-        I: Iterator<Item = SocketAddr>,
+        I: IntoIterator<Item = SocketAddr>,
     {
         ProducerBuilder::with_bootstrap_servers(hosts, handle)
     }

@@ -36,10 +36,13 @@ impl<'a> Subscriptions<'a> {
 
     pub fn with_topics<I, S>(topic_names: I, default_reset_strategy: OffsetResetStrategy) -> Self
     where
-        I: Iterator<Item = S>,
+        I: IntoIterator<Item = S>,
         S: AsRef<str> + Hash + Eq,
     {
-        let topic_names: Vec<String> = topic_names.map(|s| s.as_ref().to_owned()).collect();
+        let topic_names: Vec<String> = topic_names
+            .into_iter()
+            .map(|s| s.as_ref().to_owned())
+            .collect();
 
         Subscriptions {
             default_reset_strategy: default_reset_strategy,
@@ -55,10 +58,13 @@ impl<'a> Subscriptions<'a> {
 
     pub fn subscribe<I, S>(&mut self, topic_names: I)
     where
-        I: Iterator<Item = S>,
+        I: IntoIterator<Item = S>,
         S: AsRef<str> + Hash + Eq,
     {
-        let topic_names: Vec<String> = topic_names.map(|s| s.as_ref().to_owned()).collect();
+        let topic_names: Vec<String> = topic_names
+            .into_iter()
+            .map(|s| s.as_ref().to_owned())
+            .collect();
         self.subscription = HashSet::from_iter(topic_names.iter().cloned());
         self.group_subscription = &self.group_subscription | &self.subscription;
     }
@@ -68,13 +74,15 @@ impl<'a> Subscriptions<'a> {
     /// This is used by the group leader to ensure that it receives metadata updates for all
     /// topics
     /// that the group is interested in.
-    pub fn group_subscribe<I: Iterator<Item = S>, S: AsRef<str> + Hash + Eq>(
+    pub fn group_subscribe<I: IntoIterator<Item = S>, S: AsRef<str> + Hash + Eq>(
         &mut self,
         topic_names: I,
     ) {
-        self.group_subscription.extend(topic_names.map(
-            |s| s.as_ref().to_owned(),
-        ))
+        self.group_subscription.extend(
+            topic_names.into_iter().map(|s| {
+                s.as_ref().to_owned()
+            }),
+        )
     }
 
     pub fn topics(&self) -> Vec<&str> {

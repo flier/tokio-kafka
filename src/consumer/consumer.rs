@@ -89,7 +89,7 @@ impl<'a, K, V> KafkaConsumer<'a, K, V> {
     /// Construct a `KafkaConsumer` from bootstrap servers
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ConsumerBuilder<'a, K, V>
     where
-        I: Iterator<Item = SocketAddr>,
+        I: IntoIterator<Item = SocketAddr>,
     {
         ConsumerBuilder::with_bootstrap_servers(hosts, handle)
     }
@@ -160,9 +160,10 @@ where
 
                 if not_found.is_empty() {
                     let subscriptions = Rc::new(RefCell::new(Subscriptions::with_topics(
-                        topic_names.iter(),
+                        topic_names,
                         default_reset_strategy,
                     )));
+
                     let coordinator = ConsumerCoordinator::new(
                         inner.client.clone(),
                         group_id,

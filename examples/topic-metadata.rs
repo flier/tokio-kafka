@@ -124,8 +124,7 @@ fn main() {
 
     let mut core = Core::new().unwrap();
 
-    let mut builder =
-        KafkaClient::with_bootstrap_servers(config.brokers.clone().into_iter(), core.handle());
+    let mut builder = KafkaClient::with_bootstrap_servers(config.brokers.clone(), core.handle());
 
     if config.api_version_request {
         builder = builder.with_api_version_request()
