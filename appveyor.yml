@@ -51,7 +51,6 @@ cache:
 
 test_script:
   - cargo build --verbose
-  - cargo run --verbose
   - cargo test --verbose
 
 branches:
