@@ -1,10 +1,10 @@
-use std::str::FromStr;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
+use client::{Cluster, Metadata};
 use errors::{Error, ErrorKind, Result};
 use network::TopicPartition;
-use client::{Cluster, Metadata};
 
 /// Strategy for assigning partitions to consumer streams.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -14,9 +14,10 @@ pub enum AssignmentStrategy {
     ///
     /// For each topic, we lay out the available partitions in numeric order
     /// and the consumer threads in lexicographic order.
-    /// We then divide the number of partitions by the total number of consumer streams (threads)
-    /// to determine the number of partitions to assign to each consumer.
-    /// If it does not evenly divide, then the first few consumers will have one extra partition.
+    /// We then divide the number of partitions by the total number of consumer streams
+    /// (threads) to determine the number of partitions to assign to each consumer.
+    /// If it does not evenly divide, then the first few consumers will have one extra
+    /// partition.
     Range,
 
     /// The round-robin partition assignor lays out all the available partitions
@@ -25,10 +26,13 @@ pub enum AssignmentStrategy {
     /// It then proceeds to do a round-robin assignment from partition to consumer thread.
     /// If the subscriptions of all consumer instances are identical,
     /// then the partitions will be uniformly distributed.
-    /// (i.e., the partition ownership counts will be within a delta of exactly one across all consumer threads.)
+    /// (i.e., the partition ownership counts will be within a delta of exactly one across all
+    /// consumer threads.)
+    ///
     /// Round-robin assignment is permitted only if:
     /// (a) Every topic has the same number of streams within a consumer instance
-    /// (b) The set of subscribed topics is identical for every consumer instance within the group.
+    /// (b) The set of subscribed topics is identical for every consumer instance within the
+    /// group.
     RoundRobin,
 
     /// The sticky assignor serves two purposes.
@@ -90,11 +94,13 @@ pub trait PartitionAssignor {
         }
     }
 
-    /// Perform the group assignment given the member subscriptions and current cluster metadata.
-    fn assign<'a>(&self,
-                  metadata: &'a Metadata,
-                  subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>)
-                  -> HashMap<Cow<'a, str>, Assignment<'a>>;
+    /// Perform the group assignment given the member subscriptions and current cluster
+    /// metadata.
+    fn assign<'a>(
+        &self,
+        metadata: &'a Metadata,
+        subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>,
+    ) -> HashMap<Cow<'a, str>, Assignment<'a>>;
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -111,12 +117,14 @@ pub struct Assignment<'a> {
 
 /// The range assignor works on a per-topic basis.
 ///
-/// For each topic, we lay out the available partitions in numeric order and the consumers in lexicographic order.
+/// For each topic, we lay out the available partitions in numeric order and the consumers in
+/// lexicographic order.
 /// We then divide the number of partitions by the total number of consumers to determine
 /// the number of partitions to assign to each consumer.
 /// If it does not evenly divide, then the first few consumers will have one extra partition.
 ///
-/// For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each topic has 3 partitions,
+/// For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each topic
+/// has 3 partitions,
 /// resulting in partitions t0p0, t0p1, t0p2, t1p0, t1p1, and t1p2.
 ///
 /// The assignment will be:
@@ -134,10 +142,11 @@ impl PartitionAssignor for RangeAssignor {
         AssignmentStrategy::Range
     }
 
-    fn assign<'a>(&self,
-                  metadata: &'a Metadata,
-                  subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>)
-                  -> HashMap<Cow<'a, str>, Assignment<'a>> {
+    fn assign<'a>(
+        &self,
+        metadata: &'a Metadata,
+        subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>,
+    ) -> HashMap<Cow<'a, str>, Assignment<'a>> {
         let mut consumers_per_topic = HashMap::new();
 
         for (member_id, subscription) in subscriptions {
@@ -157,20 +166,25 @@ impl PartitionAssignor for RangeAssignor {
 
         for topic_name in topic_names {
             if let (Some(mut partitions), Some(mut consumers)) =
-                (metadata.partitions_for_topic(&topic_name),
-                 consumers_per_topic.get_mut(&topic_name)) {
+                (
+                    metadata.partitions_for_topic(&topic_name),
+                    consumers_per_topic.get_mut(&topic_name),
+                )
+            {
                 consumers.sort();
 
                 let partitions_per_consumer = partitions.len() / consumers.len();
                 let consumers_with_extra_partition = partitions.len() % consumers.len();
 
                 for (i, member_id) in consumers.iter().enumerate() {
-                    let remaining = partitions.split_off(partitions_per_consumer +
-                                                         if i >= consumers_with_extra_partition {
-                                                             0
-                                                         } else {
-                                                             1
-                                                         });
+                    let remaining = partitions.split_off(
+                        partitions_per_consumer +
+                            if i >= consumers_with_extra_partition {
+                                0
+                            } else {
+                                1
+                            },
+                    );
 
                     assignment
                         .entry(member_id.clone())
@@ -189,11 +203,14 @@ impl PartitionAssignor for RangeAssignor {
 
 /// The round robin assignor lays out all the available partitions and all the available consumers.
 ///
-/// It then proceeds to do a round robin assignment from partition to consumer. If the subscriptions of all consumer
-/// instances are identical, then the partitions will be uniformly distributed. (i.e., the partition ownership counts
+/// It then proceeds to do a round robin assignment from partition to consumer. If the
+/// subscriptions of all consumer
+/// instances are identical, then the partitions will be uniformly distributed. (i.e., the
+/// partition ownership counts
 /// will be within a delta of exactly one across all consumers.)
 ///
-/// For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each topic has 3 partitions,
+/// For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each topic
+/// has 3 partitions,
 /// resulting in partitions t0p0, t0p1, t0p2, t1p0, t1p1, and t1p2.
 ///
 /// The assignment will be:
@@ -205,7 +222,8 @@ impl PartitionAssignor for RangeAssignor {
 /// the topic. Unlike the case when subscriptions are identical, this can result in imbalanced
 /// assignments. For example, we have three consumers C0, C1, C2, and three topics t0, t1, t2,
 /// with 1, 2, and 3 partitions, respectively. Therefore, the partitions are t0p0, t1p0, t1p1, t2p0,
-/// t2p1, t2p2. C0 is subscribed to t0; C1 is subscribed to t0, t1; and C2 is subscribed to t0, t1, t2.
+/// t2p1, t2p2. C0 is subscribed to t0; C1 is subscribed to t0, t1; and C2 is subscribed to t0, t1,
+/// t2.
 ///
 /// Tha assignment will be:
 /// C0: [t0p0]
@@ -223,10 +241,11 @@ impl PartitionAssignor for RoundRobinAssignor {
         AssignmentStrategy::RoundRobin
     }
 
-    fn assign<'a>(&self,
-                  metadata: &'a Metadata,
-                  subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>)
-                  -> HashMap<Cow<'a, str>, Assignment<'a>> {
+    fn assign<'a>(
+        &self,
+        metadata: &'a Metadata,
+        subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>,
+    ) -> HashMap<Cow<'a, str>, Assignment<'a>> {
         // get sorted consumers
         let mut consumers: Vec<&Cow<'a, str>> = subscriptions.keys().collect();
 
@@ -237,23 +256,24 @@ impl PartitionAssignor for RoundRobinAssignor {
         /// get sorted topic names
         let mut topic_names = HashSet::new();
 
-        topic_names.extend(subscriptions
-                               .values()
-                               .flat_map(|subscription| subscription.topics.iter()));
+        topic_names.extend(subscriptions.values().flat_map(|subscription| {
+            subscription.topics.iter().cloned()
+        }));
 
-        let mut topic_names: Vec<&&Cow<'a, str>> = topic_names.iter().collect();
+        let mut topic_names: Vec<Cow<'a, str>> = topic_names.into_iter().collect();
 
         topic_names.sort();
 
         let mut assignment = HashMap::new();
 
         for topic_name in topic_names {
-            if let Some(partitions) = metadata.partitions_for_topic(topic_name) {
+            if let Some(partitions) = metadata.partitions_for_topic(&topic_name) {
                 for partition in partitions {
                     while let Some(consumer) = consumers.next() {
-                        if subscriptions[*consumer]
-                               .topics
-                               .contains(&partition.topic_name) {
+                        if subscriptions[*consumer].topics.contains(
+                            &partition.topic_name,
+                        )
+                        {
                             assignment
                                 .entry((*consumer).clone())
                                 .or_insert_with(Assignment::default)
@@ -279,9 +299,11 @@ impl PartitionAssignor for RoundRobinAssignor {
 /// cannot get any of those topic partitions transferred to it.
 ///
 /// Second, it preserved as many existing assignment as possible when a reassignment occurs.
-/// This helps in saving some of the overhead processing when topic partitions move from one consumer to another.
+/// This helps in saving some of the overhead processing when topic partitions move from one
+/// consumer to another.
 ///
-/// Starting fresh it would work by distributing the partitions over consumers as evenly as possible.
+/// Starting fresh it would work by distributing the partitions over consumers as evenly as
+/// possible.
 /// Even though this may sound similar to how round robin assignor works,
 /// the second example below shows that it is not.
 ///
@@ -301,7 +323,8 @@ impl PartitionAssignor for RoundRobinAssignor {
 /// - `C1: [t0p1, t2p0, t3p1]`
 /// - `C2: [t1p0, t2p1]`
 ///
-/// Now, let's assume `C1` is removed and a reassignment is about to happen. The round robin assignor would produce:
+/// Now, let's assume `C1` is removed and a reassignment is about to happen.
+/// The round robin assignor would produce:
 ///
 /// - `C0: [t0p0, t1p0, t2p0, t3p0]`
 /// - `C2: [t0p1, t1p1, t2p1, t3p1]`
@@ -316,7 +339,8 @@ impl PartitionAssignor for RoundRobinAssignor {
 /// Example 2. There are three consumers `C0`, `C1`, `C2`,
 /// and three topics `t0`, `t1`, `t2`, with 1, 2, and 3 partitions respectively.
 /// Therefore, the partitions are `t0p0`, `t1p0`, `t1p1`, `t2p0`, `t2p1`, `t2p2`.
-/// `C0` is subscribed to `t0`; `C1` is subscribed to `t0`, `t1`; and `C2` is subscribed to `t0`, `t1`, `t2`.
+/// `C0` is subscribed to `t0`; `C1` is subscribed to `t0`, `t1`;
+/// and `C2` is subscribed to `t0`, `t1`, `t2`.
 ///
 /// The round robin assignor would come up with the following assignment:
 ///
@@ -353,10 +377,11 @@ impl PartitionAssignor for StickyAssignor {
         AssignmentStrategy::Sticky
     }
 
-    fn assign<'a>(&self,
-                  _metadata: &'a Metadata,
-                  _subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>)
-                  -> HashMap<Cow<'a, str>, Assignment<'a>> {
+    fn assign<'a>(
+        &self,
+        _metadata: &'a Metadata,
+        _subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>,
+    ) -> HashMap<Cow<'a, str>, Assignment<'a>> {
         unimplemented!()
     }
 }
@@ -369,7 +394,8 @@ mod tests {
 
     use super::*;
 
-    /// For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each topic has 3 partitions,
+    /// For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each
+    /// topic has 3 partitions,
     /// resulting in partitions t0p0, t0p1, t0p2, t1p0, t1p1, and t1p2.
     ///
     /// The assignment will be:
@@ -378,45 +404,69 @@ mod tests {
     #[test]
     fn test_range_assignor() {
         let assignor = RangeAssignor::default();
-        let metadata = Metadata::with_topics(vec![("t0".into(),
-                                                   vec![PartitionInfo::new(0),
-                                                        PartitionInfo::new(1),
-                                                        PartitionInfo::new(2)]),
-                                                  ("t1".into(),
-                                                   vec![PartitionInfo::new(0),
-                                                        PartitionInfo::new(1),
-                                                        PartitionInfo::new(2)])]);
-        let subscriptions = HashMap::from_iter(vec![("c0".into(),
-                                                     Subscription {
-                                                         topics: vec!["t0".into(), "t1".into()],
-                                                         user_data: None,
-                                                     }),
-                                                    ("c1".into(),
-                                                     Subscription {
-                                                         topics: vec!["t0".into(), "t1".into()],
-                                                         user_data: None,
-                                                     })]
-                                                       .into_iter());
+        let metadata = Metadata::with_topics(vec![
+            (
+                "t0".into(),
+                vec![
+                    PartitionInfo::new(0),
+                    PartitionInfo::new(1),
+                    PartitionInfo::new(2),
+                ]
+            ),
+            (
+                "t1".into(),
+                vec![
+                    PartitionInfo::new(0),
+                    PartitionInfo::new(1),
+                    PartitionInfo::new(2),
+                ]
+            ),
+        ]);
+        let subscriptions = HashMap::from_iter(
+            vec![
+                (
+                    "c0".into(),
+                    Subscription {
+                        topics: vec!["t0".into(), "t1".into()],
+                        user_data: None,
+                    }
+                ),
+                (
+                    "c1".into(),
+                    Subscription {
+                        topics: vec!["t0".into(), "t1".into()],
+                        user_data: None,
+                    }
+                ),
+            ].into_iter(),
+        );
 
         let assignment = assignor.assign(&metadata, subscriptions);
 
         assert_eq!(assignment.len(), 2);
-        assert_eq!(assignment["c0"],
-                   Assignment {
-                       partitions: vec![topic_partition!("t0", 0),
-                                        topic_partition!("t0", 1),
-                                        topic_partition!("t1", 0),
-                                        topic_partition!("t1", 1)],
-                       user_data: None,
-                   });
-        assert_eq!(assignment["c1"],
-                   Assignment {
-                       partitions: vec![topic_partition!("t0", 2), topic_partition!("t1", 2)],
-                       user_data: None,
-                   });
+        assert_eq!(
+            assignment["c0"],
+            Assignment {
+                partitions: vec![
+                    topic_partition!("t0", 0),
+                    topic_partition!("t0", 1),
+                    topic_partition!("t1", 0),
+                    topic_partition!("t1", 1),
+                ],
+                user_data: None,
+            }
+        );
+        assert_eq!(
+            assignment["c1"],
+            Assignment {
+                partitions: vec![topic_partition!("t0", 2), topic_partition!("t1", 2)],
+                user_data: None,
+            }
+        );
     }
 
-    /// For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each topic has 3 partitions,
+    /// For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each
+    /// topic has 3 partitions,
     /// resulting in partitions t0p0, t0p1, t0p2, t1p0, t1p1, and t1p2.
     ///
     /// The assignment will be:
@@ -426,48 +476,75 @@ mod tests {
     #[test]
     fn test_roundrobin_assignor() {
         let assignor = RoundRobinAssignor::default();
-        let metadata = Metadata::with_topics(vec![("t0".into(),
-                                                   vec![PartitionInfo::new(0),
-                                                        PartitionInfo::new(1),
-                                                        PartitionInfo::new(2)]),
-                                                  ("t1".into(),
-                                                   vec![PartitionInfo::new(0),
-                                                        PartitionInfo::new(1),
-                                                        PartitionInfo::new(2)])]);
-        let subscriptions = HashMap::from_iter(vec![("c0".into(),
-                                                     Subscription {
-                                                         topics: vec!["t0".into(), "t1".into()],
-                                                         user_data: None,
-                                                     }),
-                                                    ("c1".into(),
-                                                     Subscription {
-                                                         topics: vec!["t0".into(), "t1".into()],
-                                                         user_data: None,
-                                                     })]
-                                                       .into_iter());
+        let metadata = Metadata::with_topics(vec![
+            (
+                "t0".into(),
+                vec![
+                    PartitionInfo::new(0),
+                    PartitionInfo::new(1),
+                    PartitionInfo::new(2),
+                ]
+            ),
+            (
+                "t1".into(),
+                vec![
+                    PartitionInfo::new(0),
+                    PartitionInfo::new(1),
+                    PartitionInfo::new(2),
+                ]
+            ),
+        ]);
+        let subscriptions = HashMap::from_iter(
+            vec![
+                (
+                    "c0".into(),
+                    Subscription {
+                        topics: vec!["t0".into(), "t1".into()],
+                        user_data: None,
+                    }
+                ),
+                (
+                    "c1".into(),
+                    Subscription {
+                        topics: vec!["t0".into(), "t1".into()],
+                        user_data: None,
+                    }
+                ),
+            ].into_iter(),
+        );
 
         let assignment = assignor.assign(&metadata, subscriptions);
 
         assert_eq!(assignment.len(), 2);
-        assert_eq!(assignment["c0"],
-                   Assignment {
-                       partitions: vec![topic_partition!("t0", 0),
-                                        topic_partition!("t0", 2),
-                                        topic_partition!("t1", 1)],
-                       user_data: None,
-                   });
-        assert_eq!(assignment["c1"],
-                   Assignment {
-                       partitions: vec![topic_partition!("t0", 1),
-                                        topic_partition!("t1", 0),
-                                        topic_partition!("t1", 2)],
-                       user_data: None,
-                   });
+        assert_eq!(
+            assignment["c0"],
+            Assignment {
+                partitions: vec![
+                    topic_partition!("t0", 0),
+                    topic_partition!("t0", 2),
+                    topic_partition!("t1", 1),
+                ],
+                user_data: None,
+            }
+        );
+        assert_eq!(
+            assignment["c1"],
+            Assignment {
+                partitions: vec![
+                    topic_partition!("t0", 1),
+                    topic_partition!("t1", 0),
+                    topic_partition!("t1", 2),
+                ],
+                user_data: None,
+            }
+        );
     }
 
     /// For example, we have three consumers C0, C1, C2, and three topics t0, t1, t2,
-    /// with 1, 2, and 3 partitions, respectively. Therefore, the partitions are t0p0, t1p0, t1p1, t2p0,
-    /// t2p1, t2p2. C0 is subscribed to t0; C1 is subscribed to t0, t1; and C2 is subscribed to t0, t1, t2.
+    /// with 1, 2, and 3 partitions, respectively. Therefore, the partitions are t0p0, t1p0,
+    /// t1p1, t2p0,
+    /// t2p1, t2p2. C0 is subscribed to t0; C1 is subscribed to t0, t1; and C2 is subscribed to
+    /// t0, t1, t2.
     ///
     /// Tha assignment will be:
     /// C0: [t0p0]
@@ -476,52 +553,75 @@ mod tests {
     #[test]
     fn test_roundrobin_assignor_more() {
         let assignor = RoundRobinAssignor::default();
-        let metadata = Metadata::with_topics(vec![("t0".into(), vec![PartitionInfo::new(0)]),
-                                                  ("t1".into(),
-                                                   vec![PartitionInfo::new(0),
-                                                        PartitionInfo::new(1)]),
-                                                  ("t2".into(),
-                                                   vec![PartitionInfo::new(0),
-                                                        PartitionInfo::new(1),
-                                                        PartitionInfo::new(2)])]);
-        let subscriptions =
-            HashMap::from_iter(vec![("c0".into(),
-                                     Subscription {
-                                         topics: vec!["t0".into()],
-                                         user_data: None,
-                                     }),
-                                    ("c1".into(),
-                                     Subscription {
-                                         topics: vec!["t0".into(), "t1".into()],
-                                         user_data: None,
-                                     }),
-                                    ("c2".into(),
-                                     Subscription {
-                                         topics: vec!["t0".into(), "t1".into(), "t2".into()],
-                                         user_data: None,
-                                     })]
-                                       .into_iter());
+        let metadata = Metadata::with_topics(vec![
+            ("t0".into(), vec![PartitionInfo::new(0)]),
+            (
+                "t1".into(),
+                vec![PartitionInfo::new(0), PartitionInfo::new(1)]
+            ),
+            (
+                "t2".into(),
+                vec![
+                    PartitionInfo::new(0),
+                    PartitionInfo::new(1),
+                    PartitionInfo::new(2),
+                ]
+            ),
+        ]);
+        let subscriptions = HashMap::from_iter(
+            vec![
+                (
+                    "c0".into(),
+                    Subscription {
+                        topics: vec!["t0".into()],
+                        user_data: None,
+                    }
+                ),
+                (
+                    "c1".into(),
+                    Subscription {
+                        topics: vec!["t0".into(), "t1".into()],
+                        user_data: None,
+                    }
+                ),
+                (
+                    "c2".into(),
+                    Subscription {
+                        topics: vec!["t0".into(), "t1".into(), "t2".into()],
+                        user_data: None,
+                    }
+                ),
+            ].into_iter(),
+        );
 
         let assignment = assignor.assign(&metadata, subscriptions);
 
         assert_eq!(assignment.len(), 3);
-        assert_eq!(assignment["c0"],
-                   Assignment {
-                       partitions: vec![topic_partition!("t0", 0)],
-                       user_data: None,
-                   });
-        assert_eq!(assignment["c1"],
-                   Assignment {
-                       partitions: vec![topic_partition!("t1", 0)],
-                       user_data: None,
-                   });
-        assert_eq!(assignment["c2"],
-                   Assignment {
-                       partitions: vec![topic_partition!("t1", 1),
-                                        topic_partition!("t2", 0),
-                                        topic_partition!("t2", 1),
-                                        topic_partition!("t2", 2)],
-                       user_data: None,
-                   });
+        assert_eq!(
+            assignment["c0"],
+            Assignment {
+                partitions: vec![topic_partition!("t0", 0)],
+                user_data: None,
+            }
+        );
+        assert_eq!(
+            assignment["c1"],
+            Assignment {
+                partitions: vec![topic_partition!("t1", 0)],
+                user_data: None,
+            }
+        );
+        assert_eq!(
+            assignment["c2"],
+            Assignment {
+                partitions: vec![
+                    topic_partition!("t1", 1),
+                    topic_partition!("t2", 0),
+                    topic_partition!("t2", 1),
+                    topic_partition!("t2", 2),
+                ],
+                user_data: None,
+            }
+        );
     }
 }
