@@ -40,14 +40,14 @@ build: false
 install:
   - curl -sSf -o rustup-init.exe https://win.rustup.rs
   - rustup-init.exe --default-host %TARGET% --default-toolchain %CHANNEL% -y
-  - set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+  - set PATH=%PATH%;C:\Users\appveyor\.cargo\bin
   - set PATH=%PATH%;C:\Program Files (x86)\Rust\bin
   - set PATH=%PATH%;C:\MinGW\bin
   - rustc -Vv
   - cargo -V
 
 cache:
-  - %USERPROFILE%\.cargo\ -> appveyor.yml
+  - C:\Users\appveyor\.cargo\ -> appveyor.yml
 
 test_script:
   - cargo build --verbose
