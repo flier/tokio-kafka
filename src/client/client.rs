@@ -23,8 +23,8 @@ use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 use tokio_service::Service;
 use tokio_timer::Timer;
 
-use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware,
-             KafkaService, Metadata, Metrics};
+use client::{Broker, BrokerRef, ClientConfig, Cluster, InFlightMiddleware, KafkaService, Metadata,
+             Metrics};
 use errors::{Error, ErrorKind, Result};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
