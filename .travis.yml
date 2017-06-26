@@ -16,3 +16,5 @@ env:
   global:
     - RUST_BACKTRACE=1
     - RUST_LOG=tokio_kafka=trace
+script:
+  - (test $TRAVIS_RUST_VERSION != "nightly" || cargo build --features clippy)
