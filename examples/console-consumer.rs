@@ -8,6 +8,7 @@ extern crate getopts;
 extern crate futures;
 extern crate tokio_core;
 extern crate tokio_io;
+#[cfg(target_os = "unix")]
 extern crate tokio_file_unix;
 
 extern crate tokio_kafka;
