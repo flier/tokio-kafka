@@ -1,24 +1,25 @@
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::hash::Hash;
-use std::time::Duration;
-use std::ops::{Deref, DerefMut};
 use std::net::SocketAddr;
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
+use std::time::Duration;
 
 use tokio_core::reactor::Handle;
 
-use errors::{ErrorKind, Result};
-use compression::Compression;
-use protocol::{RequiredAcks, ToMilliseconds};
-use serialization::{NoopSerializer, Serializer};
 use client::{KafkaClient, KafkaVersion};
+use compression::Compression;
+use errors::{ErrorKind, Result};
 use producer::{DefaultPartitioner, Interceptors, KafkaProducer, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors};
+use protocol::{RequiredAcks, ToMilliseconds};
+use serialization::{NoopSerializer, Serializer};
 
 /// A `KafkaProducer` builder easing the process of setting up various configuration settings.
 pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner>
-    where K: Serializer,
-          V: Serializer
+where
+    K: Serializer,
+    V: Serializer,
 {
     config: ProducerConfig,
     client: Option<KafkaClient<'a>>,
@@ -30,8 +31,9 @@ pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner>
 }
 
 impl<'a, K, V, P> Deref for ProducerBuilder<'a, K, V, P>
-    where K: Serializer,
-          V: Serializer
+where
+    K: Serializer,
+    V: Serializer,
 {
     type Target = ProducerConfig;
 
@@ -41,8 +43,9 @@ impl<'a, K, V, P> Deref for ProducerBuilder<'a, K, V, P>
 }
 
 impl<'a, K, V, P> DerefMut for ProducerBuilder<'a, K, V, P>
-    where K: Serializer,
-          V: Serializer
+where
+    K: Serializer,
+    V: Serializer,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.config
@@ -50,8 +53,9 @@ impl<'a, K, V, P> DerefMut for ProducerBuilder<'a, K, V, P>
 }
 
 impl<'a, K, V, P> Default for ProducerBuilder<'a, K, V, P>
-    where K: Serializer,
-          V: Serializer
+where
+    K: Serializer,
+    V: Serializer,
 {
     fn default() -> Self {
         ProducerBuilder {
@@ -66,12 +70,13 @@ impl<'a, K, V, P> Default for ProducerBuilder<'a, K, V, P>
     }
 }
 
-impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
-    where K: Serializer,
-          V: Serializer
+impl<'a, K, V, P> From<KafkaClient<'a>> for ProducerBuilder<'a, K, V, P>
+where
+    K: Serializer,
+    V: Serializer,
 {
     /// Construct a `ProducerBuilder` from KafkaClient
-    pub fn from_client(client: KafkaClient<'a>) -> Self {
+    fn from(client: KafkaClient<'a>) -> Self {
         ProducerBuilder {
             client: Some(client),
             handle: None,
@@ -82,9 +87,15 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
             interceptors: None,
         }
     }
+}
 
+impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
+where
+    K: Serializer,
+    V: Serializer,
+{
     /// Construct a `ProducerBuilder` from ProducerConfig
-    pub fn from_config(config: ProducerConfig, handle: Handle) -> Self {
+    pub fn with_config(config: ProducerConfig, handle: Handle) -> Self {
         ProducerBuilder {
             client: None,
             handle: Some(handle),
@@ -97,16 +108,18 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
     }
 
     /// Construct a `ProducerBuilder` from brokers
-    pub fn from_hosts<I>(hosts: I, handle: Handle) -> Self
-        where I: Iterator<Item = SocketAddr>
+    pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
+    where
+        I: Iterator<Item = SocketAddr>,
     {
-        Self::from_config(ProducerConfig::from_hosts(hosts), handle)
+        Self::with_config(ProducerConfig::with_bootstrap_servers(hosts), handle)
     }
 }
 
 impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
-    where K: Serializer,
-          V: Serializer
+where
+    K: Serializer,
+    V: Serializer,
 {
     fn with_client(mut self, client: KafkaClient<'a>) -> Self {
         self.client = Some(client);
@@ -136,7 +149,8 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
         self
     }
 
-    /// Sets the request broker's supported API versions to adjust functionality to available protocol features.
+    /// Sets the request broker's supported API versions to adjust functionality to available
+    /// protocol features.
     pub fn with_api_version_request(mut self) -> Self {
         self.config.api_version_request = true;
         self
@@ -215,12 +229,13 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
     /// Sets the interceptor which intercepte (and possibly mutate) the records
     /// received by the producer before they are published to the Kafka cluster.
     pub fn with_interceptor<I>(mut self, interceptor: I) -> Self
-        where I: ProducerInterceptor<Key = K::Item, Value = V::Item> + 'static,
-              K::Item: Hash
+    where
+        I: ProducerInterceptor<Key = K::Item, Value = V::Item> + 'static,
+        K::Item: Hash,
     {
-        let interceptors =
-            self.interceptors
-                .unwrap_or_else(|| Rc::new(RefCell::new(ProducerInterceptors::new())));
+        let interceptors = self.interceptors.unwrap_or_else(|| {
+            Rc::new(RefCell::new(ProducerInterceptors::new()))
+        });
 
         interceptors.borrow_mut().push(Box::new(interceptor));
 
@@ -230,7 +245,8 @@ impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
 }
 
 impl<'a, V, P> ProducerBuilder<'a, NoopSerializer<()>, V, P>
-    where V: Serializer
+where
+    V: Serializer,
 {
     /// Sets the key serializer to empty
     pub fn without_key_serializer(mut self) -> Self {
@@ -240,7 +256,8 @@ impl<'a, V, P> ProducerBuilder<'a, NoopSerializer<()>, V, P>
 }
 
 impl<'a, K, P> ProducerBuilder<'a, K, NoopSerializer<()>, P>
-    where K: Serializer
+where
+    K: Serializer,
 {
     /// Sets the value serializer to empty
     pub fn without_value_serializer(mut self) -> Self {
@@ -250,8 +267,9 @@ impl<'a, K, P> ProducerBuilder<'a, K, NoopSerializer<()>, P>
 }
 
 impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner>
-    where K: Serializer,
-          V: Serializer
+where
+    K: Serializer,
+    V: Serializer,
 {
     /// Sets the default partitioner
     pub fn with_default_partitioner(mut self) -> Self {
@@ -261,28 +279,36 @@ impl<'a, K, V> ProducerBuilder<'a, K, V, DefaultPartitioner>
 }
 
 impl<'a, K, V, P> ProducerBuilder<'a, K, V, P>
-    where K: Serializer,
-          K::Item: Hash,
-          V: Serializer,
-          Self: 'static
+where
+    K: Serializer,
+    K::Item: Hash,
+    V: Serializer,
+    Self: 'static,
 {
     /// Construct a `KafkaProducer`
     pub fn build(self) -> Result<KafkaProducer<'a, K, V, P>> {
         let client = if let Some(client) = self.client {
             client
         } else {
-            KafkaClient::from_config(self.config.client.clone(),
-                                     self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?)
+            KafkaClient::with_config(
+                self.config.client.clone(),
+                self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?,
+            )
         };
 
-        Ok(KafkaProducer::new(client,
-                              self.config,
-                              self.key_serializer
-                                  .ok_or(ErrorKind::ConfigError("missed key serializer"))?,
-                              self.value_serializer
-                                  .ok_or(ErrorKind::ConfigError("missed value serializer"))?,
-                              self.partitioner
-                                  .ok_or(ErrorKind::ConfigError("missed partitioner"))?,
-                              self.interceptors))
+        Ok(KafkaProducer::new(
+            client,
+            self.config,
+            self.key_serializer.ok_or(ErrorKind::ConfigError(
+                "missed key serializer",
+            ))?,
+            self.value_serializer.ok_or(ErrorKind::ConfigError(
+                "missed value serializer",
+            ))?,
+            self.partitioner.ok_or(
+                ErrorKind::ConfigError("missed partitioner"),
+            )?,
+            self.interceptors,
+        ))
     }
 }

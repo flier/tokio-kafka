@@ -45,17 +45,18 @@ impl<'a, K, V> Default for ConsumerBuilder<'a, K, V> {
     }
 }
 
-impl<'a, K, V> ConsumerBuilder<'a, K, V> {
-    /// Construct a `ProducerBuilder` from KafkaClient
-    pub fn from_client(client: KafkaClient<'a>) -> Self {
+impl<'a, K, V> From<KafkaClient<'a>> for ConsumerBuilder<'a, K, V> {
+    fn from(client: KafkaClient<'a>) -> Self {
         ConsumerBuilder {
             client: Some(client),
             ..Default::default()
         }
     }
+}
 
+impl<'a, K, V> ConsumerBuilder<'a, K, V> {
     /// Construct a `ProducerBuilder` from ProducerConfig
-    pub fn from_config(config: ConsumerConfig, handle: Handle) -> Self {
+    pub fn with_config(config: ConsumerConfig, handle: Handle) -> Self {
         ConsumerBuilder {
             config: config,
             handle: Some(handle),
@@ -64,11 +65,11 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
     }
 
     /// Construct a `ProducerBuilder` from brokers
-    pub fn from_hosts<I>(hosts: I, handle: Handle) -> Self
+    pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
         I: Iterator<Item = SocketAddr>,
     {
-        Self::from_config(ConsumerConfig::from_hosts(hosts), handle)
+        Self::with_config(ConsumerConfig::with_bootstrap_servers(hosts), handle)
     }
 
     fn with_client(mut self, client: KafkaClient<'a>) -> Self {
@@ -226,7 +227,7 @@ where
         let client = if let Some(client) = self.client {
             client
         } else {
-            KafkaClient::from_config(
+            KafkaClient::with_config(
                 self.config.client.clone(),
                 self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?,
             )

@@ -119,7 +119,7 @@ fn run(config: Config) -> Result<()> {
 
     let handle = core.handle();
 
-    let builder = ConsumerBuilder::from_hosts(hosts, handle)
+    let builder = ConsumerBuilder::with_bootstrap_servers(hosts, handle)
         .with_client_id(config.client_id)
         .with_group_id(config.group_id)
         .with_key_deserializer(StringDeserializer::default())

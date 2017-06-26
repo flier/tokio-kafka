@@ -261,7 +261,7 @@ where
 
     let handle = core.handle();
 
-    let mut builder = ProducerBuilder::from_hosts(hosts, handle.clone())
+    let mut builder = ProducerBuilder::with_bootstrap_servers(hosts, handle.clone())
         .with_client_id(config.client_id)
         .with_max_connection_idle(config.idle_timeout)
         .with_required_acks(config.required_acks)

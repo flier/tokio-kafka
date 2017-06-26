@@ -106,23 +106,6 @@ where
             }),
         }
     }
-
-    pub fn from_client(client: KafkaClient<'a>) -> ProducerBuilder<'a, K, V, P>
-    where
-        K: Serializer,
-        V: Serializer,
-    {
-        ProducerBuilder::from_client(client)
-    }
-
-    pub fn from_hosts<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, P>
-    where
-        I: Iterator<Item = SocketAddr>,
-        K: Serializer,
-        V: Serializer,
-    {
-        ProducerBuilder::from_config(ProducerConfig::from_hosts(hosts), handle)
-    }
 }
 
 impl<'a, K, V, P> Producer<'a> for KafkaProducer<'a, K, V, P>

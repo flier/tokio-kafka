@@ -306,14 +306,7 @@ impl<'a> KafkaClient<'a>
 where
     Self: 'static,
 {
-    pub fn from_hosts<I>(hosts: I, handle: Handle) -> ClientBuilder<'a>
-    where
-        I: Iterator<Item = SocketAddr>,
-    {
-        ClientBuilder::from_hosts(hosts, handle)
-    }
-
-    pub fn from_config(config: ClientConfig, handle: Handle) -> KafkaClient<'a> {
+    pub fn with_config(config: ClientConfig, handle: Handle) -> KafkaClient<'a> {
         trace!("create client from config: {:?}", config);
 
         let metrics = if config.metrics {

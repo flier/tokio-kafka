@@ -1,13 +1,13 @@
-use std::time::Duration;
-use std::ops::{Deref, DerefMut};
-use std::net::SocketAddr;
 use std::marker::PhantomData;
+use std::net::SocketAddr;
+use std::ops::{Deref, DerefMut};
+use std::time::Duration;
 
 use tokio_core::reactor::Handle;
 
+use client::{ClientConfig, KafkaClient, KafkaVersion};
 use errors::{ErrorKind, Result};
 use protocol::ToMilliseconds;
-use client::{ClientConfig, KafkaClient, KafkaVersion};
 
 /// A `KafkaClient` builder easing the process of setting up various configuration settings.
 #[derive(Default)]
@@ -38,7 +38,7 @@ impl<'a> ClientBuilder<'a> {
     }
 
     /// Construct a `ClientBuilder` from ClientConfig
-    pub fn from_config(config: ClientConfig, handle: Handle) -> Self {
+    pub fn with_config(config: ClientConfig, handle: Handle) -> Self {
         ClientBuilder {
             config: config,
             handle: Some(handle),
@@ -47,10 +47,11 @@ impl<'a> ClientBuilder<'a> {
     }
 
     /// Construct a `ClientBuilder` from brokers
-    pub fn from_hosts<I>(hosts: I, handle: Handle) -> Self
-        where I: Iterator<Item = SocketAddr>
+    pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
+    where
+        I: Iterator<Item = SocketAddr>,
     {
-        Self::from_config(ClientConfig::from_hosts(hosts), handle)
+        Self::with_config(ClientConfig::with_bootstrap_servers(hosts), handle)
     }
 
     fn with_handle(mut self, handle: Handle) -> Self {
@@ -76,7 +77,8 @@ impl<'a> ClientBuilder<'a> {
         self
     }
 
-    /// Sets the request broker's supported API versions to adjust functionality to available protocol features.
+    /// Sets the request broker's supported API versions to adjust functionality to available
+    /// protocol features.
     pub fn with_api_version_request(mut self) -> Self {
         self.config.api_version_request = true;
         self
@@ -102,12 +104,12 @@ impl<'a> ClientBuilder<'a> {
 }
 
 impl<'a> ClientBuilder<'a>
-    where Self: 'static
+where
+    Self: 'static,
 {
     pub fn build(self) -> Result<KafkaClient<'a>> {
-        let handle = self.handle
-            .ok_or(ErrorKind::ConfigError("missed handle"))?;
+        let handle = self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?;
 
-        Ok(KafkaClient::from_config(self.config, handle))
+        Ok(KafkaClient::with_config(self.config, handle))
     }
 }

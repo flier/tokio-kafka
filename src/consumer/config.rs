@@ -204,11 +204,12 @@ impl Default for ConsumerConfig {
 }
 
 impl ConsumerConfig {
-    pub fn from_hosts<I>(hosts: I) -> Self
-        where I: Iterator<Item = SocketAddr>
+    pub fn with_bootstrap_servers<I>(hosts: I) -> Self
+    where
+        I: Iterator<Item = SocketAddr>,
     {
         ConsumerConfig {
-            client: ClientConfig::from_hosts(hosts),
+            client: ClientConfig::with_bootstrap_servers(hosts),
             ..Default::default()
         }
     }
@@ -253,16 +254,26 @@ mod tests {
     fn test_properties() {
         let config = ConsumerConfig::default();
 
-        assert_eq!(config.auto_commit_interval(),
-                   Duration::from_millis(DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS));
-        assert_eq!(config.heartbeat_interval(),
-                   Duration::from_millis(DEFAULT_HEARTBEAT_INTERVAL_MILLIS));
-        assert_eq!(config.session_timeout(),
-                   Duration::from_millis(DEFAULT_SESSION_TIMEOUT_MILLIS));
-        assert_eq!(config.rebalance_timeout(),
-                   Duration::from_millis(DEFAULT_REBALANCE_TIMEOUT_MILLIS));
-        assert_eq!(config.fetch_max_wait(),
-                   Duration::from_millis(DEFAULT_FETCH_MAX_WAIT_MILLIS));
+        assert_eq!(
+            config.auto_commit_interval(),
+            Duration::from_millis(DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS)
+        );
+        assert_eq!(
+            config.heartbeat_interval(),
+            Duration::from_millis(DEFAULT_HEARTBEAT_INTERVAL_MILLIS)
+        );
+        assert_eq!(
+            config.session_timeout(),
+            Duration::from_millis(DEFAULT_SESSION_TIMEOUT_MILLIS)
+        );
+        assert_eq!(
+            config.rebalance_timeout(),
+            Duration::from_millis(DEFAULT_REBALANCE_TIMEOUT_MILLIS)
+        );
+        assert_eq!(
+            config.fetch_max_wait(),
+            Duration::from_millis(DEFAULT_FETCH_MAX_WAIT_MILLIS)
+        );
     }
 
     #[test]
@@ -300,7 +311,9 @@ mod tests {
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);
-        assert_eq!(serde_json::from_str::<ConsumerConfig>(json).unwrap(),
-                   config);
+        assert_eq!(
+            serde_json::from_str::<ConsumerConfig>(json).unwrap(),
+            config
+        );
     }
 }

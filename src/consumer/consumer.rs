@@ -20,6 +20,7 @@ pub trait Consumer<'a> {
     /// The type of `Stream` to receive records from topics
     type Topics: Stream<Item = ConsumerRecord<'a, Self::Key, Self::Value>, Error = Error>;
 
+    /// Subscribe to the given list of topics to get dynamically assigned partitions.
     fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
     where
         S: AsRef<str> + Hash + Eq;
