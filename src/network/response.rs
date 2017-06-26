@@ -48,16 +48,19 @@ impl KafkaResponse {
         }
     }
 
-    pub fn parse<T: AsRef<[u8]>>(src: T,
-                                 api_key: ApiKeys,
-                                 api_version: ApiVersion)
-                                 -> io::Result<Option<Self>> {
+    pub fn parse<T: AsRef<[u8]>>(
+        src: T,
+        api_key: ApiKeys,
+        api_version: ApiVersion,
+    ) -> io::Result<Option<Self>> {
         let buf = src.as_ref();
 
-        debug!("parsing {} bytes response as {:?} ({:?})",
-               buf.len(),
-               api_key,
-               api_version);
+        debug!(
+            "parsing {:?} response (api_version = {:?}) with {} bytes",
+            api_key,
+            api_version,
+            buf.len(),
+        );
 
         let res = match api_key {
             ApiKeys::Produce => {
@@ -98,12 +101,14 @@ impl KafkaResponse {
                 Ok(Some(res))
             }
             IResult::Incomplete(needed) => {
-                warn!("incomplete response, need more {} bytes",
-                      if let Needed::Size(size) = needed {
-                          size.to_string()
-                      } else {
-                          "unknown".to_owned()
-                      });
+                warn!(
+                    "incomplete response, need more {} bytes",
+                    if let Needed::Size(size) = needed {
+                        size.to_string()
+                    } else {
+                        "unknown".to_owned()
+                    }
+                );
 
                 debug!("\n{}", hexdump!(buf));
 
@@ -114,8 +119,10 @@ impl KafkaResponse {
                     display_parse_error::<KafkaResponse>(&buf[..], IResult::Error(err.clone()));
                 }
 
-                Err(io::Error::new(io::ErrorKind::InvalidData,
-                                   format!("fail to parse response, {}", err)))
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("fail to parse response, {}", err),
+                ))
             }
         }
     }

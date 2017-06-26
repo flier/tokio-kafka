@@ -3,7 +3,7 @@ use std::ops::Deref;
 
 use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 
-use nom::{be_i32, be_i64, be_i8};
+use nom::{IResult, be_i32, be_i64, be_i8};
 
 use time;
 
@@ -195,7 +195,18 @@ impl MessageSetEncoder {
     }
 }
 
-named_args!(pub parse_message_set(api_version: ApiVersion)<MessageSet>,
+pub fn parse_message_set(
+    input: &[u8],
+    api_version: ApiVersion,
+) -> IResult<&[u8], Option<MessageSet>> {
+    if input.is_empty() {
+        IResult::Done(input, None)
+    } else {
+        parse_message_set_data(input, api_version).map(Some)
+    }
+}
+
+named_args!(parse_message_set_data(api_version: ApiVersion)<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
         do_parse!(
             messages: length_count!(be_i32, apply!(parse_message, api_version))
@@ -407,5 +418,79 @@ impl MessageSetBuilder {
         self.written_uncompressed += record_size;
 
         Ok(relative_offset)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::*;
+
+    #[test]
+    fn parse_empty_message_set() {
+        assert_eq!(parse_message_set(&b""[..], 0), IResult::Done(&[][..], None));
+    }
+
+    #[test]
+    fn parse_message_set_v0() {
+        let data = vec![
+            // messages: [Message]
+            0, 0, 0, 1, // count
+                0, 0, 0, 0, 0, 0, 0, 0,                     // offset
+                0, 0, 0, 22,                                // size
+                197, 70, 142, 169,                          // crc
+                0,                                          // magic
+                8,                                          // attributes
+                0, 0, 0, 3, b'k', b'e', b'y',               // key
+                0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e'    // value
+        ];
+
+        let message_set = MessageSet {
+            messages: vec![Message {
+                            offset: 0,
+                            compression: Compression::None,
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
+                            timestamp: None,
+                        }],
+        };
+
+        let res = parse_message_set_data(&data[..], 0);
+
+        display_parse_error::<_>(&data[..], res.clone());
+
+        assert_eq!(res, IResult::Done(&[][..], message_set));
+    }
+
+    #[test]
+    fn parse_message_set_v1() {
+        let data = vec![
+            // messages: [Message]
+            0, 0, 0, 1, // count
+                0, 0, 0, 0, 0, 0, 0, 0,                     // offset
+                0, 0, 0, 30,                                // size
+                206, 63, 210, 11,                           // crc
+                1,                                          // magic
+                8,                                          // attributes
+                0, 0, 0, 0, 0, 0, 1, 200,                   // timestamp
+                0, 0, 0, 3, b'k', b'e', b'y',               // key
+                0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e'    // value
+        ];
+
+        let message_set = MessageSet {
+            messages: vec![Message {
+                            offset: 0,
+                            compression: Compression::None,
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
+                            timestamp: Some(MessageTimestamp::LogAppendTime(456)),
+                        }],
+        };
+
+        let res = parse_message_set_data(&data[..], 1);
+
+        display_parse_error::<_>(&data[..], res.clone());
+
+        assert_eq!(res, IResult::Done(&[][..], message_set));
     }
 }

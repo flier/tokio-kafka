@@ -119,7 +119,7 @@ pub struct FetchPartitionData {
     pub error_code: ErrorCode,
     /// The offset at the end of the log for this partition.
     pub high_watermark: Offset,
-    pub message_set: MessageSet,
+    pub message_set: Option<MessageSet>,
 }
 
 impl FetchResponse {
@@ -175,7 +175,6 @@ named_args!(parse_fetch_partition_data(api_version: ApiVersion)<FetchPartitionDa
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use bytes::{BigEndian, Bytes};
     use compression::Compression;
@@ -184,7 +183,7 @@ mod tests {
     use protocol::*;
 
     #[test]
-    fn test_encode_fetch_request() {
+    fn encode_fetch_request() {
         let request = FetchRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Fetch as ApiKey,
@@ -238,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_fetch_request_v3() {
+    fn encode_fetch_request_v3() {
         let request = FetchRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Fetch as ApiKey,
@@ -293,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fetch_response_v0() {
+    fn parse_fetch_response_v0() {
         let response = FetchResponse {
             header: ResponseHeader { correlation_id: 123 },
             throttle_time: None,
@@ -303,7 +302,7 @@ mod tests {
                     partition_id: 1,
                     error_code: 2,
                     high_watermark: 3,
-                    message_set: MessageSet {
+                    message_set: Some(MessageSet {
                         messages: vec![Message {
                             offset: 0,
                             compression: Compression::None,
@@ -311,7 +310,7 @@ mod tests {
                             value: Some(Bytes::from(&b"value"[..])),
                             timestamp: None,
                         }],
-                    },
+                    }),
                 }],
             }],
         };
@@ -350,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fetch_response_v1() {
+    fn parse_fetch_response_v1() {
         let response = FetchResponse {
             header: ResponseHeader { correlation_id: 123 },
             throttle_time: Some(1),
@@ -360,7 +359,7 @@ mod tests {
                     partition_id: 1,
                     error_code: 2,
                     high_watermark: 3,
-                    message_set: MessageSet {
+                    message_set: Some(MessageSet {
                         messages: vec![Message {
                             offset: 0,
                             compression: Compression::None,
@@ -368,7 +367,7 @@ mod tests {
                             value: Some(Bytes::from(&b"value"[..])),
                             timestamp: Some(MessageTimestamp::LogAppendTime(456)),
                         }],
-                    },
+                    }),
                 }],
             }],
         };
