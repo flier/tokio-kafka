@@ -55,7 +55,7 @@ impl<'a, K, V> From<KafkaClient<'a>> for ConsumerBuilder<'a, K, V> {
 }
 
 impl<'a, K, V> ConsumerBuilder<'a, K, V> {
-    /// Construct a `ProducerBuilder` from ProducerConfig
+    /// Construct a `ConsumerBuilder` from ConsumerConfig
     pub fn with_config(config: ConsumerConfig, handle: Handle) -> Self {
         ConsumerBuilder {
             config: config,
@@ -64,7 +64,7 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         }
     }
 
-    /// Construct a `ProducerBuilder` from brokers
+    /// Construct a `ConsumerBuilder` from bootstrap servers
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
         I: Iterator<Item = SocketAddr>,
@@ -227,7 +227,7 @@ where
         let client = if let Some(client) = self.client {
             client
         } else {
-            KafkaClient::with_config(
+            KafkaClient::new(
                 self.config.client.clone(),
                 self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?,
             )

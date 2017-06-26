@@ -1,12 +1,15 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::hash::Hash;
+use std::net::SocketAddr;
 use std::rc::Rc;
 
 use futures::{Future, Stream};
+use tokio_core::reactor::Handle;
 
 use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
-use consumer::{ConsumerConfig, ConsumerCoordinator, Fetcher, SubscribedTopics, Subscriptions};
+use consumer::{ConsumerBuilder, ConsumerConfig, ConsumerCoordinator, Fetcher, SubscribedTopics,
+               Subscriptions};
 use errors::{Error, ErrorKind};
 use protocol::{MessageTimestamp, Offset, PartitionId};
 use serialization::Deserializer;
@@ -61,6 +64,7 @@ struct Inner<'a, K, V> {
 }
 
 impl<'a, K, V> KafkaConsumer<'a, K, V> {
+    /// Construct a `KafkaConsumer`
     pub fn new(
         client: KafkaClient<'a>,
         config: ConsumerConfig,
@@ -75,6 +79,19 @@ impl<'a, K, V> KafkaConsumer<'a, K, V> {
                 value_deserializer: value_deserializer,
             }),
         }
+    }
+
+    /// Construct a `KafkaConsumer` from ConsumerConfig
+    pub fn with_config(config: ConsumerConfig, handle: Handle) -> ConsumerBuilder<'a, K, V> {
+        ConsumerBuilder::with_config(config, handle)
+    }
+
+    /// Construct a `KafkaConsumer` from bootstrap servers
+    pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ConsumerBuilder<'a, K, V>
+    where
+        I: Iterator<Item = SocketAddr>,
+    {
+        ConsumerBuilder::with_bootstrap_servers(hosts, handle)
     }
 }
 

@@ -3,20 +3,21 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
+use std::net::SocketAddr;
 use std::rc::Rc;
 
 use time;
 
 use futures::{Async, AsyncSink, Future, Poll, Sink, StartSend, Stream, future};
-use tokio_core::reactor::Timeout;
+use tokio_core::reactor::{Handle, Timeout};
 use tokio_retry::Retry;
 
 use client::{Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, ToStaticBoxFuture,
              TopicRecord};
 use errors::{Error, ErrorKind};
-use producer::{Accumulator, Interceptors, Partitioner, ProducerConfig, ProducerInterceptor,
-               ProducerInterceptors, ProducerRecord, PushRecord, RecordAccumulator,
-               RecordMetadata, Sender};
+use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
+               ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,
+               RecordAccumulator, RecordMetadata, Sender};
 use protocol::{ApiKeys, PartitionId, ToMilliseconds};
 use serialization::Serializer;
 
@@ -104,6 +105,19 @@ where
                 interceptors: interceptors,
             }),
         }
+    }
+
+    /// Construct a `ProducerBuilder` from ProducerConfig
+    pub fn with_config(config: ProducerConfig, handle: Handle) -> ProducerBuilder<'a, K, V, P> {
+        ProducerBuilder::with_config(config, handle)
+    }
+
+    /// Construct a `ProducerBuilder` from bootstrap servers
+    pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ProducerBuilder<'a, K, V, P>
+    where
+        I: Iterator<Item = SocketAddr>,
+    {
+        ProducerBuilder::with_bootstrap_servers(hosts, handle)
     }
 }
 

@@ -32,11 +32,6 @@ impl<'a> DerefMut for ClientBuilder<'a> {
 }
 
 impl<'a> ClientBuilder<'a> {
-    /// Construct a `ClientBuilder` with the default settings
-    pub fn new() -> Self {
-        Default::default()
-    }
-
     /// Construct a `ClientBuilder` from ClientConfig
     pub fn with_config(config: ClientConfig, handle: Handle) -> Self {
         ClientBuilder {
@@ -110,6 +105,6 @@ where
     pub fn build(self) -> Result<KafkaClient<'a>> {
         let handle = self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?;
 
-        Ok(KafkaClient::with_config(self.config, handle))
+        Ok(KafkaClient::new(self.config, handle))
     }
 }

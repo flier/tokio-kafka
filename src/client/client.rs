@@ -23,8 +23,8 @@ use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 use tokio_service::Service;
 use tokio_timer::Timer;
 
-use client::{Broker, BrokerRef, ClientConfig, Cluster, InFlightMiddleware, KafkaService, Metadata,
-             Metrics};
+use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware,
+             KafkaService, Metadata, Metrics};
 use errors::{Error, ErrorKind, Result};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
@@ -306,7 +306,7 @@ impl<'a> KafkaClient<'a>
 where
     Self: 'static,
 {
-    pub fn with_config(config: ClientConfig, handle: Handle) -> KafkaClient<'a> {
+    pub fn new(config: ClientConfig, handle: Handle) -> KafkaClient<'a> {
         trace!("create client from config: {:?}", config);
 
         let metrics = if config.metrics {
@@ -339,6 +339,19 @@ where
         client.refresh_metadata();
 
         client
+    }
+
+    /// Construct a `ClientBuilder` from ClientConfig
+    pub fn with_config(config: ClientConfig, handle: Handle) -> ClientBuilder<'a> {
+        ClientBuilder::with_config(config, handle)
+    }
+
+    /// Construct a `ClientBuilder` from bootstrap servers
+    pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ClientBuilder<'a>
+    where
+        I: Iterator<Item = SocketAddr>,
+    {
+        ClientBuilder::with_bootstrap_servers(hosts, handle)
     }
 
     pub fn handle(&self) -> &Handle {

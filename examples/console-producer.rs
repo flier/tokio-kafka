@@ -30,9 +30,9 @@ use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
 
 use tokio_kafka::{BytesSerializer, Compression, DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE,
-                  DEFAULT_LINGER_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, KafkaVersion,
-                  Producer, ProducerBuilder, ProducerInterceptor, ProducerRecord, RecordMetadata,
-                  RequiredAcks, TopicRecord};
+                  DEFAULT_LINGER_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
+                  KafkaProducer, KafkaVersion, Producer, ProducerInterceptor, ProducerRecord,
+                  RecordMetadata, RequiredAcks, TopicRecord};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
 const DEFAULT_CLIENT_ID: &str = "producer-1";
@@ -261,7 +261,7 @@ where
 
     let handle = core.handle();
 
-    let mut builder = ProducerBuilder::with_bootstrap_servers(hosts, handle.clone())
+    let mut builder = KafkaProducer::with_bootstrap_servers(hosts, handle.clone())
         .with_client_id(config.client_id)
         .with_max_connection_idle(config.idle_timeout)
         .with_required_acks(config.required_acks)

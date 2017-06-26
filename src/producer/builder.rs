@@ -290,7 +290,7 @@ where
         let client = if let Some(client) = self.client {
             client
         } else {
-            KafkaClient::with_config(
+            KafkaClient::new(
                 self.config.client.clone(),
                 self.handle.ok_or(ErrorKind::ConfigError("missed handle"))?,
             )

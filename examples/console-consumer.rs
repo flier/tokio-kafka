@@ -22,7 +22,7 @@ use getopts::Options;
 use futures::{Future, Stream, future};
 use tokio_core::reactor::Core;
 
-use tokio_kafka::{Consumer, ConsumerBuilder, StringDeserializer};
+use tokio_kafka::{Consumer, KafkaConsumer, StringDeserializer};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
 const DEFAULT_CLIENT_ID: &str = "consumer-1";
@@ -119,7 +119,7 @@ fn run(config: Config) -> Result<()> {
 
     let handle = core.handle();
 
-    let builder = ConsumerBuilder::with_bootstrap_servers(hosts, handle)
+    let builder = KafkaConsumer::with_bootstrap_servers(hosts, handle)
         .with_client_id(config.client_id)
         .with_group_id(config.group_id)
         .with_key_deserializer(StringDeserializer::default())
