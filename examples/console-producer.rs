@@ -8,7 +8,7 @@ extern crate getopts;
 extern crate futures;
 extern crate tokio_core;
 extern crate tokio_io;
-#[cfg(target_os = "unix")]
+#[cfg(not(target_os = "windows"))]
 extern crate tokio_file_unix;
 
 extern crate tokio_kafka;
@@ -26,7 +26,7 @@ use getopts::Options;
 
 use futures::{Future, Sink, Stream};
 use tokio_core::reactor::Core;
-#[cfg(target_os = "unix")]
+#[cfg(not(target_os = "windows"))]
 use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
