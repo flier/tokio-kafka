@@ -198,7 +198,7 @@ impl<'a> Subscriptions<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum SeekTo {
     Beginning,
     Position(Offset),

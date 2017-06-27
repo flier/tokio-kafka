@@ -23,7 +23,7 @@ use rand::Rng;
 use futures::{Future, Stream};
 use tokio_core::reactor::Core;
 
-use tokio_kafka::{Consumer, KafkaConsumer, SeekTo, StringDeserializer};
+use tokio_kafka::{Consumer, KafkaConsumer, SeekTo, StringDeserializer, Subscribed};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
 const DEFAULT_CLIENT_ID: &str = "consumer-1";
@@ -152,9 +152,17 @@ fn run(config: Config) -> Result<()> {
         .with_value_deserializer(StringDeserializer::default());
 
     let mut consumer = builder.build()?;
+    let offset = config.offset;
 
     let work = consumer
         .subscribe(&config.topics)
+        .and_then(move |topics| {
+            for partition in topics.assigment() {
+                topics.seek(&partition, offset)?;
+            }
+
+            Ok(topics)
+        })
         .and_then(|topics| {
             topics.for_each(|record| {
                 println!(
