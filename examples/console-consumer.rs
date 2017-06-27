@@ -20,7 +20,7 @@ use std::process;
 use getopts::Options;
 use rand::Rng;
 
-use futures::{Future, Stream, future};
+use futures::{Future, Stream};
 use tokio_core::reactor::Core;
 
 use tokio_kafka::{Consumer, KafkaConsumer, SeekTo, StringDeserializer};
@@ -157,18 +157,21 @@ fn run(config: Config) -> Result<()> {
         .subscribe(&config.topics)
         .and_then(|topics| {
             topics.for_each(|record| {
-                debug!(
-                    "consume record: key={:?}, value={:?}, ts={:?}",
-                    record.key,
-                    record.value,
-                    record.timestamp
+                println!(
+                    "{} {} {}",
+                    record.timestamp.map_or_else(
+                        || "NO_TIMESTAMP".to_owned(),
+                        |ts| ts.to_string(),
+                    ),
+                    record.key.unwrap_or_default(),
+                    record.value.unwrap_or_default()
                 );
 
-                future::ok(())
+                Ok(())
             })
         })
         .map(|_| ())
-        .map_err(Error::from);
+        .from_err();
 
     core.run(work)
 }

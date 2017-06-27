@@ -1,3 +1,4 @@
+use std::fmt;
 use std::mem;
 use std::ops::Deref;
 
@@ -115,6 +116,15 @@ impl Default for MessageTimestamp {
         let ts = time::now_utc().to_timespec();
 
         MessageTimestamp::CreateTime(ts.sec * 1000_000 + ts.nsec as Timestamp / 1000)
+    }
+}
+
+impl fmt::Display for MessageTimestamp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            MessageTimestamp::CreateTime(ts) => write!(f, "CreateTime:{}", ts),
+            MessageTimestamp::LogAppendTime(ts) => write!(f, "LogAppendTime:{}", ts),
+        }
     }
 }
 
