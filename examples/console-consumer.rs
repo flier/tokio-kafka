@@ -167,10 +167,10 @@ fn run(config: Config) -> Result<()> {
             topics.for_each(|record| {
                 println!(
                     "{} {} {}",
-                    record.timestamp.map_or_else(
-                        || "NO_TIMESTAMP".to_owned(),
-                        |ts| ts.to_string(),
-                    ),
+                    record
+                        .timestamp
+                        .map(|ts| ts.to_string())
+                        .unwrap_or_default(),
                     record.key.unwrap_or_default(),
                     record.value.unwrap_or_default()
                 );

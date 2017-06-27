@@ -212,14 +212,14 @@ pub fn parse_message_set(
     if input.is_empty() {
         IResult::Done(input, None)
     } else {
-        parse_message_set_data(input, api_version).map(Some)
+        parse_message_set_data(input, api_version).map(|message_set| Some(message_set))
     }
 }
 
 named_args!(parse_message_set_data(api_version: ApiVersion)<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
         do_parse!(
-            messages: length_count!(be_i32, apply!(parse_message, api_version))
+            messages: many0!(apply!(parse_message, api_version))
          >> (MessageSet {
                 messages: messages,
             })
@@ -445,14 +445,13 @@ mod tests {
     fn parse_message_set_v0() {
         let data = vec![
             // messages: [Message]
-            0, 0, 0, 1, // count
-                0, 0, 0, 0, 0, 0, 0, 0,                     // offset
-                0, 0, 0, 22,                                // size
-                197, 70, 142, 169,                          // crc
-                0,                                          // magic
-                8,                                          // attributes
-                0, 0, 0, 3, b'k', b'e', b'y',               // key
-                0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e'    // value
+            0, 0, 0, 0, 0, 0, 0, 0,                     // offset
+            0, 0, 0, 22,                                // size
+            197, 70, 142, 169,                          // crc
+            0,                                          // magic
+            8,                                          // attributes
+            0, 0, 0, 3, b'k', b'e', b'y',               // key
+            0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e'    // value
         ];
 
         let message_set = MessageSet {
@@ -476,15 +475,14 @@ mod tests {
     fn parse_message_set_v1() {
         let data = vec![
             // messages: [Message]
-            0, 0, 0, 1, // count
-                0, 0, 0, 0, 0, 0, 0, 0,                     // offset
-                0, 0, 0, 30,                                // size
-                206, 63, 210, 11,                           // crc
-                1,                                          // magic
-                8,                                          // attributes
-                0, 0, 0, 0, 0, 0, 1, 200,                   // timestamp
-                0, 0, 0, 3, b'k', b'e', b'y',               // key
-                0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e'    // value
+            0, 0, 0, 0, 0, 0, 0, 0,                     // offset
+            0, 0, 0, 30,                                // size
+            206, 63, 210, 11,                           // crc
+            1,                                          // magic
+            8,                                          // attributes
+            0, 0, 0, 0, 0, 0, 1, 200,                   // timestamp
+            0, 0, 0, 3, b'k', b'e', b'y',               // key
+            0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e'    // value
         ];
 
         let message_set = MessageSet {

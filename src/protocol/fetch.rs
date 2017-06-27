@@ -328,17 +328,16 @@ mod tests {
                     0, 2,                   // error_code
                     0, 0, 0, 0, 0, 0, 0, 3, // highwater_mark_offset
                     // MessageSet
-                    0, 0, 0, 38,            // size
+                    0, 0, 0, 34,            // size
                         // messages: [Message]
-                        0, 0, 0, 1,
-                            0, 0, 0, 0, 0, 0, 0, 0,             // offset
-                            0, 0, 0, 22,                        // size
-                            197, 70, 142, 169,                  // crc
-                            0,                                  // magic
-                            8,                                  // attributes
-                            //0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
-                            0, 0, 0, 3, 107, 101, 121,          // key
-                            0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+                        0, 0, 0, 0, 0, 0, 0, 0,             // offset
+                        0, 0, 0, 22,                        // size
+                        197, 70, 142, 169,                  // crc
+                        0,                                  // magic
+                        8,                                  // attributes
+                        //0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
+                        0, 0, 0, 3, 107, 101, 121,          // key
+                        0, 0, 0, 5, 118, 97, 108, 117, 101  // value
         ];
 
         let res = parse_fetch_response(&data[..], 0);
@@ -385,17 +384,16 @@ mod tests {
                     0, 2,                   // error_code
                     0, 0, 0, 0, 0, 0, 0, 3, // highwater_mark_offset
                     // MessageSet
-                    0, 0, 0, 46,            // size
+                    0, 0, 0, 42,            // size
                         // messages: [Message]
-                        0, 0, 0, 1,
-                            0, 0, 0, 0, 0, 0, 0, 0,             // offset
-                            0, 0, 0, 30,                        // size
-                            206, 63, 210, 11,                   // crc
-                            1,                                  // magic
-                            8,                                  // attributes
-                            0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
-                            0, 0, 0, 3, 107, 101, 121,          // key
-                            0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+                        0, 0, 0, 0, 0, 0, 0, 0,             // offset
+                        0, 0, 0, 30,                        // size
+                        206, 63, 210, 11,                   // crc
+                        1,                                  // magic
+                        8,                                  // attributes
+                        0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
+                        0, 0, 0, 3, 107, 101, 121,          // key
+                        0, 0, 0, 5, 118, 97, 108, 117, 101  // value
         ];
 
         let res = parse_fetch_response(&data[..], 1);
