@@ -119,7 +119,7 @@ pub struct FetchPartitionData {
     pub error_code: ErrorCode,
     /// The offset at the end of the log for this partition.
     pub high_watermark: Offset,
-    pub message_set: Option<MessageSet>,
+    pub message_set: MessageSet,
 }
 
 impl FetchResponse {
@@ -302,7 +302,7 @@ mod tests {
                     partition_id: 1,
                     error_code: 2,
                     high_watermark: 3,
-                    message_set: Some(MessageSet {
+                    message_set: MessageSet {
                         messages: vec![Message {
                             offset: 0,
                             compression: Compression::None,
@@ -310,7 +310,7 @@ mod tests {
                             value: Some(Bytes::from(&b"value"[..])),
                             timestamp: None,
                         }],
-                    }),
+                    },
                 }],
             }],
         };
@@ -358,7 +358,7 @@ mod tests {
                     partition_id: 1,
                     error_code: 2,
                     high_watermark: 3,
-                    message_set: Some(MessageSet {
+                    message_set: MessageSet {
                         messages: vec![Message {
                             offset: 0,
                             compression: Compression::None,
@@ -366,7 +366,7 @@ mod tests {
                             value: Some(Bytes::from(&b"value"[..])),
                             timestamp: Some(MessageTimestamp::LogAppendTime(456)),
                         }],
-                    }),
+                    },
                 }],
             }],
         };

@@ -974,10 +974,7 @@ where
                                     error_code: data.error_code.into(),
                                     fetch_offset: fetch.offset,
                                     high_watermark: data.high_watermark,
-                                    messages: data.message_set.map_or_else(
-                                        Vec::new,
-                                        |message_set| message_set.messages,
-                                    ),
+                                    messages: data.message_set.messages,
                                 }
                             })
                         })

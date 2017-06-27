@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 
-use nom::{IResult, be_i32, be_i64, be_i8};
+use nom::{be_i32, be_i64, be_i8};
 
 use time;
 
@@ -205,18 +205,7 @@ impl MessageSetEncoder {
     }
 }
 
-pub fn parse_message_set(
-    input: &[u8],
-    api_version: ApiVersion,
-) -> IResult<&[u8], Option<MessageSet>> {
-    if input.is_empty() {
-        IResult::Done(input, None)
-    } else {
-        parse_message_set_data(input, api_version).map(|message_set| Some(message_set))
-    }
-}
-
-named_args!(parse_message_set_data(api_version: ApiVersion)<MessageSet>,
+named_args!(pub parse_message_set(api_version: ApiVersion)<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
         do_parse!(
             messages: many0!(apply!(parse_message, api_version))
@@ -433,12 +422,14 @@ impl MessageSetBuilder {
 
 #[cfg(test)]
 mod tests {
+    use nom::IResult;
+
     use super::*;
     use protocol::*;
 
     #[test]
     fn parse_empty_message_set() {
-        assert_eq!(parse_message_set(&b""[..], 0), IResult::Done(&[][..], None));
+        assert_eq!(parse_message_set(&[][..], 0), IResult::Done(&[][..], MessageSet{messages:vec![]}));
     }
 
     #[test]
@@ -464,7 +455,7 @@ mod tests {
                         }],
         };
 
-        let res = parse_message_set_data(&data[..], 0);
+        let res = parse_message_set(&data[..], 0);
 
         display_parse_error::<_>(&data[..], res.clone());
 
@@ -495,7 +486,7 @@ mod tests {
                         }],
         };
 
-        let res = parse_message_set_data(&data[..], 1);
+        let res = parse_message_set(&data[..], 1);
 
         display_parse_error::<_>(&data[..], res.clone());
 
