@@ -4,6 +4,7 @@ extern crate error_chain;
 extern crate log;
 extern crate pretty_env_logger;
 extern crate getopts;
+extern crate rand;
 
 extern crate futures;
 extern crate tokio_core;
@@ -17,11 +18,12 @@ use std::path::Path;
 use std::process;
 
 use getopts::Options;
+use rand::Rng;
 
 use futures::{Future, Stream, future};
 use tokio_core::reactor::Core;
 
-use tokio_kafka::{Consumer, KafkaConsumer, StringDeserializer};
+use tokio_kafka::{Consumer, KafkaConsumer, SeekTo, StringDeserializer};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
 const DEFAULT_CLIENT_ID: &str = "consumer-1";
@@ -43,7 +45,9 @@ struct Config {
     client_id: String,
     topics: Vec<String>,
     group_id: String,
+    offset: SeekTo,
     no_commit: bool,
+    skip_message_on_error: bool,
 }
 
 impl Config {
@@ -53,7 +57,7 @@ impl Config {
         let mut opts = Options::new();
 
         opts.optflag("h", "help", "print this help menu");
-        opts.optopt(
+        opts.reqopt(
             "b",
             "bootstrap-server",
             "Bootstrap broker(s) (host[:port], comma separated)",
@@ -61,8 +65,20 @@ impl Config {
         );
         opts.optopt("", "client-id", "Specify the client id.", "ID");
         opts.optopt("g", "group-id", "Specify the consumer group.", "NAME");
-        opts.optopt("t", "topics", "Specify topics (comma separated).", "NAMES");
+        opts.reqopt(
+            "t",
+            "topics",
+            "The topic id to consume on (comma separated).",
+            "NAMES",
+        );
+        opts.optopt("o", "offset", "The offset id to consume from (a non-negative number), or 'earliest' which means from beginning, or 'latest' which means from end (default: latest).", "OFFSET");
+        opts.optflag("", "from-beginning", "If the consumer does not already have an established offset to consume from, start with the earliest message present in the log rather than the latest message.");
         opts.optflag("", "no-commit", "Do not commit group offsets.");
+        opts.optflag(
+            "",
+            "skip-message-on-error",
+            "If there is an error when processing a message, skip it instead of halt.",
+        );
 
         let m = opts.parse(&args[1..])?;
 
@@ -74,27 +90,38 @@ impl Config {
             process::exit(0);
         }
 
-        let brokers = m.opt_str("b").map_or_else(
-            || vec![DEFAULT_BROKER.to_owned()],
-            |s| {
-                s.split(',').map(|s| s.trim().to_owned()).collect()
-            },
-        );
-        let topics = m.opt_str("t").map_or_else(
-            || vec![DEFAULT_TOPIC.to_owned()],
-            |s| {
-                s.split(',').map(|s| s.trim().to_owned()).collect()
-            },
-        );
-
         Ok(Config {
-            brokers: brokers,
+            brokers: m.opt_str("b").map_or_else(
+                || vec![DEFAULT_BROKER.to_owned()],
+                |s| {
+                    s.split(',').map(|s| s.trim().to_owned()).collect()
+                },
+            ),
             client_id: m.opt_str("client-id").unwrap_or(
                 DEFAULT_CLIENT_ID.to_owned(),
             ),
-            topics: topics,
-            group_id: m.opt_str("g").unwrap_or_default(),
+            topics: m.opt_str("t").map_or_else(
+                || vec![DEFAULT_TOPIC.to_owned()],
+                |s| {
+                    s.split(',').map(|s| s.trim().to_owned()).collect()
+                },
+            ),
+            group_id: m.opt_str("g").unwrap_or_else(|| {
+                format!(
+                    "console-consumer-{}",
+                    rand::thread_rng().gen_range(1, 100000)
+                )
+            }),
+            offset: m.opt_str("o").map_or_else(
+                || if m.opt_present("from-beginning") {
+                    SeekTo::Beginning
+                } else {
+                    SeekTo::End
+                },
+                |s| s.parse().unwrap(),
+            ),
             no_commit: m.opt_present("no-commit"),
+            skip_message_on_error: m.opt_present("skip-message-on-error"),
         })
     }
 }

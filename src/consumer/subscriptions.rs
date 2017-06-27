@@ -198,10 +198,23 @@ impl<'a> Subscriptions<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum SeekTo {
     Beginning,
     Position(Offset),
     End,
+}
+
+impl FromStr for SeekTo {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(match s {
+            "earliest" => SeekTo::Beginning,
+            "latest" => SeekTo::End,
+            _ => SeekTo::Position(s.parse()?),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]
