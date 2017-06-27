@@ -1061,7 +1061,7 @@ where
         retention_time: Option<Duration>,
         offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
     ) -> OffsetCommit {
-        debug!("fetch offset to group `{}`: {:?}", group_id, offsets);
+        debug!("fetch offset to the `{}` group: {:?}", group_id, offsets);
 
         let addr = coordinator
             .addr()
@@ -1120,7 +1120,11 @@ where
         group_id: Cow<'a, str>,
         partitions: Vec<TopicPartition<'a>>,
     ) -> OffsetFetch {
-        debug!("fetch offset of group `{}`: {:?}", group_id, partitions);
+        debug!(
+            "fetch offset of the `{}` group : {:?}",
+            group_id,
+            partitions
+        );
 
         let addr = coordinator
             .addr()
@@ -1224,7 +1228,11 @@ where
         protocol_type: Cow<'a, str>,
         group_protocols: Vec<ConsumerGroupProtocol<'a>>,
     ) -> JoinGroup {
-        debug!("member `{}` join group `{}`", member_id, group_id);
+        if member_id.is_empty() {
+            debug!("new member join the `{}` group", group_id);
+        } else {
+            debug!("member `{}` rejoin the `{}` group", member_id, group_id);
+        }
 
         let addr = coordinator
             .addr()
@@ -1283,7 +1291,7 @@ where
         member_id: Cow<'a, str>,
     ) -> Heartbeat {
         debug!(
-            "member `{}` send heartbeat to group `{}`",
+            "member `{}` send heartbeat to the `{}` group",
             member_id,
             group_id
         );
@@ -1324,7 +1332,7 @@ where
         group_id: Cow<'a, str>,
         member_id: Cow<'a, str>,
     ) -> LeaveGroup {
-        debug!("member `{}` leave group `{}`", member_id, group_id);
+        debug!("member `{}` leave the `{}` group", member_id, group_id);
 
         let addr = coordinator
             .addr()
@@ -1366,7 +1374,7 @@ where
         group_assignment: Option<Vec<ConsumerGroupAssignment<'a>>>,
     ) -> SyncGroup {
         debug!(
-            "sync group `{}` # {} with member `{}`",
+            "sync the `{}` group as generation {} as member `{}`",
             group_id,
             group_generation_id,
             member_id
