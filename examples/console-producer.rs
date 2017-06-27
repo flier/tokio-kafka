@@ -75,46 +75,46 @@ impl Config {
         let program = Path::new(&args[0]).file_name().unwrap().to_str().unwrap();
         let mut opts = Options::new();
 
-        opts.optflag("h", "help", "print this help menu");
+        opts.optflag("h", "help", "print this help menu.");
         opts.optopt(
             "b",
-            "brokers",
-            "Bootstrap broker(s) (host[:port], comma separated)",
+            "bootstrap-server",
+            "Bootstrap broker(s) (host[:port], comma separated).",
             "HOSTS",
         );
-        opts.optopt("", "client-id", "Specify the client id", "ID");
+        opts.optopt("", "client-id", "Specify the client id.", "ID");
         opts.optopt(
             "",
             "broker-version",
-            "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto]",
+            "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto].",
             "VERSION",
         );
-        opts.optopt("t", "topic", "Specify target topic", "NAME");
-        opts.optopt("i", "input", "Specify input file", "FILE");
+        opts.optopt("t", "topic", "Specify target topic.", "NAME");
+        opts.optopt("i", "input", "Specify input file.", "FILE");
         opts.optopt("n", "batch-size", "Send N message in one batch.", "N");
         opts.optopt(
             "c",
             "compression",
-            "Compress messages [none, gzip, snappy, lz4]",
+            "Compress messages [none, gzip, snappy, lz4].",
             "TYPE",
         );
         opts.optopt(
             "a",
             "required-acks",
-            "Specify amount of required broker acknowledgments [none, one, all]",
+            "Specify amount of required broker acknowledgments [none, one, all].",
             "TYPE",
         );
-        opts.optopt("", "ack-timeout", "Specify time to wait for acks", "MS");
+        opts.optopt("", "ack-timeout", "Specify time to wait for acks.", "MS");
         opts.optopt(
             "",
             "idle-timeout",
-            "Specify timeout for idle connections",
+            "Specify timeout for idle connections.",
             "MS",
         );
         opts.optopt(
             "",
             "linger",
-            "The producer groups together any records in the linger timeout",
+            "The producer groups together any records in the linger timeout.",
             "MS",
         );
 

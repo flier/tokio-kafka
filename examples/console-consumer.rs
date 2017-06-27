@@ -55,14 +55,14 @@ impl Config {
         opts.optflag("h", "help", "print this help menu");
         opts.optopt(
             "b",
-            "brokers",
+            "bootstrap-server",
             "Bootstrap broker(s) (host[:port], comma separated)",
             "HOSTS",
         );
-        opts.optopt("", "client-id", "Specify the client id", "ID");
-        opts.optopt("t", "topics", "Specify topics (comma separated)", "NAMES");
-        opts.optopt("g", "group-id", "Specify the consumer group", "NAME");
-        opts.optflag("", "no-commit", "Do not commit group offsets");
+        opts.optopt("", "client-id", "Specify the client id.", "ID");
+        opts.optopt("g", "group-id", "Specify the consumer group.", "NAME");
+        opts.optopt("t", "topics", "Specify topics (comma separated).", "NAMES");
+        opts.optflag("", "no-commit", "Do not commit group offsets.");
 
         let m = opts.parse(&args[1..])?;
 
