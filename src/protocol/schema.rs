@@ -11,7 +11,7 @@ use std::str;
 use serde::de::{self, Deserialize, Visitor};
 use serde::ser::{self, Serialize, SerializeSeq};
 
-use byteorder::{BigEndian, ByteOrder, NativeEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
 
 use errors::{Error, ErrorKind, Result};
 
@@ -368,18 +368,24 @@ impl<'de> de::Visitor<'de> for NullableVisitor<Vec<u8>> {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-struct SchemaSerializer<O = NativeEndian> {
+#[derive(Debug, Clone)]
+struct SchemaSerializer<O> {
     buf: Vec<u8>,
     phantom: PhantomData<O>,
 }
 
-impl<O> SchemaSerializer<O> {
-    pub fn new() -> Self {
+impl<O> Default for SchemaSerializer<O> {
+    fn default() -> Self {
         SchemaSerializer {
             buf: Vec::with_capacity(64),
             phantom: PhantomData,
         }
+    }
+}
+
+impl<O> SchemaSerializer<O> {
+    pub fn new() -> Self {
+        SchemaSerializer::default()
     }
 
     pub fn bytes(self) -> Vec<u8> {
