@@ -41,11 +41,7 @@ impl<'a> Encoder for KafkaCodec<'a> {
             ..
         } = request.header();
 
-        let record_size = request.size(api_version);
-
-        if dst.remaining_mut() < record_size {
-            dst.reserve(record_size);
-        }
+        dst.reserve(request.size(api_version));
 
         request.encode::<BigEndian>(dst).map_err(|err| {
             io::Error::new(
