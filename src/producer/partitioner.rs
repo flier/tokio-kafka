@@ -140,15 +140,16 @@ mod tests {
         let partitioner = DefaultPartitioner::new();
 
         // partition with key
-        assert_eq!(
-            partitioner.partition(
-                "topic",
-                None,
-                Some("key").as_ref(),
-                Some("value").as_ref(),
-                &metadata,
-            ),
-            Some(2)
+        assert!(
+            partitioner
+                .partition(
+                    "topic",
+                    None,
+                    Some("key").as_ref(),
+                    Some("value").as_ref(),
+                    &metadata,
+                )
+                .is_some()
         );
 
         // partition without key
