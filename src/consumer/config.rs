@@ -261,7 +261,7 @@ mod tests {
 
         assert_eq!(
             config.auto_commit_interval(),
-            Duration::from_millis(DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS)
+            Some(Duration::from_millis(DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS))
         );
         assert_eq!(
             config.heartbeat_interval(),
