@@ -1,40 +1,47 @@
 #![allow(unused_variables)]
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 use std::usize;
 
 use tokio_core::reactor::Handle;
 
-use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster,
-             ConsumerGroupAssignment, ConsumerGroupProtocol, FetchRecords, Generation,
-             GetMetadata, GroupCoordinator, Heartbeat, InFlightMiddleware, JoinGroup,
-             KafkaService, LeaveGroup, ListOffsets, LoadMetadata, Metadata, Metrics, OffsetCommit,
-             OffsetFetch, PartitionData, ProduceRecords, SyncGroup, ToStaticBoxFuture};
+use client::{Broker, BrokerRef, Client, ConsumerGroupAssignment, ConsumerGroupProtocol,
+             FetchRecords, Generation, GetMetadata, GroupCoordinator, Heartbeat, JoinGroup,
+             LeaveGroup, ListOffsets, LoadMetadata, Metadata, OffsetCommit, OffsetFetch,
+             PartitionData, ProduceRecords, SyncGroup, ToStaticBoxFuture};
 use errors::ErrorKind;
 use network::{OffsetAndMetadata, TopicPartition};
-use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
-               FetchOffset, FetchPartition, FetchTopic, FetchTopicData, GenerationId,
-               JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset,
-               PartitionId, RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions};
+use protocol::{FetchOffset, KafkaCode, MessageSet, RequiredAcks};
 
 #[derive(Clone, Debug)]
-pub struct MockClient {
+pub struct MockClient<'a> {
     pub metadata: Rc<Metadata>,
+    pub group_coordinators: HashMap<Cow<'a, str>, Broker>,
 }
 
-impl MockClient {
+impl<'a> MockClient<'a> {
     pub fn new() -> Self {
-        MockClient { metadata: Rc::new(Metadata::default()) }
+        MockClient {
+            metadata: Rc::new(Metadata::default()),
+            group_coordinators: HashMap::new(),
+        }
     }
 
     pub fn with_metadata(metadata: Metadata) -> Self {
-        MockClient { metadata: Rc::new(metadata) }
+        MockClient {
+            metadata: Rc::new(metadata),
+            group_coordinators: HashMap::new(),
+        }
     }
 }
 
-impl<'a> Client<'a> for MockClient {
+impl<'a> Client<'a> for MockClient<'a>
+where
+    Self: 'static,
+{
     fn handle(&self) -> &Handle {
         unimplemented!()
     }
@@ -95,9 +102,10 @@ impl<'a> Client<'a> for MockClient {
     }
 
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
-        self.metadata
-            .brokers()
-            .first()
+        let metadata = self.metadata.clone();
+
+        self.group_coordinators
+            .get(&group_id)
             .cloned()
             .ok_or_else(|| {
                 ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable.into()).into()

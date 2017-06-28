@@ -670,9 +670,9 @@ mod tests {
     }
 
     fn build_coordinator<'a>(
-        client: MockClient,
+        client: MockClient<'a>,
         config: ConsumerConfig,
-    ) -> ConsumerCoordinator<'a, MockClient> {
+    ) -> ConsumerCoordinator<'a, MockClient<'a>> {
         ConsumerCoordinator::new(
             client,
             TEST_GROUP_ID.to_owned(),
@@ -696,13 +696,17 @@ mod tests {
         assert!(matches!(coordinator.group_coordinator().poll(),
                 Err(Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _))));
 
-        let coordinator =
-            build_coordinator(
-                MockClient::with_metadata(Metadata::with_brokers(vec![TEST_NODE.clone()])),
-                ConsumerConfig::default(),
+        let node = TEST_NODE.clone();
+        let coordinator = {
+            let mut client = MockClient::with_metadata(Metadata::with_brokers(vec![node.clone()]));
+
+            client.group_coordinators.insert(
+                TEST_GROUP_ID.into(),
+                node.clone(),
             );
 
-        let node = TEST_NODE.clone();
+            build_coordinator(client, ConsumerConfig::default())
+        };
 
         assert!(matches!(coordinator.group_coordinator().poll(), Ok(Async::Ready(node))));
     }
