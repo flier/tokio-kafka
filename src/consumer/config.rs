@@ -216,8 +216,12 @@ impl ConsumerConfig {
     }
 
     /// The frequency in milliseconds that the consumer offsets are auto-committed to Kafka.
-    pub fn auto_commit_interval(&self) -> Duration {
-        Duration::from_millis(self.auto_commit_interval)
+    pub fn auto_commit_interval(&self) -> Option<Duration> {
+        if self.enable_auto_commit {
+            Some(Duration::from_millis(self.auto_commit_interval))
+        } else {
+            None
+        }
     }
 
     /// The expected time between heartbeats to the consumer coordinator when using Kafka's

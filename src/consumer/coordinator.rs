@@ -63,6 +63,7 @@ struct Inner<'a> {
     rebalance_timeout: Duration,
     heartbeat_interval: Duration,
     retention_time: Option<Duration>,
+    auto_commit_interval: Option<Duration>,
     assignors: Vec<Box<PartitionAssignor>>,
     state: Rc<RefCell<State>>,
     timer: Rc<Timer>,
@@ -127,6 +128,7 @@ impl<'a> ConsumerCoordinator<'a> {
         rebalance_timeout: Duration,
         heartbeat_interval: Duration,
         retention_time: Option<Duration>,
+        auto_commit_interval: Option<Duration>,
         assignors: Vec<Box<PartitionAssignor>>,
         timer: Rc<Timer>,
     ) -> Self {
@@ -139,6 +141,7 @@ impl<'a> ConsumerCoordinator<'a> {
                 rebalance_timeout: rebalance_timeout,
                 heartbeat_interval: heartbeat_interval,
                 retention_time: retention_time,
+                auto_commit_interval: auto_commit_interval,
                 assignors: assignors,
                 timer: timer,
                 state: Rc::new(RefCell::new(State::Unjoined)),

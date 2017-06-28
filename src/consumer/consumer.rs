@@ -139,6 +139,7 @@ where
         let fetch_max_bytes = self.inner.config.fetch_max_bytes;
         let fetch_max_wait = self.inner.config.fetch_max_wait();
         let partition_fetch_bytes = self.inner.config.partition_fetch_bytes;
+        let auto_commit_interval = self.inner.config.auto_commit_interval();
         let assignors = self.inner
             .config
             .assignment_strategy
@@ -172,6 +173,7 @@ where
                         rebalance_timeout,
                         heartbeat_interval,
                         None,
+                        auto_commit_interval,
                         assignors,
                         timer,
                     );
