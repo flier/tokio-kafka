@@ -7,7 +7,7 @@ use std::rc::Rc;
 use futures::{Future, Stream};
 use tokio_core::reactor::Handle;
 
-use client::{Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
+use client::{Client, Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{ConsumerBuilder, ConsumerConfig, ConsumerCoordinator, Fetcher, SubscribedTopics,
                Subscriptions};
 use errors::{Error, ErrorKind};

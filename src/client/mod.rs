@@ -9,11 +9,15 @@ mod middleware;
 mod client;
 mod builder;
 
+#[cfg(test)]
+mod mock;
+
 pub use self::builder::ClientBuilder;
 pub use self::client::{Client, ConsumerGroup, ConsumerGroupAssignment, ConsumerGroupMember,
-                       ConsumerGroupProtocol, FetchRecords, FetchedRecords, Generation, JoinGroup,
-                       KafkaClient, ListOffsets, ListedOffset, LoadMetadata, OffsetCommit,
-                       OffsetFetch, PartitionData, ProduceRecords, StaticBoxFuture,
+                       ConsumerGroupProtocol, FetchRecords, FetchedRecords, Generation,
+                       GetMetadata, GroupCoordinator, Heartbeat, JoinGroup, KafkaClient,
+                       LeaveGroup, ListOffsets, ListedOffset, LoadMetadata, OffsetCommit,
+                       OffsetFetch, PartitionData, ProduceRecords, StaticBoxFuture, SyncGroup,
                        ToStaticBoxFuture};
 pub use self::cluster::{Broker, BrokerRef, Cluster, PartitionInfo};
 pub use self::config::{ClientConfig, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
@@ -25,3 +29,6 @@ pub use self::middleware::InFlightMiddleware;
 pub use self::record::{PartitionRecord, TopicRecord};
 pub use self::service::{FutureResponse, KafkaService};
 pub use self::version::KafkaVersion;
+
+#[cfg(test)]
+pub use self::mock::MockClient;

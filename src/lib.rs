@@ -55,6 +55,10 @@ extern crate lz4_compress;
 #[cfg(test)]
 extern crate pretty_env_logger;
 
+#[cfg(test)]
+#[macro_use]
+extern crate matches;
+
 #[macro_use]
 mod errors;
 mod compression;

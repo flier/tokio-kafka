@@ -11,8 +11,8 @@ use tokio_retry::Retry;
 use tokio_timer::Timer;
 
 use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupMember,
-             ConsumerGroupProtocol, Generation, JoinGroup as JoinConsumerGroup, KafkaClient,
-             Metadata, OffsetCommit, OffsetFetch, StaticBoxFuture, ToStaticBoxFuture};
+             ConsumerGroupProtocol, Generation, JoinGroup as JoinConsumerGroup, Metadata,
+             OffsetCommit, OffsetFetch, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
 use errors::{Error, ErrorKind, Result, ResultExt};
 use network::{OffsetAndMetadata, TopicPartition};
@@ -20,6 +20,9 @@ use protocol::{KafkaCode, Schema, ToMilliseconds};
 
 /// Manages the coordination process with the consumer coordinator.
 pub trait Coordinator<'a> {
+    /// Discover the current coordinator for the group.
+    fn group_coordinator(&self) -> GroupCoordinator;
+
     /// Join the consumer group.
     fn join_group(&self) -> JoinGroup;
 
@@ -43,6 +46,8 @@ pub trait Coordinator<'a> {
         -> FetchCommittedOffsets;
 }
 
+pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
+
 pub type JoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
 
 pub type RejoinGroup = JoinGroup;
@@ -58,12 +63,12 @@ pub type RefreshCommittedOffsets = StaticBoxFuture;
 pub type FetchCommittedOffsets = OffsetFetch;
 
 /// Manages the coordination process with the consumer coordinator.
-pub struct ConsumerCoordinator<'a> {
-    inner: Rc<Inner<'a>>,
+pub struct ConsumerCoordinator<'a, C> {
+    inner: Rc<Inner<'a, C>>,
 }
 
-struct Inner<'a> {
-    client: KafkaClient<'a>,
+struct Inner<'a, C> {
+    client: C,
     group_id: String,
     subscriptions: Rc<RefCell<Subscriptions<'a>>>,
     session_timeout: Duration,
@@ -126,9 +131,9 @@ impl State {
     }
 }
 
-impl<'a> ConsumerCoordinator<'a> {
+impl<'a, C> ConsumerCoordinator<'a, C> {
     pub fn new(
-        client: KafkaClient<'a>,
+        client: C,
         group_id: String,
         subscriptions: Rc<RefCell<Subscriptions<'a>>>,
         session_timeout: Duration,
@@ -157,8 +162,9 @@ impl<'a> ConsumerCoordinator<'a> {
     }
 }
 
-impl<'a> Inner<'a>
+impl<'a, C> Inner<'a, C>
 where
+    C: Client<'a> + Clone,
     Self: 'static,
 {
     fn group_protocols(&self) -> Vec<ConsumerGroupProtocol<'a>> {
@@ -385,11 +391,11 @@ where
             State::Stable { coordinator, .. } |
             State::Rebalancing { coordinator, .. } => Either::A(future::ok(coordinator)),
             State::Unjoined => {
-                let group_id = self.group_id.clone();
-
-                Either::B(self.client.group_coordinator(group_id.clone().into()).map(
-                    |coordinator| coordinator.as_ref(),
-                ))
+                Either::B(
+                    self.client
+                        .group_coordinator(self.group_id.clone().into())
+                        .map(|coordinator| coordinator.as_ref()),
+                )
             }
         }.static_boxed()
     }
@@ -407,12 +413,15 @@ where
     }
 }
 
-pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
-
-impl<'a> Coordinator<'a> for ConsumerCoordinator<'a>
+impl<'a, C> Coordinator<'a> for ConsumerCoordinator<'a, C>
 where
+    C: Client<'a> + Clone,
     Self: 'static,
 {
+    fn group_coordinator(&self) -> GroupCoordinator {
+        self.inner.group_coordinator()
+    }
+
     fn join_group(&self) -> JoinGroup {
         let group_id = self.inner.group_id.clone();
 
@@ -641,5 +650,60 @@ where
                 client.offset_fetch(coordinator, generation, partitions)
             })
             .static_boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use futures::Async;
+
+    use super::*;
+    use client::{Broker, MockClient};
+    use consumer::{ConsumerConfig, OffsetResetStrategy};
+
+    const TEST_GROUP_ID: &str = "test-group";
+
+    lazy_static! {
+        static ref TEST_NODE: Broker = Broker::new(0, "localhost", 9092);
+    }
+
+    fn build_coordinator<'a>(
+        client: MockClient,
+        config: ConsumerConfig,
+    ) -> ConsumerCoordinator<'a, MockClient> {
+        ConsumerCoordinator::new(
+            client,
+            TEST_GROUP_ID.to_owned(),
+            Rc::new(RefCell::new(
+                Subscriptions::new(OffsetResetStrategy::Earliest),
+            )),
+            config.session_timeout(),
+            config.rebalance_timeout(),
+            config.heartbeat_interval(),
+            None,
+            config.auto_commit_interval(),
+            vec![],
+            Rc::new(config.timer()),
+        )
+    }
+
+    #[test]
+    fn test_lookup_coordinator() {
+        let coordinator = build_coordinator(MockClient::new(), ConsumerConfig::default());
+
+        assert!(matches!(coordinator.group_coordinator().poll(),
+                Err(Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _))));
+
+        let coordinator =
+            build_coordinator(
+                MockClient::with_metadata(Metadata::with_brokers(vec![TEST_NODE.clone()])),
+                ConsumerConfig::default(),
+            );
+
+        let node = TEST_NODE.clone();
+
+        assert!(matches!(coordinator.group_coordinator().poll(), Ok(Async::Ready(node))));
     }
 }

@@ -12,8 +12,8 @@ use futures::{Async, AsyncSink, Future, Poll, Sink, StartSend, Stream, future};
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_retry::Retry;
 
-use client::{Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, ToStaticBoxFuture,
-             TopicRecord};
+use client::{Client, Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture,
+             ToStaticBoxFuture, TopicRecord};
 use errors::{Error, ErrorKind};
 use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
                ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,

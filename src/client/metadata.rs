@@ -25,6 +25,15 @@ pub struct Metadata {
 }
 
 impl Metadata {
+    /// Create a new Metadata with the given brokers
+    pub fn with_brokers(brokers: Vec<Broker>) -> Self {
+        Metadata {
+            brokers: brokers,
+            topic_partitions: HashMap::new(),
+            group_coordinators: HashMap::new(),
+        }
+    }
+
     /// Create a new Metadata with the given topic and partitions
     pub fn with_topics(topics: Vec<(String, Vec<PartitionInfo>)>) -> Self {
         Metadata {

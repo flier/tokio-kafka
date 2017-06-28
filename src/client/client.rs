@@ -34,6 +34,13 @@ use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, E
 
 /// A trait for communicating with the Kafka cluster.
 pub trait Client<'a>: 'static {
+    fn handle(&self) -> &Handle;
+
+    fn metadata(&self) -> GetMetadata;
+
+    /// The retry strategy when request failed
+    fn retry_strategy(&self) -> Vec<Duration>;
+
     /// Send the given record asynchronously and return a future which will eventually contain
     /// the response information.
     fn produce_records(
@@ -354,20 +361,12 @@ where
         ClientBuilder::with_bootstrap_servers(hosts, handle)
     }
 
-    pub fn handle(&self) -> &Handle {
-        &self.inner.handle
-    }
-
     pub fn timer(&self) -> Rc<Timer> {
         self.inner.timer.clone()
     }
 
     pub fn metrics(&self) -> Option<Rc<Metrics>> {
         self.inner.metrics.clone()
-    }
-
-    pub fn metadata(&self) -> GetMetadata {
-        (*self.inner.state).borrow().metadata()
     }
 
     pub fn refresh_metadata(&mut self) {
@@ -391,6 +390,18 @@ impl<'a> Client<'a> for KafkaClient<'a>
 where
     Self: 'static,
 {
+    fn handle(&self) -> &Handle {
+        &self.inner.handle
+    }
+
+    fn metadata(&self) -> GetMetadata {
+        (*self.inner.state).borrow().metadata()
+    }
+
+    fn retry_strategy(&self) -> Vec<Duration> {
+        self.inner.config.retry_strategy()
+    }
+
     fn produce_records(
         &self,
         required_acks: RequiredAcks,

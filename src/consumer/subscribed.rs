@@ -7,7 +7,7 @@ use std::rc::Rc;
 use bytes::IntoBuf;
 use futures::{Async, Future, Poll, Stream};
 
-use client::{FetchRecords, StaticBoxFuture, ToStaticBoxFuture};
+use client::{FetchRecords, StaticBoxFuture, KafkaClient, ToStaticBoxFuture};
 use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup,
                KafkaConsumer, LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions, UpdatePositions};
 use errors::{Error, ErrorKind, Result};
@@ -92,7 +92,7 @@ where
 {
     consumer: KafkaConsumer<'a, K, V>,
     subscriptions: Rc<RefCell<Subscriptions<'a>>>,
-    coordinator: ConsumerCoordinator<'a>,
+    coordinator: ConsumerCoordinator<'a, KafkaClient<'a>>,
     fetcher: Fetcher<'a>,
     state: State<'a, K::Item, V::Item>,
 }
@@ -106,7 +106,7 @@ where
     pub fn new(
         consumer: KafkaConsumer<'a, K, V>,
         subscriptions: Rc<RefCell<Subscriptions<'a>>>,
-        coordinator: ConsumerCoordinator<'a>,
+        coordinator: ConsumerCoordinator<'a, KafkaClient<'a>>,
         fetcher: Fetcher<'a>,
     ) -> Result<SubscribedTopics<'a, K, V>> {
         let state = State::Joining(coordinator.join_group());
