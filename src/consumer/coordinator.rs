@@ -24,7 +24,10 @@ pub trait Coordinator<'a> {
     fn join_group(&self) -> JoinGroup;
 
     /// Rejoin the consumer group if need.
-    fn rejoin_group(&self) -> JoinGroup;
+    fn rejoin_group(&self, member_id: Option<String>) -> RejoinGroup;
+
+    // Ensure that the group is active (i.e. joined and synced)
+    fn ensure_active_group(&self) -> ActiveGroup;
 
     /// Leave the current consumer group.
     fn leave_group(&self) -> LeaveGroup;
@@ -41,6 +44,10 @@ pub trait Coordinator<'a> {
 }
 
 pub type JoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
+
+pub type RejoinGroup = JoinGroup;
+
+pub type ActiveGroup = JoinGroup;
 
 pub type LeaveGroup = StaticBoxFuture;
 
@@ -413,7 +420,7 @@ where
 
         let state = self.inner.state.clone();
 
-        self.rejoin_group()
+        self.ensure_active_group()
             .map(|(coordinator, generation)| {
                 info!(
                     "member `{}` joined the `{}` group ",
@@ -433,10 +440,8 @@ where
             .static_boxed()
     }
 
-    fn rejoin_group(&self) -> JoinGroup {
-        let inner = self.inner.clone();
-        let client = inner.client.clone();
-        let group_id = inner.group_id.clone();
+    fn ensure_active_group(&self) -> ActiveGroup {
+        let group_id = self.inner.group_id.clone();
 
         let member_id = match *self.inner.state.borrow() {
             State::Stable {
@@ -467,6 +472,14 @@ where
                 None
             }
         };
+
+        self.rejoin_group(member_id)
+    }
+
+    fn rejoin_group(&self, member_id: Option<String>) -> RejoinGroup {
+        let inner = self.inner.clone();
+        let client = inner.client.clone();
+        let group_id = inner.group_id.clone();
 
         client
             .metadata()
@@ -577,7 +590,7 @@ where
         let subscriptions = self.inner.subscriptions.clone();
         let consumed = subscriptions.borrow().consumed_partitions();
 
-        self.rejoin_group()
+        self.ensure_active_group()
             .and_then(move |(coordinator, generation)| {
                 client.offset_commit(coordinator, generation, retention_time, consumed)
             })
@@ -623,7 +636,7 @@ where
         );
 
         let client = self.inner.client.clone();
-        self.rejoin_group()
+        self.ensure_active_group()
             .and_then(move |(coordinator, generation)| {
                 client.offset_fetch(coordinator, generation, partitions)
             })
