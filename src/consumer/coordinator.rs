@@ -655,18 +655,51 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::rc::Rc;
 
     use futures::Async;
+    use tokio_core::reactor::Core;
 
     use super::*;
-    use client::{Broker, MockClient};
-    use consumer::{ConsumerConfig, OffsetResetStrategy};
+    use client::{Broker, ConsumerGroup, MockClient};
+    use consumer::{AssignmentStrategy, ConsumerConfig, OffsetResetStrategy};
 
     const TEST_GROUP_ID: &str = "test-group";
+    const TEST_PROTOCOL: &str = "dummy-subprotocol";
+    const TEST_LEADER_ID: &str = "leader_id";
+    const TEST_MEMBER_ID: &str = "member_id";
 
     lazy_static! {
         static ref TEST_NODE: Broker = Broker::new(0, "localhost", 9092);
+        static ref TEST_GROUP: ConsumerGroup = ConsumerGroup {
+            group_id: TEST_GROUP_ID.to_owned(),
+            generation_id: 1,
+            protocol: TEST_PROTOCOL.to_owned(),
+            leader_id: TEST_LEADER_ID.to_owned(),
+            member_id: TEST_MEMBER_ID.to_owned(),
+            members: vec![],
+        };
+    }
+
+    struct DummySubprotocol {}
+
+    impl PartitionAssignor for DummySubprotocol {
+        fn name(&self) -> &'static str {
+            TEST_PROTOCOL
+        }
+
+        fn strategy(&self) -> AssignmentStrategy {
+            AssignmentStrategy::Custom(TEST_PROTOCOL.to_owned())
+        }
+
+        fn assign<'a>(
+            &self,
+            _metadata: &'a Metadata,
+            _subscriptions: HashMap<Cow<'a, str>, Subscription<'a>>,
+        ) -> HashMap<Cow<'a, str>, Assignment<'a>> {
+            HashMap::new()
+        }
     }
 
     fn build_coordinator<'a>(
@@ -684,7 +717,7 @@ mod tests {
             config.heartbeat_interval(),
             None,
             config.auto_commit_interval(),
-            vec![],
+            vec![Box::new(DummySubprotocol {})],
             Rc::new(config.timer()),
         )
     }
@@ -693,21 +726,51 @@ mod tests {
     fn test_lookup_coordinator() {
         let coordinator = build_coordinator(MockClient::new(), ConsumerConfig::default());
 
-        assert!(matches!(coordinator.group_coordinator().poll(),
-                Err(Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _))));
+        match coordinator.group_coordinator().poll() {
+            Err(Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _)) => {}
+            res @ _ => panic!("fail to discover group coordinator: {:?}", res),
+        }
 
         let node = TEST_NODE.clone();
         let coordinator = {
-            let mut client = MockClient::with_metadata(Metadata::with_brokers(vec![node.clone()]));
-
-            client.group_coordinators.insert(
-                TEST_GROUP_ID.into(),
-                node.clone(),
-            );
+            let client = MockClient::with_metadata(Metadata::with_brokers(vec![node.clone()]))
+                .with_group_coordinator(TEST_GROUP_ID.into(), node.clone());
 
             build_coordinator(client, ConsumerConfig::default())
         };
 
-        assert!(matches!(coordinator.group_coordinator().poll(), Ok(Async::Ready(node))));
+        match coordinator.group_coordinator().poll() {
+            Ok(Async::Ready(group_coordinator)) => {
+                assert_eq!(group_coordinator, node.as_ref());
+            }
+            res @ _ => panic!("fail to discover group coordinator: {:?}", res),
+        }
+    }
+
+    #[test]
+    fn test_join_group() {
+        let node = TEST_NODE.clone();
+        let group = TEST_GROUP.clone();
+        let core = Core::new().unwrap();
+        let client = MockClient::with_metadata(Metadata::with_brokers(vec![node.clone()]))
+            .with_handle(core.handle())
+            .with_group_coordinator(TEST_GROUP_ID.into(), node.clone())
+            .with_consumer_group(group.clone())
+            .with_member_assignments(
+                TEST_MEMBER_ID.into(),
+                Assignment {
+                    partitions: vec![],
+                    user_data: None,
+                },
+            );
+        let coordinator = build_coordinator(client, ConsumerConfig::default());
+
+        match coordinator.ensure_active_group().poll() {
+            Ok(Async::Ready((group_coordinator, generation))) => {
+                assert_eq!(group_coordinator, node.as_ref());
+                assert_eq!(generation, group.generation());
+            }
+            res @ _ => panic!("fail to join group: {:?}", res),
+        }
     }
 }

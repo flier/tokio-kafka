@@ -3,11 +3,11 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use client::{Cluster, Metadata};
-use errors::{Error, ErrorKind, Result};
+use errors::{Error, Result};
 use network::TopicPartition;
 
 /// Strategy for assigning partitions to consumer streams.
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AssignmentStrategy {
     /// Range partitioning works on a per-topic basis.
@@ -46,14 +46,22 @@ pub enum AssignmentStrategy {
     /// This helps in saving some of the overhead processing
     /// when topic partitions move from one consumer to another.
     Sticky,
+
+    /// unsupported custom strategy
+    Custom(String),
 }
 
 impl AssignmentStrategy {
-    pub fn assignor(&self) -> Box<PartitionAssignor> {
+    pub fn assignor(&self) -> Option<Box<PartitionAssignor>> {
         match *self {
-            AssignmentStrategy::Range => Box::new(RangeAssignor::default()),
-            AssignmentStrategy::RoundRobin => Box::new(RoundRobinAssignor::default()),
-            AssignmentStrategy::Sticky => Box::new(StickyAssignor::default()),
+            AssignmentStrategy::Range => Some(Box::new(RangeAssignor::default())),
+            AssignmentStrategy::RoundRobin => Some(Box::new(RoundRobinAssignor::default())),
+            AssignmentStrategy::Sticky => Some(Box::new(StickyAssignor::default())),
+            AssignmentStrategy::Custom(ref strategy) => {
+                warn!("unsupported assignment strategy: {}", strategy);
+
+                None
+            }
         }
     }
 }
@@ -66,7 +74,7 @@ impl FromStr for AssignmentStrategy {
             "range" => Ok(AssignmentStrategy::Range),
             "roundrobin" => Ok(AssignmentStrategy::RoundRobin),
             "sticky" => Ok(AssignmentStrategy::Sticky),
-            _ => bail!(ErrorKind::UnsupportedAssignmentStrategy(s.to_owned())),
+            _ => Ok(AssignmentStrategy::Custom(s.to_owned())),
         }
     }
 }
@@ -103,13 +111,13 @@ pub trait PartitionAssignor {
     ) -> HashMap<Cow<'a, str>, Assignment<'a>>;
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Subscription<'a> {
     pub topics: Vec<Cow<'a, str>>,
     pub user_data: Option<Cow<'a, [u8]>>,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Assignment<'a> {
     pub partitions: Vec<TopicPartition<'a>>,
     pub user_data: Option<Cow<'a, [u8]>>,

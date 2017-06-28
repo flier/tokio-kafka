@@ -144,7 +144,7 @@ where
             .config
             .assignment_strategy
             .iter()
-            .map(|strategy| strategy.assignor())
+            .flat_map(|strategy| strategy.assignor())
             .collect();
         let timer = self.inner.client.timer().clone();
 

@@ -119,6 +119,7 @@ pub trait Client<'a>: 'static {
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<ProducedRecords>>>;
 
 /// Produced records of partition.
+#[derive(Clone, Debug)]
 pub struct ProducedRecords {
     /// The partition id
     pub partition_id: PartitionId,
@@ -131,6 +132,7 @@ pub struct ProducedRecords {
 /// The future of fetch records of partitions.
 pub type FetchRecords = StaticBoxFuture<HashMap<String, Vec<FetchedRecords>>>;
 
+#[derive(Clone, Debug)]
 pub struct FetchedRecords {
     /// The partition id
     pub partition_id: PartitionId,
@@ -167,6 +169,7 @@ impl ListedOffset {
 }
 
 /// The fetch partition data
+#[derive(Clone, Debug)]
 pub struct PartitionData {
     /// Message offset.
     pub offset: Offset,
@@ -176,6 +179,7 @@ pub struct PartitionData {
 
 pub type OffsetCommit = StaticBoxFuture<HashMap<String, Vec<CommittedOffset>>>;
 
+#[derive(Clone, Debug)]
 pub struct CommittedOffset {
     /// The partition id
     pub partition_id: PartitionId,
@@ -185,6 +189,7 @@ pub struct CommittedOffset {
 
 pub type OffsetFetch = StaticBoxFuture<HashMap<String, Vec<FetchedOffset>>>;
 
+#[derive(Clone, Debug)]
 pub struct FetchedOffset {
     /// The partition id
     pub partition_id: PartitionId,
@@ -208,6 +213,7 @@ pub type ConsumerGroupProtocol<'a> = JoinGroupProtocol<'a>;
 pub type Heartbeat = StaticBoxFuture;
 
 /// The consumer group
+#[derive(Clone, Debug)]
 pub struct ConsumerGroup {
     /// The group id.
     pub group_id: String,
