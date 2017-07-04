@@ -249,6 +249,7 @@ impl PartitionAssignor for RoundRobinAssignor {
         AssignmentStrategy::RoundRobin
     }
 
+    #[allow(while_let_on_iterator)]
     fn assign<'a>(
         &self,
         metadata: &'a Metadata,
