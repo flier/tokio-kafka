@@ -188,9 +188,7 @@ where
                 );
 
                 Schema::serialize(&subscription)
-                    .map_err(|err| {
-                        warn!("fail to serialize subscription schema, {}", err)
-                    })
+                    .chain_err(|| "fail to serialize subscription schema")
                     .ok()
                     .map(|metadata| {
                         ConsumerGroupProtocol {
@@ -365,7 +363,7 @@ where
 
                                 state.borrow_mut().leaved();
                             }
-                            _ => warn!("unknown"),
+                            _ => warn!("unknown error, {}", err),
                         };
 
                         err
