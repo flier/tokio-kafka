@@ -99,14 +99,16 @@ enum State {
 
 impl State {
     pub fn member_id(&self) -> Option<String> {
-        if let State::Stable { ref generation, .. } = *self {
-            Some(String::from(generation.member_id.to_owned()))
-        } else {
-            None
+        match *self {
+            State::Stable { ref generation, .. } |
+            State::Rebalancing { ref generation, .. } => Some(
+                String::from(generation.member_id.clone()),
+            ),
+            State::Unjoined => None,
         }
     }
 
-    pub fn rebalance(&mut self, coordinator: BrokerRef, generation: Generation) -> Self {
+    pub fn rebalancing(&mut self, coordinator: BrokerRef, generation: Generation) -> Self {
         mem::replace(
             self,
             State::Rebalancing {
@@ -116,7 +118,7 @@ impl State {
         )
     }
 
-    pub fn joined(&mut self, coordinator: BrokerRef, generation: Generation) -> State {
+    pub fn joined(&mut self, coordinator: BrokerRef, generation: Generation) -> Self {
         mem::replace(
             self,
             State::Stable {
@@ -126,7 +128,7 @@ impl State {
         )
     }
 
-    pub fn leave(&mut self) -> Self {
+    pub fn leaved(&mut self) -> Self {
         mem::replace(self, State::Unjoined)
     }
 }
@@ -353,7 +355,7 @@ where
                             Error(ErrorKind::KafkaError(KafkaCode::RebalanceInProgress), _) => {
                                 info!("group is loading or rebalancing, {}", err);
 
-                                state.borrow_mut().rebalance(coordinator, generation.clone());
+                                state.borrow_mut().rebalancing(coordinator, generation.clone());
                             }
                             Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _) |
                             Error(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup), _) |
@@ -361,7 +363,7 @@ where
                             Error(ErrorKind::KafkaError(KafkaCode::UnknownMemberId), _) => {
                                 info!("group has outdated, need to rejoin, {}", err);
 
-                                state.borrow_mut().leave();
+                                state.borrow_mut().leaved();
                             }
                             _ => warn!("unknown"),
                         };
@@ -442,7 +444,7 @@ where
             .map_err(move |err| {
                 warn!("fail to join group `{}`, {}", group_id, err);
 
-                state.borrow_mut().leave();
+                state.borrow_mut().leaved();
 
                 err
             })
@@ -450,39 +452,34 @@ where
     }
 
     fn ensure_active_group(&self) -> ActiveGroup {
-        let group_id = self.inner.group_id.clone();
+        if let State::Stable {
+            coordinator,
+            ref generation,
+        } = *self.inner.state.borrow()
+        {
+            debug!(
+                "member `{}` already in the `{}` group (generation #{})",
+                generation.member_id,
+                generation.group_id,
+                generation.generation_id
+            );
 
-        let member_id = match *self.inner.state.borrow() {
-            State::Stable {
-                coordinator,
-                ref generation,
-            } => {
+            future::ok((coordinator, generation.clone())).static_boxed()
+        } else {
+            let member_id = self.inner.state.borrow().member_id();
+
+            if let Some(ref member_id) = member_id {
                 debug!(
-                    "member `{}` already in the `{}` group (generation #{})",
-                    generation.member_id,
-                    generation.group_id,
-                    generation.generation_id
+                    "member `{}` rejoin the `{}` group",
+                    member_id,
+                    self.inner.group_id
                 );
-
-                return future::ok((coordinator, generation.clone())).static_boxed();
+            } else {
+                debug!("member join the `{}` group", self.inner.group_id);
             }
-            State::Rebalancing { ref generation, .. } => {
-                debug!(
-                    "member `{}` is rebalancing in the `{}` group",
-                    generation.member_id,
-                    generation.group_id,
-                );
 
-                Some(generation.member_id.clone())
-            }
-            State::Unjoined => {
-                debug!("member is joining the `{}` group", group_id);
-
-                None
-            }
-        };
-
-        self.rejoin_group(member_id)
+            self.rejoin_group(member_id)
+        }
     }
 
     fn rejoin_group(&self, member_id: Option<String>) -> RejoinGroup {
@@ -565,7 +562,7 @@ where
         debug!("coordinator is leaving the `{}` group", group_id);
 
         let state = self.inner.state.clone();
-        let state = state.borrow_mut().leave();
+        let state = state.borrow_mut().leaved();
 
         match state {
             State::Stable {
@@ -700,6 +697,42 @@ mod tests {
         ) -> HashMap<Cow<'a, str>, Assignment<'a>> {
             HashMap::new()
         }
+    }
+
+    #[test]
+    fn test_state() {
+        let unjoined = State::Unjoined;
+
+        let rebalancing = State::Rebalancing {
+            coordinator: BrokerRef::new(0),
+            generation: TEST_GROUP.generation(),
+        };
+
+        let stable = State::Stable {
+            coordinator: BrokerRef::new(0),
+            generation: TEST_GROUP.generation(),
+        };
+
+        let member_id = Some(TEST_MEMBER_ID.to_owned());
+
+        assert_eq!(unjoined.member_id(), None);
+        assert_eq!(rebalancing.member_id(), member_id);
+        assert_eq!(stable.member_id(), member_id);
+
+        let mut state = unjoined.clone();
+
+        assert_eq!(
+            state.rebalancing(BrokerRef::new(0), TEST_GROUP.generation()),
+            unjoined
+        );
+
+        assert_eq!(
+            state.joined(BrokerRef::new(0), TEST_GROUP.generation()),
+            rebalancing
+        );
+
+        assert_eq!(state.leaved(), stable);
+        assert_eq!(state, unjoined);
     }
 
     fn build_coordinator<'a>(
