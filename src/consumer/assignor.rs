@@ -1,3 +1,5 @@
+#![allow(while_let_on_iterator)]
+
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -249,7 +251,6 @@ impl PartitionAssignor for RoundRobinAssignor {
         AssignmentStrategy::RoundRobin
     }
 
-    #[allow(while_let_on_iterator)]
     fn assign<'a>(
         &self,
         metadata: &'a Metadata,
