@@ -1,4 +1,4 @@
-#![allow(while_let_on_iterator)]
+#![cfg_attr(feature = "clippy", allow(while_let_on_iterator))]
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
