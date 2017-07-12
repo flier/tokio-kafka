@@ -60,12 +60,27 @@ impl<'a> MockClient<'a> {
         self
     }
 
-    pub fn with_member_assignments(
+    pub fn with_group_member_as_leader(
         mut self,
         member_id: Cow<'a, str>,
-        assignment: Assignment<'a>,
+        partitions: &[TopicPartition<'a>],
+        user_data: Option<Cow<'a, [u8]>>,
     ) -> Self {
-        self.member_assignments.insert(member_id, assignment);
+        self.member_assignments.insert(
+            member_id,
+            Assignment {
+                partitions: partitions.to_vec(),
+                user_data: user_data,
+            },
+        );
+        self
+    }
+
+    pub fn with_group_member_as_follower(mut self, member_id: Cow<'a, str>) -> Self {
+        self.member_assignments.insert(
+            member_id,
+            Assignment::default(),
+        );
         self
     }
 }

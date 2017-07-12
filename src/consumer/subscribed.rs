@@ -313,7 +313,7 @@ where
         let partition_id = tp.partition_id;
 
         self.coordinator
-            .fetch_committed_offsets(vec![tp])
+            .fetch_offsets(vec![tp])
             .and_then(move |offsets| {
                 offsets
                     .get(&topic_name)

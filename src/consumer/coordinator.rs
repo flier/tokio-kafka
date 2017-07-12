@@ -20,17 +20,8 @@ use protocol::{KafkaCode, Schema, ToMilliseconds};
 
 /// Manages the coordination process with the consumer coordinator.
 pub trait Coordinator<'a> {
-    /// Discover the current coordinator for the group.
-    fn group_coordinator(&self) -> GroupCoordinator;
-
     /// Join the consumer group.
     fn join_group(&self) -> JoinGroup;
-
-    /// Rejoin the consumer group if need.
-    fn rejoin_group(&self, member_id: Option<String>) -> RejoinGroup;
-
-    // Ensure that the group is active (i.e. joined and synced)
-    fn ensure_active_group(&self) -> ActiveGroup;
 
     /// Leave the current consumer group.
     fn leave_group(&self) -> LeaveGroup;
@@ -39,28 +30,21 @@ pub trait Coordinator<'a> {
     fn commit_offsets(&self) -> CommitOffset;
 
     /// Refresh the committed offsets for provided partitions.
-    fn refresh_committed_offsets(&self) -> RefreshCommittedOffsets;
+    fn update_offsets(&self) -> UpdateOffsets;
 
     /// Fetch the current committed offsets from the coordinator for a set of partitions.
-    fn fetch_committed_offsets(&self, partitions: Vec<TopicPartition<'a>>)
-        -> FetchCommittedOffsets;
+    fn fetch_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> FetchOffsets;
 }
 
-pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
-
 pub type JoinGroup = StaticBoxFuture<(BrokerRef, Generation)>;
-
-pub type RejoinGroup = JoinGroup;
-
-pub type ActiveGroup = JoinGroup;
 
 pub type LeaveGroup = StaticBoxFuture;
 
 pub type CommitOffset = OffsetCommit;
 
-pub type RefreshCommittedOffsets = StaticBoxFuture;
+pub type UpdateOffsets = StaticBoxFuture;
 
-pub type FetchCommittedOffsets = OffsetFetch;
+pub type FetchOffsets = OffsetFetch;
 
 /// Manages the coordination process with the consumer coordinator.
 pub struct ConsumerCoordinator<'a, C> {
@@ -98,6 +82,30 @@ enum State {
 }
 
 impl State {
+    pub fn is_stable(&self) -> bool {
+        if let State::Stable { .. } = *self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_rebalancing(&self) -> bool {
+        if let State::Rebalancing { .. } = *self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_unstable(&self) -> bool {
+        if let State::Unjoined = *self {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn member_id(&self) -> Option<String> {
         match *self {
             State::Stable { ref generation, .. } |
@@ -413,42 +421,29 @@ where
     }
 }
 
-impl<'a, C> Coordinator<'a> for ConsumerCoordinator<'a, C>
+impl<'a, C> ConsumerCoordinator<'a, C>
 where
     C: Client<'a> + Clone,
     Self: 'static,
 {
+    pub fn is_stable(&self) -> bool {
+        self.inner.state.borrow().is_stable()
+    }
+
+    pub fn is_rebalancing(&self) -> bool {
+        self.inner.state.borrow().is_rebalancing()
+    }
+
+    pub fn is_unstable(&self) -> bool {
+        self.inner.state.borrow().is_unstable()
+    }
+
+    /// Discover the current coordinator for the group.
     fn group_coordinator(&self) -> GroupCoordinator {
         self.inner.group_coordinator()
     }
 
-    fn join_group(&self) -> JoinGroup {
-        let group_id = self.inner.group_id.clone();
-
-        debug!("coordinator is joining the `{}` group", group_id);
-
-        let state = self.inner.state.clone();
-
-        self.ensure_active_group()
-            .map(|(coordinator, generation)| {
-                info!(
-                    "member `{}` joined the `{}` group ",
-                    generation.member_id,
-                    generation.group_id,
-                );
-
-                (coordinator, generation)
-            })
-            .map_err(move |err| {
-                warn!("fail to join group `{}`, {}", group_id, err);
-
-                state.borrow_mut().leaved();
-
-                err
-            })
-            .static_boxed()
-    }
-
+    // Ensure that the group is active (i.e. joined and synced)
     fn ensure_active_group(&self) -> ActiveGroup {
         if let State::Stable {
             coordinator,
@@ -480,6 +475,7 @@ where
         }
     }
 
+    /// Rejoin the consumer group if need.
     fn rejoin_group(&self, member_id: Option<String>) -> RejoinGroup {
         let inner = self.inner.clone();
         let client = inner.client.clone();
@@ -493,9 +489,10 @@ where
                     "coordinator of group `{}` @ {}",
                     group_id,
                     metadata.find_broker(coordinator).map_or(
-                        coordinator
-                            .index()
-                            .to_string(),
+                        format!(
+                            "broker#{}",
+                            coordinator.index()
+                        ),
                         |broker| {
                             format!("{}:{}", broker.host(), broker.port())
                         },
@@ -553,6 +550,46 @@ where
             })
             .static_boxed()
     }
+}
+
+pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
+
+pub type RejoinGroup = JoinGroup;
+
+pub type ActiveGroup = JoinGroup;
+
+
+impl<'a, C> Coordinator<'a> for ConsumerCoordinator<'a, C>
+where
+    C: Client<'a> + Clone,
+    Self: 'static,
+{
+    fn join_group(&self) -> JoinGroup {
+        let group_id = self.inner.group_id.clone();
+
+        debug!("coordinator is joining the `{}` group", group_id);
+
+        let state = self.inner.state.clone();
+
+        self.ensure_active_group()
+            .map(|(coordinator, generation)| {
+                info!(
+                    "member `{}` joined the `{}` group ",
+                    generation.member_id,
+                    generation.group_id,
+                );
+
+                (coordinator, generation)
+            })
+            .map_err(move |err| {
+                warn!("fail to join group `{}`, {}", group_id, err);
+
+                state.borrow_mut().leaved();
+
+                err
+            })
+            .static_boxed()
+    }
 
     fn leave_group(&self) -> LeaveGroup {
         let group_id = self.inner.group_id.clone();
@@ -601,7 +638,7 @@ where
             .static_boxed()
     }
 
-    fn refresh_committed_offsets(&self) -> RefreshCommittedOffsets {
+    fn update_offsets(&self) -> UpdateOffsets {
         debug!(
             "refresh committed offsets of the `{}` group",
             self.inner.group_id
@@ -609,7 +646,7 @@ where
 
         let subscriptions = self.inner.subscriptions.clone();
 
-        self.fetch_committed_offsets(self.inner.subscriptions.borrow().assigned_partitions())
+        self.fetch_offsets(self.inner.subscriptions.borrow().assigned_partitions())
             .and_then(move |offsets| {
                 for (topic_name, partitions) in offsets {
                     for partition in partitions {
@@ -629,10 +666,7 @@ where
             .static_boxed()
     }
 
-    fn fetch_committed_offsets(
-        &self,
-        partitions: Vec<TopicPartition<'a>>,
-    ) -> FetchCommittedOffsets {
+    fn fetch_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> FetchOffsets {
         debug!(
             "fetch committed offsets of the `{}` group: {:?}",
             self.inner.group_id,
@@ -787,21 +821,22 @@ mod tests {
             .with_handle(core.handle())
             .with_group_coordinator(TEST_GROUP_ID.into(), node.clone())
             .with_consumer_group(group.clone())
-            .with_member_assignments(
-                TEST_MEMBER_ID.into(),
-                Assignment {
-                    partitions: vec![],
-                    user_data: None,
-                },
-            );
+            .with_group_member_as_follower(TEST_MEMBER_ID.into());
         let coordinator = build_coordinator(client, ConsumerConfig::default());
 
-        match coordinator.ensure_active_group().poll() {
+        assert!(coordinator.is_unstable());
+
+        match coordinator.join_group().poll() {
             Ok(Async::Ready((group_coordinator, generation))) => {
                 assert_eq!(group_coordinator, node.as_ref());
                 assert_eq!(generation, group.generation());
             }
             res @ _ => panic!("fail to join group: {:?}", res),
         }
+
+        assert!(coordinator.is_stable());
     }
+
+    #[test]
+    fn test_group_unauthorized() {}
 }
