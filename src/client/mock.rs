@@ -1,12 +1,14 @@
 #![allow(unused_variables)]
 
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 use std::usize;
 
 use bytes::Bytes;
+use typemap::{Key, TypeMap};
 
 use tokio_core::reactor::Handle;
 
@@ -15,17 +17,18 @@ use client::{Broker, BrokerRef, Client, Cluster, ConsumerGroup, ConsumerGroupAss
              Heartbeat, JoinGroup, LeaveGroup, ListOffsets, LoadMetadata, Metadata, OffsetCommit,
              OffsetFetch, PartitionData, ProduceRecords, SyncGroup, ToStaticBoxFuture};
 use consumer::Assignment;
-use errors::ErrorKind;
+use errors::{ErrorKind, Result};
 use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{FetchOffset, KafkaCode, MessageSet, RequiredAcks, Schema};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MockClient<'a> {
     handle: Option<Handle>,
     metadata: Rc<Metadata>,
     group_coordinators: HashMap<Cow<'a, str>, Broker>,
     consumer_groups: HashMap<Cow<'a, str>, ConsumerGroup>,
     member_assignments: HashMap<Cow<'a, str>, Assignment<'a>>,
+    future_responses: Rc<RefCell<TypeMap>>,
 }
 
 impl<'a> MockClient<'a> {
@@ -40,6 +43,7 @@ impl<'a> MockClient<'a> {
             group_coordinators: HashMap::new(),
             consumer_groups: HashMap::new(),
             member_assignments: HashMap::new(),
+            future_responses: Rc::new(RefCell::new(TypeMap::custom())),
         }
     }
 
@@ -83,6 +87,19 @@ impl<'a> MockClient<'a> {
         );
         self
     }
+
+    pub fn with_future_response<T, F>(self, callback: F) -> Self
+    where
+        T: Key<Value = F>,
+        F: 'static,
+    {
+        self.future_responses.borrow_mut().insert::<T>(callback);
+        self
+    }
+}
+
+impl Key for GroupCoordinator {
+    type Value = Box<Fn(String) -> Result<Broker>>;
 }
 
 impl<'a> Client<'a> for MockClient<'a>
@@ -151,15 +168,22 @@ where
     }
 
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
-        let metadata = self.metadata.clone();
+        if let Some(callback) = self.future_responses
+            .borrow_mut()
+            .remove::<GroupCoordinator>()
+        {
+            callback(String::from(group_id)).static_boxed()
+        } else {
+            let metadata = self.metadata.clone();
 
-        self.group_coordinators
-            .get(&group_id)
-            .cloned()
-            .ok_or_else(|| {
-                ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable.into()).into()
-            })
-            .static_boxed()
+            self.group_coordinators
+                .get(&group_id)
+                .cloned()
+                .ok_or_else(|| {
+                    ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable.into()).into()
+                })
+                .static_boxed()
+        }
     }
 
     fn join_group(

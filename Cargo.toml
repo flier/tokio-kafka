@@ -50,6 +50,7 @@ clippy = {version = "*", optional = true}
 [dev-dependencies]
 pretty_env_logger = "0.1"
 getopts = "0.2"
+typemap = "0.3"
 
 [target.'cfg(unix)'.dev-dependencies]
 tokio-file-unix = "0.4"

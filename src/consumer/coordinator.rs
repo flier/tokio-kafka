@@ -439,7 +439,7 @@ where
     }
 
     /// Discover the current coordinator for the group.
-    fn group_coordinator(&self) -> GroupCoordinator {
+    pub fn group_coordinator(&self) -> GroupCoordinator {
         self.inner.group_coordinator()
     }
 
@@ -691,7 +691,7 @@ mod tests {
     use tokio_core::reactor::Core;
 
     use super::*;
-    use client::{Broker, ConsumerGroup, MockClient};
+    use client::{self, Broker, ConsumerGroup, MockClient};
     use consumer::{AssignmentStrategy, ConsumerConfig, OffsetResetStrategy};
 
     const TEST_GROUP_ID: &str = "test-group";
@@ -838,5 +838,25 @@ mod tests {
     }
 
     #[test]
-    fn test_group_unauthorized() {}
+    fn test_group_unauthorized() {
+        let node = TEST_NODE.clone();
+        let core = Core::new().unwrap();
+        let client = MockClient::with_metadata(Metadata::with_brokers(vec![node.clone()]))
+            .with_handle(core.handle())
+            .with_future_response::<client::GroupCoordinator, _>(Box::new(|group_id| {
+                assert_eq!(group_id, TEST_GROUP_ID.to_owned());
+
+                bail!(ErrorKind::KafkaError(KafkaCode::GroupAuthorizationFailed))
+            }));
+        let coordinator = build_coordinator(client, ConsumerConfig::default());
+
+        assert!(coordinator.is_unstable());
+
+        match coordinator.join_group().poll() {
+            Err(Error(ErrorKind::KafkaError(KafkaCode::GroupAuthorizationFailed), _)) => {}
+            res @ _ => panic!("fail to fetch group coordinator: {:?}", res),
+        }
+
+        assert!(coordinator.is_unstable());
+    }
 }
