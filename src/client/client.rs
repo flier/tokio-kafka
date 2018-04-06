@@ -19,12 +19,12 @@ use futures::future::{self, Future};
 use futures::unsync::oneshot;
 use futures::{Async, IntoFuture, Poll};
 use tokio_core::reactor::{Handle, Timeout};
-use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 use tokio_service::Service;
 use tokio_timer::Timer;
 
-use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware, KafkaService, Metadata,
-             Metrics};
+use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware,
+             KafkaService, Metadata, Metrics};
+use client::middleware::Timeout as TimeoutMiddleware;
 use errors::{Error, ErrorKind, Result};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
@@ -283,7 +283,7 @@ pub struct KafkaClient<'a> {
 struct Inner<'a> {
     config: ClientConfig,
     handle: Handle,
-    service: InFlightMiddleware<LogMiddleware<TimeoutMiddleware<KafkaService<'a>>>>,
+    service: InFlightMiddleware<TimeoutMiddleware<KafkaService<'a>>>,
     timer: Rc<Timer>,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
@@ -326,11 +326,15 @@ where
         } else {
             None
         };
-        let service = InFlightMiddleware::new(LogMiddleware::new(TimeoutMiddleware::new(
-            KafkaService::new(handle.clone(), config.max_connection_idle(), metrics.clone()),
+        let service = InFlightMiddleware::new(TimeoutMiddleware::new(
+            KafkaService::new(
+                handle.clone(),
+                config.max_connection_idle(),
+                metrics.clone(),
+            ),
             config.timer(),
             config.request_timeout(),
-        )));
+        ));
 
         let timer = Rc::new(config.timer());
         let inner = Rc::new(Inner {

@@ -32,7 +32,6 @@ tokio-core = "0.1"
 tokio-io = "0.1"
 tokio-proto = "0.1"
 tokio-service = "0.1"
-tokio-middleware = { git = "https://github.com/tokio-rs/tokio-middleware" }
 tokio-timer = "0.1"
 tokio-retry = "0.1"
 tokio-tls = { version = "0.1", features = ["tokio-proto"] }
