@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate error_chain;
-extern crate pretty_env_logger;
-extern crate getopts;
 extern crate futures;
+extern crate getopts;
+extern crate pretty_env_logger;
 extern crate tokio_core;
 #[macro_use]
 extern crate tokio_kafka;
@@ -82,24 +82,23 @@ impl Config {
 
         let brokers = matches.opt_str("b").map_or_else(
             || vec![DEFAULT_BROKER.to_owned()],
-            |s| {
-                s.split(',').map(|s| s.trim().to_owned()).collect()
-            },
+            |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
         );
 
-        let (api_version_request, broker_version) =
-            matches.opt_str("broker-version").map_or(
-                (false, None),
-                |s| if s == "auto" {
+        let (api_version_request, broker_version) = matches.opt_str("broker-version").map_or(
+            (false, None),
+            |s| {
+                if s == "auto" {
                     (true, None)
                 } else {
                     (false, Some(s.parse().unwrap()))
-                },
-            );
+                }
+            },
+        );
 
-        let topic_names = matches.opt_str("t").map(|s| {
-            s.split(',').map(|s| s.trim().to_owned()).collect()
-        });
+        let topic_names = matches
+            .opt_str("t")
+            .map(|s| s.split(',').map(|s| s.trim().to_owned()).collect());
 
         Ok(Config {
             brokers: brokers
@@ -118,7 +117,7 @@ impl Config {
 }
 
 fn main() {
-    pretty_env_logger::init().unwrap();
+    pretty_env_logger::init();
 
     let config = Config::parse_cmdline().unwrap();
 
@@ -158,13 +157,13 @@ fn main() {
                 topics
                     .iter()
                     .map(|tp| (tp.clone(), FetchOffset::Earliest))
-                    .collect()
+                    .collect(),
             ),
             client.list_offsets(
                 topics
                     .iter()
                     .map(|tp| (tp.clone(), FetchOffset::Latest))
-                    .collect()
+                    .collect(),
             ),
         ];
 
@@ -188,15 +187,19 @@ fn dump_metadata<'a>(
     earliest_offsets: &HashMap<String, Vec<ListedOffset>>,
     latest_offsets: &HashMap<String, Vec<ListedOffset>>,
 ) {
-    let host_width = 2 +
-        metadata.brokers().iter().map(|broker| broker.addr()).fold(
-            0,
-            |width, (host, port)| cmp::max(width, format!("{}:{}", host, port).len()),
-        );
-    let topic_width = 2 +
-        metadata.topic_names().iter().fold(0, |width, topic_name| {
-            cmp::max(width, topic_name.len())
-        });
+    let host_width = 2
+        + metadata
+            .brokers()
+            .iter()
+            .map(|broker| broker.addr())
+            .fold(0, |width, (host, port)| {
+                cmp::max(width, format!("{}:{}", host, port).len())
+            });
+    let topic_width = 2
+        + metadata
+            .topic_names()
+            .iter()
+            .fold(0, |width, topic_name| cmp::max(width, topic_name.len()));
 
     if config.show_header {
         print!("{1:0$} {2:4} {3:4}", topic_width, "topic", "p-id", "l-id");
@@ -225,27 +228,21 @@ fn dump_metadata<'a>(
             println!("")
         }
 
-        if let (Some(earliest), Some(latest)) =
-            (
-                earliest_offsets.get(&topic_name),
-                latest_offsets.get(&topic_name),
-            )
-        {
-
+        if let (Some(earliest), Some(latest)) = (
+            earliest_offsets.get(&topic_name),
+            latest_offsets.get(&topic_name),
+        ) {
             for partition_info in partitions.iter() {
                 if let Some(leader) = partition_info.leader {
-                    if let (Some(broker), Some(earliest_offset), Some(latest_offset)) =
-                        (
-                            metadata.find_broker(leader),
-                            earliest.iter().find(|offset| {
-                                offset.partition_id == partition_info.partition_id
-                            }),
-                            latest.iter().find(|offset| {
-                                offset.partition_id == partition_info.partition_id
-                            }),
-                        )
-                    {
-
+                    if let (Some(broker), Some(earliest_offset), Some(latest_offset)) = (
+                        metadata.find_broker(leader),
+                        earliest
+                            .iter()
+                            .find(|offset| offset.partition_id == partition_info.partition_id),
+                        latest
+                            .iter()
+                            .find(|offset| offset.partition_id == partition_info.partition_id),
+                    ) {
                         print!(
                             "{1:0$} {2:>4} {3:>4}",
                             topic_width,
@@ -270,7 +267,8 @@ fn dump_metadata<'a>(
                                 " {:>12}",
                                 format!(
                                     "({})",
-                                    latest_offset.offset().unwrap() - earliest_offset.offset().unwrap()
+                                    latest_offset.offset().unwrap()
+                                        - earliest_offset.offset().unwrap()
                                 )
                             );
                         }
@@ -279,16 +277,13 @@ fn dump_metadata<'a>(
                     } else {
                         println!(
                             "{1:0$} - leader or offsets not found!\n",
-                            topic_width,
-                            topic_name
+                            topic_width, topic_name
                         );
                     }
                 } else {
                     println!(
                         "{1:0$} - partition #{2} haven't leader!\n",
-                        topic_width,
-                        topic_name,
-                        partition_info.partition_id
+                        topic_width, topic_name, partition_info.partition_id
                     );
                 }
             }

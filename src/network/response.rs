@@ -1,14 +1,14 @@
 use std::io;
 
-use log::LogLevel::Debug;
+use log::Level::Debug;
 
 use nom::{self, ErrorKind, IResult, Needed};
 
-use protocol::{ApiKeys, ApiVersion, ApiVersionsResponse, DescribeGroupsResponse, FetchResponse,
-               GroupCoordinatorResponse, HeartbeatResponse, JoinGroupResponse, LeaveGroupResponse,
-               ListGroupsResponse, ListOffsetResponse, MetadataResponse, OffsetCommitResponse,
-               OffsetFetchResponse, ParseTag, ProduceResponse, SyncGroupResponse,
-               display_parse_error};
+use protocol::{display_parse_error, ApiKeys, ApiVersion, ApiVersionsResponse,
+               DescribeGroupsResponse, FetchResponse, GroupCoordinatorResponse, HeartbeatResponse,
+               JoinGroupResponse, LeaveGroupResponse, ListGroupsResponse, ListOffsetResponse,
+               MetadataResponse, OffsetCommitResponse, OffsetFetchResponse, ParseTag,
+               ProduceResponse, SyncGroupResponse};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KafkaResponse {

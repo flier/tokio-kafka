@@ -2,8 +2,8 @@
 extern crate error_chain;
 #[macro_use]
 extern crate log;
-extern crate pretty_env_logger;
 extern crate getopts;
+extern crate pretty_env_logger;
 extern crate rand;
 
 extern crate futures;
@@ -93,18 +93,13 @@ impl Config {
         Ok(Config {
             brokers: m.opt_str("b").map_or_else(
                 || vec![DEFAULT_BROKER.to_owned()],
-                |s| {
-                    s.split(',').map(|s| s.trim().to_owned()).collect()
-                },
+                |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
             ),
-            client_id: m.opt_str("client-id").unwrap_or(
-                DEFAULT_CLIENT_ID.to_owned(),
-            ),
+            client_id: m.opt_str("client-id")
+                .unwrap_or(DEFAULT_CLIENT_ID.to_owned()),
             topics: m.opt_str("t").map_or_else(
                 || vec![DEFAULT_TOPIC.to_owned()],
-                |s| {
-                    s.split(',').map(|s| s.trim().to_owned()).collect()
-                },
+                |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
             ),
             group_id: m.opt_str("g").unwrap_or_else(|| {
                 format!(
@@ -113,10 +108,12 @@ impl Config {
                 )
             }),
             offset: m.opt_str("o").map_or_else(
-                || if m.opt_present("from-beginning") {
-                    SeekTo::Beginning
-                } else {
-                    SeekTo::End
+                || {
+                    if m.opt_present("from-beginning") {
+                        SeekTo::Beginning
+                    } else {
+                        SeekTo::End
+                    }
                 },
                 |s| s.parse().unwrap(),
             ),
@@ -127,7 +124,7 @@ impl Config {
 }
 
 fn main() {
-    pretty_env_logger::init().unwrap();
+    pretty_env_logger::init();
 
     let config = Config::parse_cmdline().unwrap();
 
@@ -139,9 +136,10 @@ fn main() {
 fn run(config: Config) -> Result<()> {
     let mut core = Core::new()?;
 
-    let hosts = config.brokers.iter().flat_map(
-        |s| s.to_socket_addrs().unwrap(),
-    );
+    let hosts = config
+        .brokers
+        .iter()
+        .flat_map(|s| s.to_socket_addrs().unwrap());
 
     let handle = core.handle();
 
