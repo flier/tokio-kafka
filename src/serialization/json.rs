@@ -32,12 +32,7 @@ where
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<B: BufMut>(
-        &self,
-        _topic_name: &str,
-        data: Self::Item,
-        buf: &mut B,
-    ) -> Result<()> {
+    fn serialize_to<B: BufMut>(&self, _topic_name: &str, data: Self::Item, buf: &mut B) -> Result<()> {
         let to_vec = if self.pretty {
             serde_json::to_vec_pretty
         } else {
@@ -62,12 +57,7 @@ where
     type Item = T;
     type Error = Error;
 
-    fn deserialize_to<B: Buf>(
-        &self,
-        _topic_name: &str,
-        buf: &mut B,
-        data: &mut Self::Item,
-    ) -> Result<()> {
+    fn deserialize_to<B: Buf>(&self, _topic_name: &str, buf: &mut B, data: &mut Self::Item) -> Result<()> {
         let len = buf.remaining();
         let v: Value = serde_json::from_slice(buf.bytes())?;
         *data = T::deserialize(v)?;
@@ -107,9 +97,7 @@ mod tests {
         let mut cur = Cursor::new(data.clone());
         let mut s = Duration::default();
 
-        deserializer
-            .deserialize_to("topic", &mut cur, &mut s)
-            .unwrap();
+        deserializer.deserialize_to("topic", &mut cur, &mut s).unwrap();
 
         assert_eq!(cur.position() as usize, data.len());
         assert_eq!(s, d);

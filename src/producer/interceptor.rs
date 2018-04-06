@@ -1,7 +1,7 @@
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
 use errors::Result;
 
@@ -20,9 +20,7 @@ pub trait ProducerInterceptor {
     /// This is called from [`KafkaProducer::send`](struct.KafkaProducer.html#send.v) method,
     /// before key and value get serialized and partition is assigned
     /// (if partition is not specified in ProducerRecord).
-    fn send(&self,
-            record: ProducerRecord<Self::Key, Self::Value>)
-            -> Result<ProducerRecord<Self::Key, Self::Value>>;
+    fn send(&self, record: ProducerRecord<Self::Key, Self::Value>) -> Result<ProducerRecord<Self::Key, Self::Value>>;
 
     /// This method is called when the record sent to the server has been acknowledged,
     /// or when sending the record fails before it gets sent to the server.
@@ -49,7 +47,9 @@ impl<K, V> DerefMut for ProducerInterceptors<K, V> {
 
 impl<K, V> Default for ProducerInterceptors<K, V> {
     fn default() -> Self {
-        ProducerInterceptors { interceptors: Vec::new() }
+        ProducerInterceptors {
+            interceptors: Vec::new(),
+        }
     }
 }
 
@@ -60,7 +60,8 @@ impl<K, V> ProducerInterceptors<K, V> {
 }
 
 impl<K, V> ProducerInterceptor for ProducerInterceptors<K, V>
-    where K: Hash
+where
+    K: Hash,
 {
     type Key = K;
     type Value = V;

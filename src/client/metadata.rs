@@ -39,9 +39,9 @@ impl Metadata {
         Metadata {
             brokers: Vec::new(),
             topic_partitions: HashMap::from_iter(
-                topics.into_iter().map(|(topic_name, partitions)| {
-                    (topic_name, TopicPartitions { partitions: partitions })
-                }),
+                topics
+                    .into_iter()
+                    .map(|(topic_name, partitions)| (topic_name, TopicPartitions { partitions: partitions })),
             ),
             group_coordinators: HashMap::new(),
         }
@@ -52,9 +52,7 @@ impl Metadata {
         Metadata {
             brokers: self.brokers
                 .iter()
-                .map(|broker| {
-                    broker.with_api_versions(api_versions.get(&broker.as_ref()).cloned())
-                })
+                .map(|broker| broker.with_api_versions(api_versions.get(&broker.as_ref()).cloned()))
                 .collect(),
             topic_partitions: self.topic_partitions.clone(),
             group_coordinators: self.group_coordinators.clone(),
@@ -66,9 +64,7 @@ impl Metadata {
         Metadata {
             brokers: self.brokers
                 .iter()
-                .map(|broker| {
-                    broker.with_api_versions(Some(api_versions.clone()))
-                })
+                .map(|broker| broker.with_api_versions(Some(api_versions.clone())))
                 .collect(),
             topic_partitions: self.topic_partitions.clone(),
             group_coordinators: self.group_coordinators.clone(),
@@ -92,10 +88,11 @@ impl Cluster for Metadata {
     }
 
     fn topics(&self) -> HashMap<&str, &[PartitionInfo]> {
-        HashMap::from_iter(self.topic_partitions.iter().map(|(topic_name,
-          topic_partitions)| {
-            (topic_name.as_str(), topic_partitions.partitions())
-        }))
+        HashMap::from_iter(
+            self.topic_partitions
+                .iter()
+                .map(|(topic_name, topic_partitions)| (topic_name.as_str(), topic_partitions.partitions())),
+        )
     }
 
     fn topic_names(&self) -> Vec<&str> {
@@ -106,9 +103,7 @@ impl Cluster for Metadata {
     }
 
     fn find_broker(&self, broker_ref: BrokerRef) -> Option<&Broker> {
-        self.brokers.iter().find(|broker| {
-            broker.id() == broker_ref.index()
-        })
+        self.brokers.iter().find(|broker| broker.id() == broker_ref.index())
     }
 
     fn leader_for(&self, tp: &TopicPartition) -> Option<&Broker> {
@@ -136,9 +131,7 @@ impl Cluster for Metadata {
             .map(|(topic_name, partitions)| {
                 partitions
                     .iter()
-                    .map(|(partition_id, _)| {
-                        topic_partition!(topic_name.as_str(), partition_id)
-                    })
+                    .map(|(partition_id, _)| topic_partition!(topic_name.as_str(), partition_id))
                     .collect()
             })
     }
@@ -150,9 +143,7 @@ impl Cluster for Metadata {
                 partitions
                     .iter()
                     .find(|&(_, partition)| partition.leader == Some(leader))
-                    .map(|(partition_id, _)| {
-                        topic_partition!(topic_name.as_str(), partition_id)
-                    })
+                    .map(|(partition_id, _)| topic_partition!(topic_name.as_str(), partition_id))
             })
             .collect()
     }
@@ -163,9 +154,7 @@ impl From<MetadataResponse> for Metadata {
         Metadata {
             brokers: md.brokers
                 .iter()
-                .map(|broker| {
-                    Broker::new(broker.node_id, &broker.host, broker.port as u16)
-                })
+                .map(|broker| Broker::new(broker.node_id, &broker.host, broker.port as u16))
                 .collect(),
             topic_partitions: HashMap::from_iter(md.topics.iter().map(|topic| {
                 (
@@ -174,21 +163,11 @@ impl From<MetadataResponse> for Metadata {
                         partitions: topic
                             .partitions
                             .iter()
-                            .map(|partition| {
-                                PartitionInfo {
-                                    partition_id: partition.partition_id,
-                                    leader: Some(BrokerRef::new(partition.leader)),
-                                    replicas: partition
-                                        .replicas
-                                        .iter()
-                                        .map(|node| BrokerRef::new(*node))
-                                        .collect(),
-                                    in_sync_replicas: partition
-                                        .isr
-                                        .iter()
-                                        .map(|node| BrokerRef::new(*node))
-                                        .collect(),
-                                }
+                            .map(|partition| PartitionInfo {
+                                partition_id: partition.partition_id,
+                                leader: Some(BrokerRef::new(partition.leader)),
+                                replicas: partition.replicas.iter().map(|node| BrokerRef::new(*node)).collect(),
+                                in_sync_replicas: partition.isr.iter().map(|node| BrokerRef::new(*node)).collect(),
                             })
                             .collect(),
                     },
@@ -213,7 +192,9 @@ pub struct TopicPartitions {
 impl TopicPartitions {
     /// Creates a new partitions vector with all partitions leaderless
     fn new_with_partitions(n: usize) -> Self {
-        TopicPartitions { partitions: (0..n).map(|_| PartitionInfo::default()).collect() }
+        TopicPartitions {
+            partitions: (0..n).map(|_| PartitionInfo::default()).collect(),
+        }
     }
 
     pub fn partitions(&self) -> &[PartitionInfo] {

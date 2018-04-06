@@ -7,8 +7,7 @@ use std::time::Duration;
 
 use futures::{Async, Future, Poll};
 
-use client::{Client, FetchRecords, KafkaClient, ListOffsets, PartitionData, StaticBoxFuture,
-             ToStaticBoxFuture};
+use client::{Client, FetchRecords, KafkaClient, ListOffsets, PartitionData, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{OffsetResetStrategy, SeekTo, Subscriptions};
 use errors::{Error, ErrorKind};
 use network::TopicPartition;
@@ -56,29 +55,27 @@ where
             self.subscriptions
                 .borrow_mut()
                 .assigned_state_mut(&tp)
-                .and_then(|state| if state.is_offset_reset_needed() {
-                    debug!("resetting offset to {:?}", state.reset_strategy);
+                .and_then(|state| {
+                    if state.is_offset_reset_needed() {
+                        debug!("resetting offset to {:?}", state.reset_strategy);
 
-                    Some(tp)
-                } else if let Some(committed) = state.committed.as_ref().map(|committed| {
-                    committed.offset
-                })
-                {
-                    debug!(
-                        "resetting offset for partition {} to the committed offset {}",
-                        tp,
-                        committed
-                    );
+                        Some(tp)
+                    } else if let Some(committed) = state.committed.as_ref().map(|committed| committed.offset) {
+                        debug!(
+                            "resetting offset for partition {} to the committed offset {}",
+                            tp, committed
+                        );
 
-                    state.seek(committed);
+                        state.seek(committed);
 
-                    None
-                } else {
-                    debug!("resetting offset to {:?}", default_reset_strategy);
+                        None
+                    } else {
+                        debug!("resetting offset to {:?}", default_reset_strategy);
 
-                    state.need_offset_reset(default_reset_strategy);
+                        state.need_offset_reset(default_reset_strategy);
 
-                    Some(tp)
+                        Some(tp)
+                    }
                 })
         }))
     }
@@ -100,10 +97,7 @@ where
                         offset_resets.push((tp, FetchOffset::Latest));
                     }
                     _ => {
-                        return ErrorKind::NoOffsetForPartition(
-                            tp.topic_name.into(),
-                            tp.partition_id,
-                        ).into();
+                        return ErrorKind::NoOffsetForPartition(tp.topic_name.into(), tp.partition_id).into();
                     }
                 }
             }
@@ -119,15 +113,9 @@ where
                         if let Some(offset) = partition.offset() {
                             match partition.error_code {
                                 KafkaCode::None => {
-                                    let tp = topic_partition!(
-                                        topic_name.clone(),
-                                        partition.partition_id
-                                    );
+                                    let tp = topic_partition!(topic_name.clone(), partition.partition_id);
 
-                                    subscriptions.borrow_mut().seek(
-                                        &tp,
-                                        SeekTo::Position(offset),
-                                    )?
+                                    subscriptions.borrow_mut().seek(&tp, SeekTo::Position(offset))?
                                 }
                                 _ => bail!(ErrorKind::KafkaError(partition.error_code)),
                             }
@@ -164,18 +152,18 @@ where
             .collect();
 
         self.client
-            .fetch_records(self.fetch_max_wait,
-                           self.fetch_min_bytes,
-                           self.fetch_max_bytes,
-                           fetch_partitions)
+            .fetch_records(
+                self.fetch_max_wait,
+                self.fetch_min_bytes,
+                self.fetch_max_bytes,
+                fetch_partitions,
+            )
             .and_then(move |records| {
                 for (topic_name, records) in &records {
                     for record in records {
                         let tp = topic_partition!(topic_name.clone(), record.partition_id);
 
-                        if let Some(mut state) = subscriptions
-                               .borrow_mut()
-                               .assigned_state_mut(&tp) {
+                        if let Some(mut state) = subscriptions.borrow_mut().assigned_state_mut(&tp) {
                             if !state.is_fetchable() {
                                 debug!("ignoring fetched records for {} since it is no longer fetchable", tp);
                             } else {
@@ -195,9 +183,7 @@ where
                                             state.need_offset_reset(subscriptions.borrow().default_reset_strategy());
                                         }
                                     }
-                                    _ => {
-                                        bail!(ErrorKind::KafkaError(record.error_code))
-                                    }
+                                    _ => bail!(ErrorKind::KafkaError(record.error_code)),
                                 }
                             }
                         }
@@ -209,10 +195,7 @@ where
             .static_boxed()
     }
 
-    pub fn retrieve_offsets<T>(
-        &self,
-        partitions: Vec<(TopicPartition<'a>, FetchOffset)>,
-    ) -> RetrieveOffsets<'a, T> {
+    pub fn retrieve_offsets<T>(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> RetrieveOffsets<'a, T> {
         RetrieveOffsets::new(self.client.list_offsets(partitions))
     }
 }
@@ -241,23 +224,18 @@ impl<'a> Future for RetrieveOffsets<'a, Offset> {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.offsets.poll() {
-            Ok(Async::Ready(offsets)) => {
-                Ok(Async::Ready(
-                    offsets
-                        .into_iter()
-                        .flat_map(|(topic_name, partitions)| {
-                            partitions.into_iter().flat_map(move |listed| {
-                                listed.offset().map(|offset| {
-                                    (
-                                        topic_partition!(topic_name.clone(), listed.partition_id),
-                                        offset,
-                                    )
-                                })
-                            })
+            Ok(Async::Ready(offsets)) => Ok(Async::Ready(
+                offsets
+                    .into_iter()
+                    .flat_map(|(topic_name, partitions)| {
+                        partitions.into_iter().flat_map(move |listed| {
+                            listed
+                                .offset()
+                                .map(|offset| (topic_partition!(topic_name.clone(), listed.partition_id), offset))
                         })
-                        .collect(),
-                ))
-            }
+                    })
+                    .collect(),
+            )),
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(err) => Err(err),
         }

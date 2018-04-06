@@ -153,10 +153,14 @@ impl<E: StdError> From<::tokio_retry::Error<E>> for Error {
 }
 
 macro_rules! hexdump {
-    ($buf:expr) => (hexdump!($buf, 0));
-    ($buf:expr, $off:expr) => (::hexplay::HexViewBuilder::new($buf)
-                                  .codepage(::hexplay::CODEPAGE_ASCII)
-                                  .address_offset($off)
-                                  .row_width(16)
-                                  .finish());
+    ($buf:expr) => {
+        hexdump!($buf, 0)
+    };
+    ($buf:expr, $off:expr) => {
+        ::hexplay::HexViewBuilder::new($buf)
+            .codepage(::hexplay::CODEPAGE_ASCII)
+            .address_offset($off)
+            .row_width(16)
+            .finish()
+    };
 }

@@ -48,19 +48,10 @@ where
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<B: BufMut>(
-        &self,
-        _topic_name: &str,
-        data: Self::Item,
-        buf: &mut B,
-    ) -> Result<()> {
+    fn serialize_to<B: BufMut>(&self, _topic_name: &str, data: Self::Item, buf: &mut B) -> Result<()> {
         let mut w = BufWriter(buf);
 
-        self.encoding.encode_to(
-            data.as_ref(),
-            EncoderTrap::Strict,
-            &mut w,
-        )?;
+        self.encoding.encode_to(data.as_ref(), EncoderTrap::Strict, &mut w)?;
 
         Ok(())
     }
@@ -90,18 +81,9 @@ where
     type Item = T;
     type Error = Error;
 
-    fn deserialize_to<B: Buf>(
-        &self,
-        _topic_name: &str,
-        buf: &mut B,
-        data: &mut Self::Item,
-    ) -> Result<()> {
+    fn deserialize_to<B: Buf>(&self, _topic_name: &str, buf: &mut B, data: &mut Self::Item) -> Result<()> {
         let len = buf.remaining();
-        data.put_slice(
-            self.encoding
-                .decode(buf.bytes(), DecoderTrap::Strict)?
-                .as_bytes(),
-        );
+        data.put_slice(self.encoding.decode(buf.bytes(), DecoderTrap::Strict)?.as_bytes());
         buf.advance(len);
         Ok(())
     }
@@ -123,16 +105,11 @@ mod tests {
         let mut buf = Vec::new();
         let data = vec![178, 226, 202, 212];
 
-        serializer
-            .serialize_to("topic", "测试", &mut buf)
-            .unwrap();
+        serializer.serialize_to("topic", "测试", &mut buf).unwrap();
 
         assert_eq!(&buf, &data);
 
-        assert_eq!(
-            serializer.serialize("topic", "测试").unwrap(),
-            Bytes::from(data)
-        );
+        assert_eq!(serializer.serialize("topic", "测试").unwrap(), Bytes::from(data));
     }
 
     #[test]
@@ -142,9 +119,7 @@ mod tests {
         let mut cur = Cursor::new(data.clone());
         let mut buf = Vec::new();
 
-        deserializer
-            .deserialize_to("topic", &mut cur, &mut buf)
-            .unwrap();
+        deserializer.deserialize_to("topic", &mut cur, &mut buf).unwrap();
 
         assert_eq!(cur.position(), 4);
         assert_eq!(buf.as_slice(), "测试".as_bytes());

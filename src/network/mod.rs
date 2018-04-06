@@ -1,11 +1,11 @@
 #[macro_use]
 mod request;
-mod response;
 mod codec;
-mod resolver;
-mod stream;
 mod conn;
 mod pool;
+mod resolver;
+mod response;
+mod stream;
 
 pub use self::codec::KafkaCodec;
 pub use self::conn::{KafkaConnection, KeepAlive, Status};
@@ -37,10 +37,12 @@ impl<'a> fmt::Display for TopicPartition<'a> {
 
 #[macro_export]
 macro_rules! topic_partition {
-    ($topic_name:expr, $partition_id:expr) => ($crate::network::TopicPartition {
-        topic_name: $topic_name.into(),
-        partition_id: $partition_id,
-    })
+    ($topic_name:expr, $partition_id:expr) => {
+        $crate::network::TopicPartition {
+            topic_name: $topic_name.into(),
+            partition_id: $partition_id,
+        }
+    };
 }
 
 /// A container class for offset and metadata
@@ -74,14 +76,18 @@ impl OffsetAndMetadata {
 
 #[macro_export]
 macro_rules! offset_and_metadata {
-    ($offset:expr) => ($crate::network::OffsetAndMetadata {
-        offset: $offset,
-        metadata: None,
-    });
-    ($offset:expr, $metadata:expr) => ($crate::network::OffsetAndMetadata {
-        offset: $offset,
-        metadata: Some($metadata.into()),
-    });
+    ($offset:expr) => {
+        $crate::network::OffsetAndMetadata {
+            offset: $offset,
+            metadata: None,
+        }
+    };
+    ($offset:expr, $metadata:expr) => {
+        $crate::network::OffsetAndMetadata {
+            offset: $offset,
+            metadata: Some($metadata.into()),
+        }
+    };
 }
 
 /// A container class for offset and timestamp
@@ -111,12 +117,16 @@ impl OffsetAndTimestamp {
 
 #[macro_export]
 macro_rules! offset_and_timestamp {
-    ($offset:expr) => ($crate::network::OffsetAndTimestamp {
-        offset: $offset,
-        timestamp: None,
-    });
-    ($offset:expr, $timestamp:expr) => ($crate::network::OffsetAndTimestamp {
-        offset: $offset,
-        timestamp: Some($timestamp),
-    });
+    ($offset:expr) => {
+        $crate::network::OffsetAndTimestamp {
+            offset: $offset,
+            timestamp: None,
+        }
+    };
+    ($offset:expr, $timestamp:expr) => {
+        $crate::network::OffsetAndTimestamp {
+            offset: $offset,
+            timestamp: Some($timestamp),
+        }
+    };
 }

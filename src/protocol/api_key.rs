@@ -1,13 +1,15 @@
 use std::mem;
 
-/// This is a numeric id for the API being invoked (i.e. is it a metadata request, a produce request, a fetch request, etc).
+/// This is a numeric id for the API being invoked (i.e. is it a metadata request, a produce
+/// request, a fetch request, etc).
 ///
 /// See [`ApiKeys`](enum.ApiKeys.html)
 pub type ApiKey = i16;
 
 /// Identifiers for all the Kafka APIs
 ///
-/// The following are the numeric codes that the `ApiKey` in the request can take for each of the below request types.
+/// The following are the numeric codes that the `ApiKey` in the request can take for each of the
+/// below request types.
 ///
 /// See [`ApiKey`](type.ApiKey.html)
 #[derive(Debug, Copy, Clone, PartialEq)]

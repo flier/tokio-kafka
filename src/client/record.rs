@@ -70,10 +70,7 @@ where
         self
     }
 
-    fn from_partition_record(
-        partition_id: PartitionId,
-        record: PartitionRecord<K, V>,
-    ) -> TopicRecord<K, V> {
+    fn from_partition_record(partition_id: PartitionId, record: PartitionRecord<K, V>) -> TopicRecord<K, V> {
         TopicRecord {
             partition_id: Some(partition_id),
             key: record.key,

@@ -114,13 +114,7 @@ mod tests {
 
         // partition without topics
         assert_eq!(
-            partitioner.partition(
-                "topic",
-                None,
-                Some("key").as_ref(),
-                Some("value").as_ref(),
-                &metadata,
-            ),
+            partitioner.partition("topic", None, Some("key").as_ref(), Some("value").as_ref(), &metadata,),
             None
         );
     }
@@ -128,11 +122,9 @@ mod tests {
     #[test]
     fn test_key_partitioning() {
         let partitions = (0..3)
-            .map(|id| {
-                PartitionInfo {
-                    partition_id: id,
-                    ..Default::default()
-                }
+            .map(|id| PartitionInfo {
+                partition_id: id,
+                ..Default::default()
             })
             .collect();
         let metadata = Metadata::with_topics(vec![("topic".to_owned(), partitions)]);
@@ -142,26 +134,14 @@ mod tests {
         // partition with key
         assert!(
             partitioner
-                .partition(
-                    "topic",
-                    None,
-                    Some("key").as_ref(),
-                    Some("value").as_ref(),
-                    &metadata,
-                )
+                .partition("topic", None, Some("key").as_ref(), Some("value").as_ref(), &metadata)
                 .is_some()
         );
 
         // partition without key
         for id in 0..100 {
             assert_eq!(
-                partitioner.partition::<(), &str>(
-                    "topic",
-                    None,
-                    None,
-                    Some("value").as_ref(),
-                    &metadata,
-                ),
+                partitioner.partition::<(), &str>("topic", None, None, Some("value").as_ref(), &metadata,),
                 Some(id % 3)
             );
         }

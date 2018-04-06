@@ -5,11 +5,11 @@ use std::time::Instant;
 
 use bytes::BytesMut;
 
-use futures::{AsyncSink, Poll, StartSend};
-use futures::stream::Stream;
 use futures::sink::Sink;
-use tokio_io::{AsyncRead, AsyncWrite};
+use futures::stream::Stream;
+use futures::{AsyncSink, Poll, StartSend};
 use tokio_io::codec::Framed;
+use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_proto::streaming::pipeline::{Frame, Transport};
 
 use network::{ConnectionId, KafkaCodec, KafkaRequest, KafkaResponse};
@@ -55,7 +55,8 @@ impl<'a, I, K> DerefMut for KafkaConnection<'a, I, K> {
 }
 
 impl<'a, I, K> Read for KafkaConnection<'a, I, K>
-    where I: AsyncRead + AsyncWrite
+where
+    I: AsyncRead + AsyncWrite,
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.stream.get_mut().read(buf) {
@@ -74,7 +75,8 @@ impl<'a, I, K> Read for KafkaConnection<'a, I, K>
 }
 
 impl<'a, I, K> Write for KafkaConnection<'a, I, K>
-    where I: AsyncRead + AsyncWrite
+where
+    I: AsyncRead + AsyncWrite,
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         trace!("write {} bytes:\n{}", buf.len(), hexdump!(buf));
@@ -89,10 +91,15 @@ impl<'a, I, K> Write for KafkaConnection<'a, I, K>
     }
 }
 
-impl<'a, I, K> AsyncRead for KafkaConnection<'a, I, K> where I: AsyncRead + AsyncWrite {}
+impl<'a, I, K> AsyncRead for KafkaConnection<'a, I, K>
+where
+    I: AsyncRead + AsyncWrite,
+{
+}
 
 impl<'a, I, K> AsyncWrite for KafkaConnection<'a, I, K>
-    where I: AsyncRead + AsyncWrite
+where
+    I: AsyncRead + AsyncWrite,
 {
     fn shutdown(&mut self) -> Poll<(), io::Error> {
         trace!("shutdown stream");
@@ -102,31 +109,28 @@ impl<'a, I, K> AsyncWrite for KafkaConnection<'a, I, K>
 }
 
 impl<'a, I, K> Stream for KafkaConnection<'a, I, K>
-    where I: AsyncRead + AsyncWrite
+where
+    I: AsyncRead + AsyncWrite,
 {
     type Item = Frame<KafkaResponse, BytesMut, io::Error>;
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.stream
-            .poll()
-            .map(|res| {
-                res.map(|res| {
-                    res.map(|res| {
-                                Frame::Message {
-                                    message: res,
-                                    body: false,
-                                }
-                            })
-
+        self.stream.poll().map(|res| {
+            res.map(|res| {
+                res.map(|res| Frame::Message {
+                    message: res,
+                    body: false,
                 })
             })
+        })
     }
 }
 
 impl<'a, I, K> Sink for KafkaConnection<'a, I, K>
-    where I: AsyncRead + AsyncWrite,
-          K: KeepAlive
+where
+    I: AsyncRead + AsyncWrite,
+    K: KeepAlive,
 {
     type SinkItem = Frame<KafkaRequest<'a>, BytesMut, io::Error>;
     type SinkError = io::Error;
@@ -135,24 +139,14 @@ impl<'a, I, K> Sink for KafkaConnection<'a, I, K>
         trace!("send request: {:?}", frame);
 
         match frame {
-            Frame::Message {
-                message: request,
-                body,
-            } => {
-                self.stream
-                    .start_send(request)
-                    .map(|async| match async {
-                             AsyncSink::Ready => AsyncSink::Ready,
-                             AsyncSink::NotReady(request) => {
-                                 AsyncSink::NotReady(Frame::Message {
-                                                         message: request,
-                                                         body: body,
-                                                     })
-                             }
-                         })
-            }
-            Frame::Body { .. } |
-            Frame::Error { .. } => Ok(AsyncSink::Ready),
+            Frame::Message { message: request, body } => self.stream.start_send(request).map(|async| match async {
+                AsyncSink::Ready => AsyncSink::Ready,
+                AsyncSink::NotReady(request) => AsyncSink::NotReady(Frame::Message {
+                    message: request,
+                    body: body,
+                }),
+            }),
+            Frame::Body { .. } | Frame::Error { .. } => Ok(AsyncSink::Ready),
         }
     }
 
@@ -166,15 +160,17 @@ impl<'a, I, K> Sink for KafkaConnection<'a, I, K>
 }
 
 impl<'a, I, K> Transport for KafkaConnection<'a, I, K>
-    where I: AsyncRead + AsyncWrite,
-          K: KeepAlive,
-          Self: 'static
+where
+    I: AsyncRead + AsyncWrite,
+    K: KeepAlive,
+    Self: 'static,
 {
 }
 
 impl<'a, I, K> KafkaConnection<'a, I, K>
-    where I: AsyncRead + AsyncWrite,
-          K: KeepAlive
+where
+    I: AsyncRead + AsyncWrite,
+    K: KeepAlive,
 {
     pub fn new(id: ConnectionId, stream: I, codec: KafkaCodec<'a>, keep_alive: K) -> Self {
         KafkaConnection {

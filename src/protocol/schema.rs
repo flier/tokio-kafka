@@ -176,10 +176,7 @@ impl<'de> Visitor<'de> for VarIntVisitor {
                 value |= ((b & 0x7f) as u32) << i;
                 i += 7;
                 if i > 28 {
-                    return Err(de::Error::invalid_value(
-                        de::Unexpected::Unsigned(b as u64),
-                        &self,
-                    ));
+                    return Err(de::Error::invalid_value(de::Unexpected::Unsigned(b as u64), &self));
                 }
             } else {
                 value |= (b as u32) << i;
@@ -241,10 +238,7 @@ impl<'de> Visitor<'de> for VarLongVisitor {
                 value |= ((b & 0x7f) as u64) << i;
                 i += 7;
                 if i > 63 {
-                    return Err(de::Error::invalid_value(
-                        de::Unexpected::Unsigned(b as u64),
-                        &self,
-                    ));
+                    return Err(de::Error::invalid_value(de::Unexpected::Unsigned(b as u64), &self));
                 }
             } else {
                 value |= (b as u64) << i;
@@ -404,63 +398,63 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
     type SerializeStruct = Self;
     type SerializeStructVariant = ser::Impossible<Self::Ok, Self::Error>;
 
-    fn serialize_bool(mut self, v: bool) -> Result<()> {
+    fn serialize_bool(self, v: bool) -> Result<()> {
         trace!("serialize bool: {}", v);
 
         self.buf.write_u8(if v { 1 } else { 0 })?;
 
         Ok(())
     }
-    fn serialize_i8(mut self, v: i8) -> Result<()> {
+    fn serialize_i8(self, v: i8) -> Result<()> {
         trace!("serialize i8: {}", v);
 
         self.buf.write_i8(v)?;
 
         Ok(())
     }
-    fn serialize_i16(mut self, v: i16) -> Result<()> {
+    fn serialize_i16(self, v: i16) -> Result<()> {
         trace!("serialize i16: {}", v);
 
         self.buf.write_i16::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_i32(mut self, v: i32) -> Result<()> {
+    fn serialize_i32(self, v: i32) -> Result<()> {
         trace!("serialize i32: {}", v);
 
         self.buf.write_i32::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_i64(mut self, v: i64) -> Result<()> {
+    fn serialize_i64(self, v: i64) -> Result<()> {
         trace!("serialize i64: {}", v);
 
         self.buf.write_i64::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_u8(mut self, v: u8) -> Result<()> {
+    fn serialize_u8(self, v: u8) -> Result<()> {
         trace!("serialize u8: {}", v);
 
         self.buf.write_u8(v)?;
 
         Ok(())
     }
-    fn serialize_u16(mut self, v: u16) -> Result<()> {
+    fn serialize_u16(self, v: u16) -> Result<()> {
         trace!("serialize u16: {}", v);
 
         self.buf.write_u16::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_u32(mut self, v: u32) -> Result<()> {
+    fn serialize_u32(self, v: u32) -> Result<()> {
         trace!("serialize u32: {}", v);
 
         self.buf.write_u32::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_u64(mut self, v: u64) -> Result<()> {
+    fn serialize_u64(self, v: u64) -> Result<()> {
         trace!("serialize u64: {}", v);
 
         self.buf.write_u64::<O>(v)?;
@@ -486,7 +480,7 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
 
         bail!(ErrorKind::SchemaError("unsupported type: char".to_owned()))
     }
-    fn serialize_str(mut self, v: &str) -> Result<()> {
+    fn serialize_str(self, v: &str) -> Result<()> {
         trace!("serialize str, len={}: {}", v.len(), v);
 
         if v.len() > i16::MAX as usize {
@@ -501,7 +495,7 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
 
         Ok(())
     }
-    fn serialize_bytes(mut self, v: &[u8]) -> Result<()> {
+    fn serialize_bytes(self, v: &[u8]) -> Result<()> {
         trace!("serialize bytes, len={}\n{}", v.len(), hexdump!(v));
 
         self.buf.write_all(v)?;
@@ -521,27 +515,25 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
         bail!(ErrorKind::SchemaError("unsupported type: unit".to_owned()))
     }
     fn serialize_unit_struct(self, name: &'static str) -> Result<()> {
-        bail!(ErrorKind::SchemaError(
-            format!("unsupported type: unit struct `{}`", name),
-        ))
+        bail!(ErrorKind::SchemaError(format!(
+            "unsupported type: unit struct `{}`",
+            name
+        ),))
     }
-    fn serialize_unit_variant(
-        self,
-        name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-    ) -> Result<()> {
-        bail!(ErrorKind::SchemaError(
-            format!("unsupported type: unit variant `{}`", name),
-        ))
+    fn serialize_unit_variant(self, name: &'static str, _variant_index: u32, _variant: &'static str) -> Result<()> {
+        bail!(ErrorKind::SchemaError(format!(
+            "unsupported type: unit variant `{}`",
+            name
+        ),))
     }
     fn serialize_newtype_struct<T: ?Sized>(self, name: &'static str, _value: &T) -> Result<()>
     where
         T: Serialize,
     {
-        bail!(ErrorKind::SchemaError(
-            format!("unsupported type: new type struct `{}`", name),
-        ))
+        bail!(ErrorKind::SchemaError(format!(
+            "unsupported type: new type struct `{}`",
+            name
+        ),))
     }
     fn serialize_newtype_variant<T: ?Sized>(
         self,
@@ -553,9 +545,10 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
     where
         T: Serialize,
     {
-        bail!(ErrorKind::SchemaError(
-            format!("unsupported type: new type variant `{}`", name),
-        ))
+        bail!(ErrorKind::SchemaError(format!(
+            "unsupported type: new type variant `{}`",
+            name
+        ),))
     }
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
         trace!("serialize seq with {} elements", len.unwrap_or_default());
@@ -580,16 +573,10 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
 
         bail!(ErrorKind::SchemaError("unsupported tuple".to_owned()))
     }
-    fn serialize_tuple_struct(
-        self,
-        name: &'static str,
-        len: usize,
-    ) -> Result<Self::SerializeTupleStruct> {
+    fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self::SerializeTupleStruct> {
         trace!("serialize tuple struct `{}` with {} elements", name, len);
 
-        bail!(ErrorKind::SchemaError(
-            format!("unsupported tuple struct `{}`", name),
-        ))
+        bail!(ErrorKind::SchemaError(format!("unsupported tuple struct `{}`", name),))
     }
     fn serialize_tuple_variant(
         self,
@@ -598,16 +585,9 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        trace!(
-            "serialize tuple variant `{}::{}` with {} elements",
-            name,
-            variant,
-            len
-        );
+        trace!("serialize tuple variant `{}::{}` with {} elements", name, variant, len);
 
-        bail!(ErrorKind::SchemaError(
-            format!("unsupported tuple variant: {}", name),
-        ))
+        bail!(ErrorKind::SchemaError(format!("unsupported tuple variant: {}", name),))
     }
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
         trace!("serialize map with {} items", len.unwrap_or_default());
@@ -626,16 +606,9 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        trace!(
-            "serialize struct variant `{}::{}` with {} elements",
-            name,
-            variant,
-            len
-        );
+        trace!("serialize struct variant `{}::{}` with {} elements", name, variant, len);
 
-        bail!(ErrorKind::SchemaError(
-            format!("unsupported struct variant: {}", name),
-        ))
+        bail!(ErrorKind::SchemaError(format!("unsupported struct variant: {}", name),))
     }
 }
 
@@ -889,11 +862,7 @@ where
 
         visitor.visit_unit()
     }
-    fn deserialize_unit_struct<V>(
-        self,
-        name: &'static str,
-        _visitor: V,
-    ) -> StdResult<V::Value, Self::Error>
+    fn deserialize_unit_struct<V>(self, name: &'static str, _visitor: V) -> StdResult<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -901,11 +870,7 @@ where
 
         unimplemented!()
     }
-    fn deserialize_newtype_struct<V>(
-        self,
-        name: &'static str,
-        visitor: V,
-    ) -> StdResult<V::Value, Self::Error>
+    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> StdResult<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -974,11 +939,7 @@ where
     where
         V: Visitor<'de>,
     {
-        trace!(
-            "deserialize enum `{}` with {} variants",
-            name,
-            variants.len()
-        );
+        trace!("deserialize enum `{}` with {} variants", name, variants.len());
 
         unimplemented!()
     }
@@ -1083,11 +1044,7 @@ where
         if self.pos >= self.fields.len() {
             Ok(None)
         } else {
-            trace!(
-                "deserialize `{}::{}` field",
-                self.name,
-                self.fields[self.pos]
-            );
+            trace!("deserialize `{}::{}` field", self.name, self.fields[self.pos]);
 
             self.pos += 1;
             seed.deserialize(&mut *self.deserializer).map(Some)

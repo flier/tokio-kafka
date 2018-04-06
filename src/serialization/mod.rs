@@ -1,6 +1,6 @@
+mod bytes;
 mod noop;
 mod raw;
-mod bytes;
 mod str;
 
 pub use self::bytes::{BytesDeserializer, BytesSerializer};
@@ -18,12 +18,11 @@ mod json;
 #[cfg(feature = "json")]
 pub use self::json::{JsonDeserializer, JsonSerializer};
 
-
 use std::mem;
 use std::result::Result;
 
-use bytes::{Buf, BufMut, Bytes};
 use bytes::buf::FromBuf;
+use bytes::{Buf, BufMut, Bytes};
 
 /// A trait for serializing type to Kafka record
 pub trait Serializer {
@@ -33,12 +32,7 @@ pub trait Serializer {
     type Error;
 
     /// Serizalize data of topic to the given buffer
-    fn serialize_to<B: BufMut>(
-        &self,
-        topic_name: &str,
-        data: Self::Item,
-        buf: &mut B,
-    ) -> Result<(), Self::Error>;
+    fn serialize_to<B: BufMut>(&self, topic_name: &str, data: Self::Item, buf: &mut B) -> Result<(), Self::Error>;
 
     /// Serialize data of topic as `Bytes`
     fn serialize(&self, topic_name: &str, data: Self::Item) -> Result<Bytes, Self::Error> {
@@ -56,18 +50,9 @@ pub trait Deserializer {
     type Error;
 
     /// Deserizalize data of topic from the given buffer
-    fn deserialize_to<B: Buf>(
-        &self,
-        topic_name: &str,
-        buf: &mut B,
-        data: &mut Self::Item,
-    ) -> Result<(), Self::Error>;
+    fn deserialize_to<B: Buf>(&self, topic_name: &str, buf: &mut B, data: &mut Self::Item) -> Result<(), Self::Error>;
 
-    fn deserialize<B: Buf>(
-        &self,
-        topic_name: &str,
-        buf: &mut B,
-    ) -> Result<Self::Item, Self::Error> {
+    fn deserialize<B: Buf>(&self, topic_name: &str, buf: &mut B) -> Result<Self::Item, Self::Error> {
         let mut data = unsafe { mem::zeroed() };
 
         self.deserialize_to(topic_name, buf, &mut data)?;

@@ -5,15 +5,15 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use futures::{Future, Stream, future};
 use futures::future::Either;
+use futures::{future, Future, Stream};
 use tokio_retry::Retry;
 use tokio_timer::Timer;
 
-use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupMember,
-             ConsumerGroupProtocol, Generation, JoinGroup as JoinConsumerGroup, Metadata,
-             OffsetCommit, OffsetFetch, StaticBoxFuture, ToStaticBoxFuture};
-use consumer::{Assignment, CONSUMER_PROTOCOL, PartitionAssignor, Subscription, Subscriptions};
+use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupMember, ConsumerGroupProtocol,
+             Generation, JoinGroup as JoinConsumerGroup, Metadata, OffsetCommit, OffsetFetch, StaticBoxFuture,
+             ToStaticBoxFuture};
+use consumer::{Assignment, PartitionAssignor, Subscription, Subscriptions, CONSUMER_PROTOCOL};
 use errors::{Error, ErrorKind, Result, ResultExt};
 use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
@@ -108,10 +108,9 @@ impl State {
 
     pub fn member_id(&self) -> Option<String> {
         match *self {
-            State::Stable { ref generation, .. } |
-            State::Rebalancing { ref generation, .. } => Some(
-                String::from(generation.member_id.clone()),
-            ),
+            State::Stable { ref generation, .. } | State::Rebalancing { ref generation, .. } => {
+                Some(String::from(generation.member_id.clone()))
+            }
             State::Unjoined => None,
         }
     }
@@ -188,21 +187,15 @@ where
         self.assignors
             .iter()
             .flat_map(move |assignor| {
-                let subscription = assignor.subscription(
-                    topics
-                        .iter()
-                        .map(|topic_name| topic_name.as_str().into())
-                        .collect(),
-                );
+                let subscription =
+                    assignor.subscription(topics.iter().map(|topic_name| topic_name.as_str().into()).collect());
 
                 Schema::serialize(&subscription)
                     .chain_err(|| "fail to serialize subscription schema")
                     .ok()
-                    .map(|metadata| {
-                        ConsumerGroupProtocol {
-                            protocol_name: assignor.name().into(),
-                            protocol_metadata: metadata.into(),
-                        }
+                    .map(|metadata| ConsumerGroupProtocol {
+                        protocol_name: assignor.name().into(),
+                        protocol_metadata: metadata.into(),
                     })
             })
             .collect()
@@ -214,23 +207,20 @@ where
         group_protocol: &str,
         members: &[ConsumerGroupMember],
     ) -> Result<Vec<ConsumerGroupAssignment<'a>>> {
-        let strategy = group_protocol.parse().chain_err(|| {
-            format!("fail to parse group protocol: {}", group_protocol)
-        })?;
+        let strategy = group_protocol
+            .parse()
+            .chain_err(|| format!("fail to parse group protocol: {}", group_protocol))?;
         let assignor = self.assignors
             .iter()
             .find(|assigner| assigner.strategy() == strategy)
-            .ok_or_else(|| {
-                ErrorKind::UnsupportedAssignmentStrategy(group_protocol.to_owned())
-            })?;
+            .ok_or_else(|| ErrorKind::UnsupportedAssignmentStrategy(group_protocol.to_owned()))?;
 
         let mut subscripbed_topics = HashSet::new();
         let mut subscriptions = HashMap::new();
 
         for member in members {
-            let subscription: Subscription =
-                Schema::deserialize(member.member_metadata.as_ref())
-                    .chain_err(|| "fail to deserialize member metadata schema")?;
+            let subscription: Subscription = Schema::deserialize(member.member_metadata.as_ref())
+                .chain_err(|| "fail to deserialize member metadata schema")?;
 
             subscripbed_topics.extend(subscription.topics.iter().cloned());
             subscriptions.insert(member.member_id.as_str().into(), subscription);
@@ -245,9 +235,11 @@ where
 
         let mut assigned_topics = HashSet::new();
 
-        assigned_topics.extend(assignment.values().flat_map(|member| {
-            member.partitions.iter().map(|tp| tp.topic_name.clone())
-        }));
+        assigned_topics.extend(
+            assignment
+                .values()
+                .flat_map(|member| member.partitions.iter().map(|tp| tp.topic_name.clone())),
+        );
 
         let not_assigned_topics = &subscripbed_topics - &assigned_topics;
 
@@ -255,9 +247,7 @@ where
             warn!(
                 "The following subscribed topics are not assigned to any members in the group `{}`: {}",
                 self.group_id,
-                Vec::from_iter(not_assigned_topics.iter().cloned())
-                    .as_slice()
-                    .join(",")
+                Vec::from_iter(not_assigned_topics.iter().cloned()).as_slice().join(",")
             );
         }
 
@@ -275,9 +265,9 @@ where
             subscripbed_topics.extend(assigned_topics);
         }
 
-        self.subscriptions.borrow_mut().group_subscribe(
-            subscripbed_topics.iter(),
-        );
+        self.subscriptions
+            .borrow_mut()
+            .group_subscribe(subscripbed_topics.iter());
 
         let mut group_assignment = Vec::new();
 
@@ -293,12 +283,7 @@ where
         Ok(group_assignment)
     }
 
-    fn synced_group(
-        &self,
-        assignment: Assignment<'a>,
-        coordinator: BrokerRef,
-        generation: Generation,
-    ) -> Result<()> {
+    fn synced_group(&self, assignment: Assignment<'a>, coordinator: BrokerRef, generation: Generation) -> Result<()> {
         trace!(
             "member `{}` synced up to generation # {} with {} partitions: {:?}",
             generation.member_id,
@@ -329,44 +314,40 @@ where
         let state = self.state.clone();
 
         let heartbeat = self.timer
-            .interval_at(Instant::now() + self.heartbeat_interval,
-                         self.heartbeat_interval)
+            .interval_at(Instant::now() + self.heartbeat_interval, self.heartbeat_interval)
             .from_err()
             .for_each(move |_| {
                 let client = client.clone();
                 let state = state.clone();
 
-                let matched = *state.borrow() ==
-                              (State::Stable {
-                                   coordinator: coordinator,
-                                   generation: generation.clone(),
-                               });
+                let matched = *state.borrow() == (State::Stable {
+                    coordinator: coordinator,
+                    generation: generation.clone(),
+                });
 
                 if matched {
                     let send_heartbeat = {
                         let generation = generation.clone();
 
-                        Retry::spawn(handle.clone(),
-                                     client.retry_strategy(),
-                                     move || client.heartbeat(coordinator, generation.clone()))
+                        Retry::spawn(handle.clone(), client.retry_strategy(), move || {
+                            client.heartbeat(coordinator, generation.clone())
+                        })
                     };
 
                     let generation = generation.clone();
 
-                    Either::A(send_heartbeat
-                                  .from_err()
-                                  .map_err(move |err| {
+                    Either::A(send_heartbeat.from_err().map_err(move |err| {
                         match err {
-                            Error(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress), _) |
-                            Error(ErrorKind::KafkaError(KafkaCode::RebalanceInProgress), _) => {
+                            Error(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress), _)
+                            | Error(ErrorKind::KafkaError(KafkaCode::RebalanceInProgress), _) => {
                                 info!("group is loading or rebalancing, {}", err);
 
                                 state.borrow_mut().rebalancing(coordinator, generation.clone());
                             }
-                            Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _) |
-                            Error(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup), _) |
-                            Error(ErrorKind::KafkaError(KafkaCode::IllegalGeneration), _) |
-                            Error(ErrorKind::KafkaError(KafkaCode::UnknownMemberId), _) => {
+                            Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _)
+                            | Error(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup), _)
+                            | Error(ErrorKind::KafkaError(KafkaCode::IllegalGeneration), _)
+                            | Error(ErrorKind::KafkaError(KafkaCode::UnknownMemberId), _) => {
                                 info!("group has outdated, need to rejoin, {}", err);
 
                                 state.borrow_mut().leaved();
@@ -381,13 +362,13 @@ where
                 }
             })
             .map_err(move |err| match err {
-                         Error(ErrorKind::Canceled(reason), _) => {
-                             trace!("heartbeat canceled, {}", reason);
-                         }
-                         _ => {
-                             warn!("heartbeat failed, {}", err);
-                         }
-                     });
+                Error(ErrorKind::Canceled(reason), _) => {
+                    trace!("heartbeat canceled, {}", reason);
+                }
+                _ => {
+                    warn!("heartbeat failed, {}", err);
+                }
+            });
 
         self.client.handle().spawn(heartbeat);
 
@@ -396,15 +377,14 @@ where
 
     fn group_coordinator(&self) -> GroupCoordinator {
         match *self.state.borrow() {
-            State::Stable { coordinator, .. } |
-            State::Rebalancing { coordinator, .. } => Either::A(future::ok(coordinator)),
-            State::Unjoined => {
-                Either::B(
-                    self.client
-                        .group_coordinator(self.group_id.clone().into())
-                        .map(|coordinator| coordinator.as_ref()),
-                )
+            State::Stable { coordinator, .. } | State::Rebalancing { coordinator, .. } => {
+                Either::A(future::ok(coordinator))
             }
+            State::Unjoined => Either::B(
+                self.client
+                    .group_coordinator(self.group_id.clone().into())
+                    .map(|coordinator| coordinator.as_ref()),
+            ),
         }.static_boxed()
     }
 
@@ -452,9 +432,7 @@ where
         {
             debug!(
                 "member `{}` already in the `{}` group (generation #{})",
-                generation.member_id,
-                generation.group_id,
-                generation.generation_id
+                generation.member_id, generation.group_id, generation.generation_id
             );
 
             future::ok((coordinator, generation.clone())).static_boxed()
@@ -462,11 +440,7 @@ where
             let member_id = self.inner.state.borrow().member_id();
 
             if let Some(ref member_id) = member_id {
-                debug!(
-                    "member `{}` rejoin the `{}` group",
-                    member_id,
-                    self.inner.group_id
-                );
+                debug!("member `{}` rejoin the `{}` group", member_id, self.inner.group_id);
             } else {
                 debug!("member join the `{}` group", self.inner.group_id);
             }
@@ -488,41 +462,33 @@ where
                 debug!(
                     "coordinator of group `{}` @ {}",
                     group_id,
-                    metadata.find_broker(coordinator).map_or(
-                        format!(
-                            "broker#{}",
-                            coordinator.index()
-                        ),
-                        |broker| {
+                    metadata
+                        .find_broker(coordinator)
+                        .map_or(format!("broker#{}", coordinator.index()), |broker| {
                             format!("{}:{}", broker.host(), broker.port())
-                        },
-                    )
+                        })
                 );
 
-                inner.join_group(coordinator, member_id).and_then(
-                    move |consumer_group| {
+                inner
+                    .join_group(coordinator, member_id)
+                    .and_then(move |consumer_group| {
                         let generation = consumer_group.generation();
 
                         let group_assignment = if !consumer_group.is_leader() {
                             debug!(
                                 "member `{}` joined group `{}` as follower",
-                                generation.member_id,
-                                generation.group_id
+                                generation.member_id, generation.group_id
                             );
 
                             None
                         } else {
                             debug!(
                                 "member `{}` joined group `{}` as leader",
-                                generation.member_id,
-                                generation.group_id
+                                generation.member_id, generation.group_id
                             );
 
-                            match inner.perform_assignment(
-                                &metadata,
-                                &consumer_group.protocol,
-                                &consumer_group.members,
-                            ) {
+                            match inner.perform_assignment(&metadata, &consumer_group.protocol, &consumer_group.members)
+                            {
                                 Ok(group_assignment) => Some(group_assignment),
                                 Err(err) => return future::err(err).static_boxed(),
                             }
@@ -535,9 +501,8 @@ where
 
                                 inner
                                     .synced_group(
-                                        Schema::deserialize(&assignment[..]).chain_err(
-                                            || "fail to deserialize assignment",
-                                        )?,
+                                        Schema::deserialize(&assignment[..])
+                                            .chain_err(|| "fail to deserialize assignment")?,
                                         coordinator,
                                         generation.clone(),
                                     )
@@ -545,8 +510,7 @@ where
                                     .map(|_| (coordinator, generation))
                             })
                             .static_boxed()
-                    },
-                )
+                    })
             })
             .static_boxed()
     }
@@ -557,7 +521,6 @@ pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
 pub type RejoinGroup = JoinGroup;
 
 pub type ActiveGroup = JoinGroup;
-
 
 impl<'a, C> Coordinator<'a> for ConsumerCoordinator<'a, C>
 where
@@ -575,8 +538,7 @@ where
             .map(|(coordinator, generation)| {
                 info!(
                     "member `{}` joined the `{}` group ",
-                    generation.member_id,
-                    generation.group_id,
+                    generation.member_id, generation.group_id,
                 );
 
                 (coordinator, generation)
@@ -639,10 +601,7 @@ where
     }
 
     fn update_offsets(&self) -> UpdateOffsets {
-        debug!(
-            "refresh committed offsets of the `{}` group",
-            self.inner.group_id
-        );
+        debug!("refresh committed offsets of the `{}` group", self.inner.group_id);
 
         let subscriptions = self.inner.subscriptions.clone();
 
@@ -653,10 +612,8 @@ where
                         let tp = topic_partition!(topic_name.clone(), partition.partition_id);
 
                         if let Some(state) = subscriptions.borrow_mut().assigned_state_mut(&tp) {
-                            state.committed = Some(OffsetAndMetadata::with_metadata(
-                                partition.offset,
-                                partition.metadata,
-                            ));
+                            state.committed =
+                                Some(OffsetAndMetadata::with_metadata(partition.offset, partition.metadata));
                         }
                     }
                 }
@@ -669,15 +626,12 @@ where
     fn fetch_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> FetchOffsets {
         debug!(
             "fetch committed offsets of the `{}` group: {:?}",
-            self.inner.group_id,
-            partitions
+            self.inner.group_id, partitions
         );
 
         let client = self.inner.client.clone();
         self.ensure_active_group()
-            .and_then(move |(coordinator, generation)| {
-                client.offset_fetch(coordinator, generation, partitions)
-            })
+            .and_then(move |(coordinator, generation)| client.offset_fetch(coordinator, generation, partitions))
             .static_boxed()
     }
 }
@@ -753,15 +707,9 @@ mod tests {
 
         let mut state = unjoined.clone();
 
-        assert_eq!(
-            state.rebalancing(BrokerRef::new(0), TEST_GROUP.generation()),
-            unjoined
-        );
+        assert_eq!(state.rebalancing(BrokerRef::new(0), TEST_GROUP.generation()), unjoined);
 
-        assert_eq!(
-            state.joined(BrokerRef::new(0), TEST_GROUP.generation()),
-            rebalancing
-        );
+        assert_eq!(state.joined(BrokerRef::new(0), TEST_GROUP.generation()), rebalancing);
 
         assert_eq!(state.leaved(), stable);
         assert_eq!(state, unjoined);
@@ -774,9 +722,7 @@ mod tests {
         ConsumerCoordinator::new(
             client,
             TEST_GROUP_ID.to_owned(),
-            Rc::new(RefCell::new(
-                Subscriptions::new(OffsetResetStrategy::Earliest),
-            )),
+            Rc::new(RefCell::new(Subscriptions::new(OffsetResetStrategy::Earliest))),
             config.session_timeout(),
             config.rebalance_timeout(),
             config.heartbeat_interval(),

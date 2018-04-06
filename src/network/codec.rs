@@ -32,8 +32,6 @@ impl<'a> Encoder for KafkaCodec<'a> {
     fn encode(&mut self, request: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let off = dst.len();
 
-        dst.put_i32::<BigEndian>(0);
-
         let &RequestHeader {
             api_key,
             api_version,
@@ -41,14 +39,13 @@ impl<'a> Encoder for KafkaCodec<'a> {
             ..
         } = request.header();
 
-        dst.reserve(request.size(api_version));
+        dst.reserve(mem::size_of::<i32>() + request.size(api_version));
 
-        request.encode::<BigEndian>(dst).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("invalid request, {}", err),
-            )
-        })?;
+        dst.put_i32::<BigEndian>(0);
+
+        request
+            .encode::<BigEndian>(dst)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid request, {}", err)))?;
 
         let size = dst.len() - off - mem::size_of::<i32>();
 
@@ -60,11 +57,8 @@ impl<'a> Encoder for KafkaCodec<'a> {
             hexdump!(&dst[..])
         );
 
-        self.requests.push_back((
-            ApiKeys::from(api_key),
-            api_version,
-            correlation_id,
-        ));
+        self.requests
+            .push_back((ApiKeys::from(api_key), api_version, correlation_id));
 
         Ok(())
     }
@@ -85,30 +79,18 @@ impl<'a> Decoder for KafkaCodec<'a> {
             if size_header_len + size > src.len() {
                 Ok(None)
             } else {
-                trace!(
-                    "received new frame with {} bytes:\n{}",
-                    src.len(),
-                    hexdump!(&src[..])
-                );
+                trace!("received new frame with {} bytes:\n{}", src.len(), hexdump!(&src[..]));
 
-                let buf = src.split_to(size + size_header_len)
-                    .split_off(size_header_len)
-                    .freeze();
+                let buf = src.split_to(size + size_header_len).split_off(size_header_len).freeze();
 
                 if let Some((api_key, api_version, correlation_id)) = self.requests.pop_front() {
                     if BigEndian::read_i32(&buf[..]) != correlation_id {
-                        Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "correlation id mismatch",
-                        ))
+                        Err(io::Error::new(io::ErrorKind::InvalidData, "correlation id mismatch"))
                     } else {
                         KafkaResponse::parse(&buf[..], api_key, api_version)
                     }
                 } else {
-                    Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "unexpected response",
-                    ))
+                    Err(io::Error::new(io::ErrorKind::InvalidData, "unexpected response"))
                 }
             }
         }

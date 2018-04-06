@@ -5,8 +5,8 @@ use bytes::{ByteOrder, BytesMut};
 use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader,
-               ResponseHeader, parse_response_header};
+use protocol::{parse_response_header, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader,
+               ResponseHeader};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ApiVersionsRequest<'a> {
@@ -75,13 +75,13 @@ impl ApiVersionsResponse {
     }
 }
 
-named!(parse_api_versions_response<ApiVersionsResponse>,
-    parse_tag!(ParseTag::ApiVersionsResponse,
+named!(
+    parse_api_versions_response<ApiVersionsResponse>,
+    parse_tag!(
+        ParseTag::ApiVersionsResponse,
         do_parse!(
-            header: parse_response_header
-         >> error_code: be_i16
-         >> api_versions: length_count!(be_i32, parse_api_version)
-         >> (ApiVersionsResponse {
+            header: parse_response_header >> error_code: be_i16
+                >> api_versions: length_count!(be_i32, parse_api_version) >> (ApiVersionsResponse {
                 header: header,
                 error_code: error_code,
                 api_versions: api_versions,
@@ -90,13 +90,12 @@ named!(parse_api_versions_response<ApiVersionsResponse>,
     )
 );
 
-named!(parse_api_version<UsableApiVersion>,
-    parse_tag!(ParseTag::ApiVersion,
+named!(
+    parse_api_version<UsableApiVersion>,
+    parse_tag!(
+        ParseTag::ApiVersion,
         do_parse!(
-            api_key: be_i16
-         >> min_version: be_i16
-         >> max_version: be_i16
-         >> (UsableApiVersion {
+            api_key: be_i16 >> min_version: be_i16 >> max_version: be_i16 >> (UsableApiVersion {
                 api_key: ApiKeys::from(api_key),
                 min_version: min_version,
                 max_version: max_version,
@@ -104,7 +103,6 @@ named!(parse_api_version<UsableApiVersion>,
         )
     )
 );
-
 
 #[cfg(test)]
 mod tests {
@@ -169,7 +167,9 @@ mod tests {
 
     #[test]
     fn test_parse_api_versions_response() {
-        assert_eq!(parse_api_versions_response(TEST_RESPONSE_DATA.as_slice()),
-        IResult::Done(&[][..], TEST_RESPONSE.clone()));
+        assert_eq!(
+            parse_api_versions_response(TEST_RESPONSE_DATA.as_slice()),
+            IResult::Done(&[][..], TEST_RESPONSE.clone())
+        );
     }
 }

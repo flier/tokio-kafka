@@ -1,13 +1,13 @@
-use std::mem;
 use std::cmp;
+use std::error::Error as StdError;
+use std::hash::Hasher;
 use std::io;
 use std::io::prelude::*;
-use std::hash::Hasher;
-use std::error::Error as StdError;
+use std::mem;
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use lz4_compress;
 use twox_hash::XxHash32;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use errors::{ErrorKind, Result};
 
@@ -17,9 +17,9 @@ pub fn compress(src: &[u8]) -> Result<Vec<u8>> {
 
 pub fn uncompress(src: &[u8]) -> Result<Vec<u8>> {
     lz4_compress::decompress(src).map_err(|err| {
-                                              let reason = StdError::description(&err).to_owned();
-                                              ErrorKind::Lz4Error(reason).into()
-                                          })
+        let reason = StdError::description(&err).to_owned();
+        ErrorKind::Lz4Error(reason).into()
+    })
 }
 
 fn xxhash32(src: &[u8], seed: u32) -> u32 {
@@ -97,10 +97,11 @@ impl Lz4Frame {
         ((xxhash32(&header[..], 0) >> 8) & 0xFF) as u8
     }
 
-    pub fn read_header<R: Read>(reader: &mut R,
-                                verify_header_checksum: bool,
-                                header_checksum_include_magic: bool)
-                                -> Result<Lz4Frame> {
+    pub fn read_header<R: Read>(
+        reader: &mut R,
+        verify_header_checksum: bool,
+        header_checksum_include_magic: bool,
+    ) -> Result<Lz4Frame> {
         if reader.read_u32::<LittleEndian>()? != LZ4_MAGIC {
             bail!(ErrorKind::Lz4Error("magic error".to_owned()));
         }
@@ -125,18 +126,14 @@ impl Lz4Frame {
             },
         };
 
-        if verify_header_checksum &&
-           frame.header_checksum(header_checksum_include_magic) != checksum {
+        if verify_header_checksum && frame.header_checksum(header_checksum_include_magic) != checksum {
             bail!(ErrorKind::Lz4Error("header checksum error".to_owned()));
         } else {
             Ok(frame)
         }
     }
 
-    pub fn write_header<W: Write>(&self,
-                                  writer: &mut W,
-                                  header_checksum_include_magic: bool)
-                                  -> io::Result<usize> {
+    pub fn write_header<W: Write>(&self, writer: &mut W, header_checksum_include_magic: bool) -> io::Result<usize> {
         writer.write_u32::<LittleEndian>(LZ4_MAGIC)?;
         writer.write_u8(self.flag)?;
         writer.write_u8(self.bd)?;
@@ -148,8 +145,7 @@ impl Lz4Frame {
             wrote += mem::size_of_val(&size);
         }
 
-        writer
-            .write_u8(self.header_checksum(header_checksum_include_magic))?;
+        writer.write_u8(self.header_checksum(header_checksum_include_magic))?;
         wrote += 1;
 
         Ok(wrote)
@@ -179,21 +175,21 @@ impl Lz4Frame {
 
             trace!("read {} bytes: {:?}", read, &read_buf[..cmp::min(16, read)]);
 
-            if self.block_checksum() &&
-               reader.read_u32::<LittleEndian>()? != xxhash32(read_buf, 0) {
+            if self.block_checksum() && reader.read_u32::<LittleEndian>()? != xxhash32(read_buf, 0) {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, "block checksum error"));
             }
         }
 
         if let Some(data) = compressed_data.as_ref() {
-            let mut uncompressed_data =
-                uncompress(&data[..block_size])
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "lz4 decode error"))?;
+            let mut uncompressed_data = uncompress(&data[..block_size])
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "lz4 decode error"))?;
             let uncompressed_size = uncompressed_data.len();
 
-            debug!("uncompress {} bytes block: {:?}",
-                   uncompressed_size,
-                   &uncompressed_data[..cmp::min(16, uncompressed_data.len())]);
+            debug!(
+                "uncompress {} bytes block: {:?}",
+                uncompressed_size,
+                &uncompressed_data[..cmp::min(16, uncompressed_data.len())]
+            );
 
             buf.append(&mut uncompressed_data);
 
@@ -204,20 +200,15 @@ impl Lz4Frame {
     }
 
     pub fn write_block<W: Write>(&mut self, writer: &mut W, buf: &[u8]) -> io::Result<usize> {
-        debug!("write {} bytes block: {:?}",
-               buf.len(),
-               &buf[..cmp::min(16, buf.len())]);
+        debug!("write {} bytes block: {:?}", buf.len(), &buf[..cmp::min(16, buf.len())]);
 
         let compressed_data =
-            compress(buf)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "lz4 encode error"))?;
-        writer
-            .write_u32::<LittleEndian>(compressed_data.len() as u32)?;
+            compress(buf).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "lz4 encode error"))?;
+        writer.write_u32::<LittleEndian>(compressed_data.len() as u32)?;
         let mut wrote = mem::size_of::<u32>();
         wrote += writer.write(&compressed_data[..])?;
         if self.block_checksum() {
-            writer
-                .write_u32::<LittleEndian>(xxhash32(&compressed_data[..], 0))?;
+            writer.write_u32::<LittleEndian>(xxhash32(&compressed_data[..], 0))?;
             wrote += 2;
         }
         if self.content_checksum() {
@@ -251,20 +242,15 @@ pub struct Lz4Reader<R> {
 }
 
 impl<R: Read> Lz4Reader<R> {
-    pub fn new(mut reader: R,
-               verify_header_checksum: bool,
-               header_checksum_include_magic: bool)
-               -> Result<Self> {
-        let frame = Lz4Frame::read_header(&mut reader,
-                                          verify_header_checksum,
-                                          header_checksum_include_magic)?;
+    pub fn new(mut reader: R, verify_header_checksum: bool, header_checksum_include_magic: bool) -> Result<Self> {
+        let frame = Lz4Frame::read_header(&mut reader, verify_header_checksum, header_checksum_include_magic)?;
         let block = Vec::with_capacity(frame.block_max_size().unwrap_or(4096));
         Ok(Lz4Reader {
-               reader: reader,
-               frame: frame,
-               block: block,
-               finished: false,
-           })
+            reader: reader,
+            frame: frame,
+            block: block,
+            finished: false,
+        })
     }
 }
 
@@ -274,8 +260,7 @@ impl<R: Read> Read for Lz4Reader<R> {
             Ok(0)
         } else {
             let remaining = if self.block.is_empty() {
-                self.frame
-                    .read_block(&mut self.reader, &mut self.block)?
+                self.frame.read_block(&mut self.reader, &mut self.block)?
             } else {
                 self.block.len()
             };
@@ -304,30 +289,25 @@ pub struct Lz4Writer<'a, W: 'a> {
 }
 
 impl<'a, W: Write> Lz4Writer<'a, W> {
-    pub fn new(writer: &'a mut W,
-               header_checksum_include_magic: bool,
-               block_max_size: u8,
-               block_checksum: bool,
-               content_checksum: bool)
-               -> Result<Lz4Writer<'a, W>> {
+    pub fn new(
+        writer: &'a mut W,
+        header_checksum_include_magic: bool,
+        block_max_size: u8,
+        block_checksum: bool,
+        content_checksum: bool,
+    ) -> Result<Lz4Writer<'a, W>> {
         let version = 1;
         let independent = true;
-        let flag = (version << FLAG_VERSION_SHIFT) |
-                   if independent {
-                       1 << FLAG_INDEPENDENT_SHIFT
-                   } else {
-                       0
-                   } |
-                   if block_checksum {
-                       1 << FLAG_BLOCK_CHECKSUM_SHIFT
-                   } else {
-                       0
-                   } |
-                   if content_checksum {
-                       1 << FLAG_CONTENT_CHECKSUM_SHIFT
-                   } else {
-                       0
-                   };
+        let flag = (version << FLAG_VERSION_SHIFT) | if independent { 1 << FLAG_INDEPENDENT_SHIFT } else { 0 }
+            | if block_checksum {
+                1 << FLAG_BLOCK_CHECKSUM_SHIFT
+            } else {
+                0
+            } | if content_checksum {
+            1 << FLAG_CONTENT_CHECKSUM_SHIFT
+        } else {
+            0
+        };
 
         let frame = Lz4Frame {
             flag: flag,
@@ -340,25 +320,24 @@ impl<'a, W: Write> Lz4Writer<'a, W> {
             },
         };
 
-        frame
-            .write_header(writer, header_checksum_include_magic)?;
+        frame.write_header(writer, header_checksum_include_magic)?;
 
-        let buf = frame
-            .block_max_size()
-            .map_or_else(Vec::new, Vec::with_capacity);
+        let buf = frame.block_max_size().map_or_else(Vec::new, Vec::with_capacity);
 
         Ok(Lz4Writer {
-               writer: writer,
-               frame: frame,
-               buf: buf,
-           })
+            writer: writer,
+            frame: frame,
+            buf: buf,
+        })
     }
 
     fn write_block(&mut self) -> io::Result<()> {
         if !self.buf.is_empty() {
-            debug!("compress {} bytes block: {:?}",
-                   self.buf.len(),
-                   &self.buf[..cmp::min(16, self.buf.len())]);
+            debug!(
+                "compress {} bytes block: {:?}",
+                self.buf.len(),
+                &self.buf[..cmp::min(16, self.buf.len())]
+            );
 
             self.frame.write_block(&mut self.writer, &self.buf[..])?;
 
@@ -416,10 +395,7 @@ mod tests {
         let comp_msg = compress(b"test");
         assert_eq!(comp_msg.unwrap(), &[64, 116, 101, 115, 116]);
 
-        let comp_msg = compress(iter::repeat(123)
-                                    .take(1000)
-                                    .collect::<Vec<u8>>()
-                                    .as_slice());
+        let comp_msg = compress(iter::repeat(123).take(1000).collect::<Vec<u8>>().as_slice());
         assert_eq!(comp_msg.unwrap(), &[31, 123, 1, 0, 255, 255, 255, 215, 0]);
     }
 
@@ -434,11 +410,7 @@ mod tests {
 
         let msg = &[31, 123, 1, 0, 255, 255, 255, 215, 0][..];
         let uncomp_msg = uncompress(msg).unwrap();
-        assert_eq!(uncomp_msg,
-                   iter::repeat(123)
-                       .take(1000)
-                       .collect::<Vec<u8>>()
-                       .as_slice());
+        assert_eq!(uncomp_msg, iter::repeat(123).take(1000).collect::<Vec<u8>>().as_slice());
     }
 
     #[test]
@@ -451,11 +423,12 @@ mod tests {
 
     #[test]
     fn test_read_frame() {
-        let flag = (1 << FLAG_VERSION_SHIFT) | (1 << FLAG_INDEPENDENT_SHIFT) |
-                   (1 << FLAG_BLOCK_CHECKSUM_SHIFT);
+        let flag = (1 << FLAG_VERSION_SHIFT) | (1 << FLAG_INDEPENDENT_SHIFT) | (1 << FLAG_BLOCK_CHECKSUM_SHIFT);
         let bd = BLOCKSIZE_256KB << BLOCKSIZE_SHIFT;
-        let buf = [0x04, 0x22, 0x4D, 0x18 /* magic */, flag, bd,
-                   132 /* header checksum */, 0, 0, 0, 0 /* end mark */];
+        let buf = [
+            0x04, 0x22, 0x4D, 0x18 /* magic */, flag, bd, 132 /* header checksum */, 0, 0, 0,
+            0 /* end mark */,
+        ];
         let mut r = Lz4Reader::new(&buf[..], false, false).unwrap();
 
         assert_eq!(r.frame.version(), 1);
@@ -473,13 +446,13 @@ mod tests {
 
     #[test]
     fn test_read_block() {
-        let flag = (1 << FLAG_VERSION_SHIFT) | (1 << FLAG_INDEPENDENT_SHIFT) |
-                   (1 << FLAG_BLOCK_CHECKSUM_SHIFT);
+        let flag = (1 << FLAG_VERSION_SHIFT) | (1 << FLAG_INDEPENDENT_SHIFT) | (1 << FLAG_BLOCK_CHECKSUM_SHIFT);
         let bd = BLOCKSIZE_256KB << BLOCKSIZE_SHIFT;
-        let buf = [0x04, 0x22, 0x4D, 0x18 /* magic */, flag, bd,
-                   132 /* header checksum */, 5, 0, 0, 0 /* block size */, 64, 116, 101,
-                   115, 116 /* compressed */, 137, 205, 203, 160 /* block checksum */,
-                   0, 0, 0, 0 /* end mark */];
+        let buf = [
+            0x04, 0x22, 0x4D, 0x18 /* magic */, flag, bd, 132 /* header checksum */, 5, 0, 0,
+            0 /* block size */, 64, 116, 101, 115, 116 /* compressed */, 137, 205, 203,
+            160 /* block checksum */, 0, 0, 0, 0 /* end mark */,
+        ];
         let mut r = Lz4Reader::new(&buf[..], true, false).unwrap();
 
         let mut data = Vec::new();
@@ -500,9 +473,13 @@ mod tests {
         let flag = (1 << FLAG_VERSION_SHIFT) | (1 << FLAG_INDEPENDENT_SHIFT);
         let bd = BLOCKSIZE_64KB << BLOCKSIZE_SHIFT;
 
-        assert_eq!(buf.as_slice(),
-                   &[0x04, 0x22, 0x4D, 0x18 /* magic */, flag, bd,
-                     130 /* header checksum */, 0, 0, 0, 0 /* end mark */]);
+        assert_eq!(
+            buf.as_slice(),
+            &[
+                0x04, 0x22, 0x4D, 0x18 /* magic */, flag, bd, 130 /* header checksum */, 0, 0, 0,
+                0 /* end mark */,
+            ]
+        );
     }
 
     #[test]
@@ -516,14 +493,16 @@ mod tests {
             w.close().unwrap();
         }
 
-        let flag = (1 << FLAG_VERSION_SHIFT) | (1 << FLAG_INDEPENDENT_SHIFT) |
-                   (1 << FLAG_BLOCK_CHECKSUM_SHIFT);
+        let flag = (1 << FLAG_VERSION_SHIFT) | (1 << FLAG_INDEPENDENT_SHIFT) | (1 << FLAG_BLOCK_CHECKSUM_SHIFT);
         let bd = BLOCKSIZE_64KB << BLOCKSIZE_SHIFT;
 
-        assert_eq!(buf.as_slice(),
-                   &[0x04, 0x22, 0x4D, 0x18 /* magic */, flag, bd,
-                     173 /* header checksum */, 5, 0, 0, 0 /* block size */, 64, 116,
-                     101, 115, 116 /* compressed */, 137, 205, 203,
-                     160 /* block checksum */, 0, 0, 0, 0 /* end mark */]);
+        assert_eq!(
+            buf.as_slice(),
+            &[
+                0x04, 0x22, 0x4D, 0x18 /* magic */, flag, bd, 173 /* header checksum */, 5, 0, 0,
+                0 /* block size */, 64, 116, 101, 115, 116 /* compressed */, 137, 205, 203,
+                160 /* block checksum */, 0, 0, 0, 0 /* end mark */,
+            ]
+        );
     }
 }

@@ -1,5 +1,5 @@
-use std::io;
 use std::fmt::{self, Debug};
+use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use futures::{Async, Future, Poll};
@@ -8,7 +8,9 @@ use futures_cpupool::{CpuFuture, CpuPool};
 pub trait Resolver {
     type Future;
 
-    fn resolve<S>(&self, addr: S) -> Self::Future where S: ToSocketAddrs + Debug + Send + 'static;
+    fn resolve<S>(&self, addr: S) -> Self::Future
+    where
+        S: ToSocketAddrs + Debug + Send + 'static;
 }
 
 pub struct DnsResolver {
@@ -17,7 +19,9 @@ pub struct DnsResolver {
 
 impl Default for DnsResolver {
     fn default() -> Self {
-        DnsResolver { pool: CpuPool::new_num_cpus() }
+        DnsResolver {
+            pool: CpuPool::new_num_cpus(),
+        }
     }
 }
 
@@ -25,11 +29,11 @@ impl Resolver for DnsResolver {
     type Future = DnsQuery;
 
     fn resolve<S>(&self, addr: S) -> Self::Future
-        where S: ToSocketAddrs + Debug + Send + 'static
+    where
+        S: ToSocketAddrs + Debug + Send + 'static,
     {
         DnsQuery {
-            state: State::Resolving(self.pool
-                                        .spawn_fn(move || {
+            state: State::Resolving(self.pool.spawn_fn(move || {
                 let addrs = addr.to_socket_addrs().map(|it| it.collect());
 
                 trace!("{:?} resolved to address: {:?}", addr, addrs);
@@ -68,13 +72,11 @@ impl Future for DnsQuery {
             let state;
 
             match self.state {
-                State::Resolving(ref mut query) => {
-                    match query.poll() {
-                        Ok(Async::Ready(addrs)) => state = State::Resolved(addrs),
-                        Ok(Async::NotReady) => return Ok(Async::NotReady),
-                        Err(err) => return Err(err),
-                    }
-                }
+                State::Resolving(ref mut query) => match query.poll() {
+                    Ok(Async::Ready(addrs)) => state = State::Resolved(addrs),
+                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                    Err(err) => return Err(err),
+                },
                 State::Resolved(ref addrs) => return Ok(Async::Ready(addrs.clone())),
             }
 

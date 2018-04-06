@@ -84,7 +84,6 @@ impl<T: BufMut> WriteExt for T {}
 mod tests {
     use std::iter::repeat;
     use std::slice;
-    use std::str;
 
     use bytes::BigEndian;
 

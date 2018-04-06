@@ -1,10 +1,10 @@
-use std::str;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::str;
 
 use bytes::Bytes;
 
-use nom::{self, IResult, be_i16, be_i32, error_to_u32, prepare_errors, print_offsets};
+use nom::{self, prepare_errors, print_offsets, IResult, be_i16, be_i32, error_to_u32};
 
 macro_rules! parse_tag (
     ($i:expr, $tag:expr, $submac:ident!( $($args:tt)* )) => (
@@ -84,7 +84,7 @@ pub enum ParseTag {
     ApiVersion = 11801,
 }
 
-lazy_static!{
+lazy_static! {
     pub static ref PARSE_TAGS: HashMap<u32, &'static str> = {
         let mut h = HashMap::new();
         h.insert(ParseTag::ResponseHeader as u32, "ResponseHeader");
@@ -115,11 +115,17 @@ lazy_static!{
 
         h.insert(ParseTag::OffsetCommitResponse as u32, "OffsetCommitResponse");
         h.insert(ParseTag::OffsetCommitTopicStatus as u32, "OffsetCommitTopicStatus");
-        h.insert(ParseTag::OffsetCommitPartitionStatus as u32, "OffsetCommitPartitionStatus");
+        h.insert(
+            ParseTag::OffsetCommitPartitionStatus as u32,
+            "OffsetCommitPartitionStatus",
+        );
 
         h.insert(ParseTag::OffsetFetchResponse as u32, "OffsetFetchResponse");
         h.insert(ParseTag::OffsetFetchTopicStatus as u32, "OffsetFetchTopicStatus");
-        h.insert(ParseTag::OffsetFetchPartitionStatus as u32, "OffsetFetchPartitionStatus");
+        h.insert(
+            ParseTag::OffsetFetchPartitionStatus as u32,
+            "OffsetFetchPartitionStatus",
+        );
 
         h.insert(ParseTag::GroupCoordinatorResponse as u32, "GroupCoordinatorResponse");
 
@@ -134,7 +140,10 @@ lazy_static!{
 
         h.insert(ParseTag::DescribeGroupsResponse as u32, "DescribeGroupsResponse");
         h.insert(ParseTag::DescribeGroupsGroupStatus as u32, "DescribeGroupsGroupStatus");
-        h.insert(ParseTag::DescribeGroupsMemberStatus as u32, "DescribeGroupsMemberStatus");
+        h.insert(
+            ParseTag::DescribeGroupsMemberStatus as u32,
+            "DescribeGroupsMemberStatus",
+        );
 
         h.insert(ParseTag::ListGroupsResponse as u32, "ListGroupsResponse");
         h.insert(ParseTag::ListGroupsGroupStatus as u32, "ListGroupsGroupStatus");
@@ -163,9 +172,7 @@ fn write_color(v: &mut Vec<u8>, color: u8) {
     v.push(b'm');
 }
 
-fn print_codes<E>(colors: &HashMap<u32, (nom::ErrorKind<E>, u8)>,
-                  names: &HashMap<u32, &str>)
-                  -> String {
+fn print_codes<E>(colors: &HashMap<u32, (nom::ErrorKind<E>, u8)>, names: &HashMap<u32, &str>) -> String {
     let mut v = Vec::new();
     for (code, &(ref err, color)) in colors {
         if let Some(&s) = names.get(code) {
@@ -186,8 +193,7 @@ fn print_codes<E>(colors: &HashMap<u32, (nom::ErrorKind<E>, u8)>,
     String::from_utf8_lossy(&v[..]).into_owned()
 }
 
-fn generate_colors(v: &[(nom::ErrorKind<u32>, usize, usize)])
-                   -> HashMap<u32, (nom::ErrorKind<u32>, u8)> {
+fn generate_colors(v: &[(nom::ErrorKind<u32>, usize, usize)]) -> HashMap<u32, (nom::ErrorKind<u32>, u8)> {
     let mut h: HashMap<u32, (nom::ErrorKind<u32>, u8)> = HashMap::new();
     let mut color = 0;
 
@@ -206,9 +212,11 @@ fn generate_colors(v: &[(nom::ErrorKind<u32>, usize, usize)])
 pub fn display_parse_error<O>(input: &[u8], res: IResult<&[u8], O>) {
     if let Some(v) = prepare_errors(input, res) {
         let colors = generate_colors(&v);
-        trace!("parsers codes: {}\n{}",
-               print_codes(&colors, &PARSE_TAGS),
-               print_offsets(input, 0, &v));
+        trace!(
+            "parsers codes: {}\n{}",
+            print_codes(&colors, &PARSE_TAGS),
+            print_offsets(input, 0, &v)
+        );
     }
 }
 
@@ -274,85 +282,94 @@ named!(pub parse_opt_bytes<Option<Bytes>>,
 
 #[cfg(test)]
 mod tests {
-    use std::str;
-
     use bytes::Bytes;
 
-    use nom::{ErrorKind, IResult, Needed};
     use nom::verbose_errors::Err;
+    use nom::{ErrorKind, IResult, Needed};
 
     use super::*;
 
     #[test]
     fn test_parse_str() {
         assert_eq!(parse_str(b"\0"), IResult::Incomplete(Needed::Size(2)));
-        assert_eq!(parse_str(b"\xff\xff"),
-                   IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::String as u32),
-                                                    &[255, 255][..],
-                                                    vec![Err::Position(ErrorKind::CondReduce,
-                                                                       &[][..])])));
+        assert_eq!(
+            parse_str(b"\xff\xff"),
+            IResult::Error(Err::NodePosition(
+                ErrorKind::Custom(ParseTag::String as u32),
+                &[255, 255][..],
+                vec![Err::Position(ErrorKind::CondReduce, &[][..])]
+            ))
+        );
         assert_eq!(parse_str(b"\0\0"), IResult::Done(&b""[..], Cow::from("")));
-        assert_eq!(parse_str(b"\0\x04test"),
-                   IResult::Done(&b""[..], Cow::from("test")));
+        assert_eq!(parse_str(b"\0\x04test"), IResult::Done(&b""[..], Cow::from("test")));
     }
 
     #[test]
     fn test_parse_opt_str() {
         assert_eq!(parse_opt_str(b"\0"), IResult::Incomplete(Needed::Size(2)));
         assert_eq!(parse_opt_str(b"\xff\xff"), IResult::Done(&b""[..], None));
-        assert_eq!(parse_opt_str(b"\0\0"),
-                   IResult::Done(&b""[..], Some(Cow::from(""))));
-        assert_eq!(parse_opt_str(b"\0\x04test"),
-                   IResult::Done(&b""[..], Some(Cow::from("test"))));
+        assert_eq!(parse_opt_str(b"\0\0"), IResult::Done(&b""[..], Some(Cow::from(""))));
+        assert_eq!(
+            parse_opt_str(b"\0\x04test"),
+            IResult::Done(&b""[..], Some(Cow::from("test")))
+        );
     }
 
     #[test]
     fn test_parse_string() {
         assert_eq!(parse_string(b"\0"), IResult::Incomplete(Needed::Size(2)));
-        assert_eq!(parse_string(b"\xff\xff"),
-                   IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::String as u32),
-                                                    &[255, 255][..],
-                                                    vec![Err::Position(ErrorKind::CondReduce,
-                                                                       &[][..])])));
-        assert_eq!(parse_string(b"\0\0"),
-                   IResult::Done(&b""[..], "".to_owned()));
-        assert_eq!(parse_string(b"\0\x04test"),
-                   IResult::Done(&b""[..], "test".to_owned()));
+        assert_eq!(
+            parse_string(b"\xff\xff"),
+            IResult::Error(Err::NodePosition(
+                ErrorKind::Custom(ParseTag::String as u32),
+                &[255, 255][..],
+                vec![Err::Position(ErrorKind::CondReduce, &[][..])]
+            ))
+        );
+        assert_eq!(parse_string(b"\0\0"), IResult::Done(&b""[..], "".to_owned()));
+        assert_eq!(parse_string(b"\0\x04test"), IResult::Done(&b""[..], "test".to_owned()));
     }
 
     #[test]
     fn test_parse_opt_string() {
-        assert_eq!(parse_opt_string(b"\0"),
-                   IResult::Incomplete(Needed::Size(2)));
+        assert_eq!(parse_opt_string(b"\0"), IResult::Incomplete(Needed::Size(2)));
         assert_eq!(parse_opt_string(b"\xff\xff"), IResult::Done(&b""[..], None));
-        assert_eq!(parse_opt_string(b"\0\0"),
-                   IResult::Done(&b""[..], Some("".to_owned())));
-        assert_eq!(parse_opt_string(b"\0\x04test"),
-                   IResult::Done(&b""[..], Some("test".to_owned())));
+        assert_eq!(parse_opt_string(b"\0\0"), IResult::Done(&b""[..], Some("".to_owned())));
+        assert_eq!(
+            parse_opt_string(b"\0\x04test"),
+            IResult::Done(&b""[..], Some("test".to_owned()))
+        );
     }
 
     #[test]
     fn test_parse_bytes() {
         assert_eq!(parse_bytes(b"\0"), IResult::Incomplete(Needed::Size(4)));
-        assert_eq!(parse_bytes(b"\xff\xff\xff\xff"),
-                   IResult::Error(Err::NodePosition(ErrorKind::Custom(ParseTag::Bytes as u32),
-                                                    &[255, 255, 255, 255][..],
-                                                    vec![Err::Position(ErrorKind::CondReduce,
-                                                                       &[][..])])));
-        assert_eq!(parse_bytes(b"\0\0\0\0"),
-                   IResult::Done(&b""[..], Bytes::new()));
-        assert_eq!(parse_bytes(b"\0\0\0\x04test"),
-                   IResult::Done(&b""[..], Bytes::from(&b"test"[..])));
+        assert_eq!(
+            parse_bytes(b"\xff\xff\xff\xff"),
+            IResult::Error(Err::NodePosition(
+                ErrorKind::Custom(ParseTag::Bytes as u32),
+                &[255, 255, 255, 255][..],
+                vec![Err::Position(ErrorKind::CondReduce, &[][..])]
+            ))
+        );
+        assert_eq!(parse_bytes(b"\0\0\0\0"), IResult::Done(&b""[..], Bytes::new()));
+        assert_eq!(
+            parse_bytes(b"\0\0\0\x04test"),
+            IResult::Done(&b""[..], Bytes::from(&b"test"[..]))
+        );
     }
 
     #[test]
     fn test_parse_opt_bytes() {
         assert_eq!(parse_opt_bytes(b"\0"), IResult::Incomplete(Needed::Size(4)));
-        assert_eq!(parse_opt_bytes(b"\xff\xff\xff\xff"),
-                   IResult::Done(&b""[..], None));
-        assert_eq!(parse_opt_bytes(b"\0\0\0\0"),
-                   IResult::Done(&b""[..], Some(Bytes::new())));
-        assert_eq!(parse_opt_bytes(b"\0\0\0\x04test"),
-                   IResult::Done(&b""[..], Some(Bytes::from(&b"test"[..]))));
+        assert_eq!(parse_opt_bytes(b"\xff\xff\xff\xff"), IResult::Done(&b""[..], None));
+        assert_eq!(
+            parse_opt_bytes(b"\0\0\0\0"),
+            IResult::Done(&b""[..], Some(Bytes::new()))
+        );
+        assert_eq!(
+            parse_opt_bytes(b"\0\0\0\x04test"),
+            IResult::Done(&b""[..], Some(Bytes::from(&b"test"[..])))
+        );
     }
 }

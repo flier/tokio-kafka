@@ -8,16 +8,14 @@ use std::rc::Rc;
 
 use time;
 
-use futures::{Async, AsyncSink, Future, Poll, Sink, StartSend, Stream, future};
+use futures::{future, Async, AsyncSink, Future, Poll, Sink, StartSend, Stream};
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_retry::Retry;
 
-use client::{Client, Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture,
-             ToStaticBoxFuture, TopicRecord};
+use client::{Client, Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxFuture, ToStaticBoxFuture, TopicRecord};
 use errors::{Error, ErrorKind};
-use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig,
-               ProducerInterceptor, ProducerInterceptors, ProducerRecord, PushRecord,
-               RecordAccumulator, RecordMetadata, Sender};
+use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig, ProducerInterceptor,
+               ProducerInterceptors, ProducerRecord, PushRecord, RecordAccumulator, RecordMetadata, Sender};
 use protocol::{ApiKeys, PartitionId, ToMilliseconds};
 use serialization::Serializer;
 
@@ -91,8 +89,7 @@ where
         partitioner: P,
         interceptors: Interceptors<K::Item, V::Item>,
     ) -> Self {
-        let accumulator =
-            RecordAccumulator::new(config.batch_size, config.compression, config.linger());
+        let accumulator = RecordAccumulator::new(config.batch_size, config.compression, config.linger());
 
         KafkaProducer {
             inner: Rc::new(Inner {
@@ -189,17 +186,17 @@ where
         self.inner
             .client
             .metadata()
-            .and_then(move |metadata| if let Some(partitions) =
-                metadata.topics().get(topic_name.as_str())
-            {
-                Ok(ProducerTopic {
-                    producer: KafkaProducer { inner: inner.clone() },
-                    topic_name: topic_name.into(),
-                    partitions: partitions.iter().map(|p| p.partition_id).collect(),
-                    pending: Pending::new(),
-                })
-            } else {
-                bail!(ErrorKind::TopicNotFound(topic_name))
+            .and_then(move |metadata| {
+                if let Some(partitions) = metadata.topics().get(topic_name.as_str()) {
+                    Ok(ProducerTopic {
+                        producer: KafkaProducer { inner: inner.clone() },
+                        topic_name: topic_name.into(),
+                        partitions: partitions.iter().map(|p| p.partition_id).collect(),
+                        pending: Pending::new(),
+                    })
+                } else {
+                    bail!(ErrorKind::TopicNotFound(topic_name))
+                }
             })
             .static_boxed()
     }
@@ -214,16 +211,11 @@ where
     P: Partitioner,
     Self: 'static,
 {
-    fn push_record(
-        &self,
-        metadata: Rc<Metadata>,
-        mut record: ProducerRecord<K::Item, V::Item>,
-    ) -> PushRecord {
+    fn push_record(&self, metadata: Rc<Metadata>, mut record: ProducerRecord<K::Item, V::Item>) -> PushRecord {
         trace!("sending record {:?}", record);
 
         if let Some(ref interceptors) = self.interceptors {
-            let interceptors: &RefCell<ProducerInterceptors<K::Item, V::Item>> = interceptors
-                .borrow();
+            let interceptors: &RefCell<ProducerInterceptors<K::Item, V::Item>> = interceptors.borrow();
 
             record = match interceptors.borrow().send(record) {
                 Ok(record) => record,
@@ -240,25 +232,16 @@ where
         } = record;
 
         let partition = self.partitioner
-            .partition(
-                &topic_name,
-                partition_id,
-                key.as_ref(),
-                value.as_ref(),
-                &metadata,
-            )
+            .partition(&topic_name, partition_id, key.as_ref(), value.as_ref(), &metadata)
             .unwrap_or_default();
 
         let key = key.and_then(|key| self.key_serializer.serialize(&topic_name, key).ok());
 
-        let value = value.and_then(|value| {
-            self.value_serializer.serialize(&topic_name, value).ok()
-        });
+        let value = value.and_then(|value| self.value_serializer.serialize(&topic_name, value).ok());
 
         let tp = topic_partition!(topic_name, partition);
 
-        let timestamp =
-            timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
+        let timestamp = timestamp.unwrap_or_else(|| time::now_utc().to_timespec().as_millis() as i64);
 
         let api_version = metadata
             .leader_for(&tp)
@@ -268,13 +251,7 @@ where
 
         trace!("use API version {} for {:?}", api_version, tp);
 
-        self.accumulator.push_record(
-            tp,
-            timestamp,
-            key,
-            value,
-            api_version,
-        )
+        self.accumulator.push_record(tp, timestamp, key, value, api_version)
     }
 
     /// Flush full or expired batches
@@ -289,22 +266,12 @@ where
         self.accumulator
             .batches(force)
             .for_each(move |(tp, batch)| {
-                let sender = Sender::new(
-                    client.clone(),
-                    interceptor.clone(),
-                    acks,
-                    ack_timeout,
-                    tp,
-                    batch,
-                );
+                let sender = Sender::new(client.clone(), interceptor.clone(), acks, ack_timeout, tp, batch);
 
                 match sender {
-                    Ok(sender) => {
-                        Retry::spawn(handle.clone(), retry_strategy.clone(), move || {
-                            sender.send_batch()
-                        }).from_err()
-                            .static_boxed()
-                    }
+                    Ok(sender) => Retry::spawn(handle.clone(), retry_strategy.clone(), move || sender.send_batch())
+                        .from_err()
+                        .static_boxed(),
                     Err(err) => {
                         warn!("fail to create sender, {}", err);
 
@@ -398,11 +365,9 @@ where
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         let record = ProducerRecord::from_topic_record(&self.topic_name, item);
 
-        self.pending.start_send(self.producer.send(record)).map(
-            |_| {
-                AsyncSink::Ready
-            },
-        )
+        self.pending
+            .start_send(self.producer.send(record))
+            .map(|_| AsyncSink::Ready)
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
@@ -428,7 +393,9 @@ where
     pub fn partition(&self, partition_id: PartitionId) -> Option<ProducerPartition<'a, K, V, P>> {
         if self.partitions.contains(&partition_id) {
             Some(ProducerPartition {
-                producer: KafkaProducer { inner: self.producer.inner.clone() },
+                producer: KafkaProducer {
+                    inner: self.producer.inner.clone(),
+                },
                 topic_name: self.topic_name.clone(),
                 partition_id: partition_id,
                 pending: Pending::new(),
@@ -467,13 +434,10 @@ where
     type SinkError = Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        let record =
-            ProducerRecord::from_partition_record(&self.topic_name, Some(self.partition_id), item);
-        self.pending.start_send(self.producer.send(record)).map(
-            |_| {
-                AsyncSink::Ready
-            },
-        )
+        let record = ProducerRecord::from_partition_record(&self.topic_name, Some(self.partition_id), item);
+        self.pending
+            .start_send(self.producer.send(record))
+            .map(|_| AsyncSink::Ready)
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {

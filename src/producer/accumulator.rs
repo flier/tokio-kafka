@@ -1,34 +1,36 @@
-use std::rc::Rc;
 use std::cell::RefCell;
-use std::time::Duration;
 use std::collections::{HashMap, VecDeque};
+use std::rc::Rc;
+use std::time::Duration;
 
 use bytes::Bytes;
 
 use futures::{Async, Future, IntoFuture, Poll, Stream};
 
-use errors::Error;
-use compression::Compression;
-use protocol::{ApiVersion, Timestamp};
-use network::TopicPartition;
 use client::{StaticBoxFuture, ToStaticBoxFuture};
+use compression::Compression;
+use errors::Error;
+use network::TopicPartition;
 use producer::{ProducerBatch, RecordMetadata};
+use protocol::{ApiVersion, Timestamp};
 
 /// Accumulator acts as a queue that accumulates records
 pub trait Accumulator<'a> {
     /// Add a record to the accumulator, return the append result
-    fn push_record(&self,
-                   tp: TopicPartition<'a>,
-                   timestamp: Timestamp,
-                   key: Option<Bytes>,
-                   value: Option<Bytes>,
-                   api_version: ApiVersion)
-                   -> PushRecord;
+    fn push_record(
+        &self,
+        tp: TopicPartition<'a>,
+        timestamp: Timestamp,
+        key: Option<Bytes>,
+        value: Option<Bytes>,
+        api_version: ApiVersion,
+    ) -> PushRecord;
 
     fn flush(&mut self);
 }
 
-/// `RecordAccumulator` acts as a queue that accumulates records into `ProducerRecord` instances to be sent to the server.
+/// `RecordAccumulator` acts as a queue that accumulates records into `ProducerRecord` instances to
+/// be sent to the server.
 pub struct RecordAccumulator<'a> {
     /// The size to use when allocating ProducerRecord instances
     batch_size: usize,
@@ -36,7 +38,8 @@ pub struct RecordAccumulator<'a> {
     /// The compression codec for the records
     compression: Compression,
 
-    /// An artificial delay time to add before declaring a records instance that isn't full ready for sending.
+    /// An artificial delay time to add before declaring a records instance that isn't full ready
+    /// for sending.
     ///
     /// This allows time for more records to arrive.
     /// Setting a non-zero lingerMs will trade off some latency for potentially better throughput
@@ -66,13 +69,14 @@ impl<'a> RecordAccumulator<'a> {
 }
 
 impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
-    fn push_record(&self,
-                   tp: TopicPartition<'a>,
-                   timestamp: Timestamp,
-                   key: Option<Bytes>,
-                   value: Option<Bytes>,
-                   api_version: ApiVersion)
-                   -> PushRecord {
+    fn push_record(
+        &self,
+        tp: TopicPartition<'a>,
+        timestamp: Timestamp,
+        key: Option<Bytes>,
+        value: Option<Bytes>,
+        api_version: ApiVersion,
+    ) -> PushRecord {
         let mut batches = self.batches.borrow_mut();
         let batches = batches.entry(tp).or_insert_with(VecDeque::new);
 
@@ -116,8 +120,7 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
             let api_version = batches.back().map(|batch| batch.api_version());
 
             if let Some(api_version) = api_version {
-                batches
-                    .push_back(ProducerBatch::new(api_version, self.compression, self.batch_size))
+                batches.push_back(ProducerBatch::new(api_version, self.compression, self.batch_size))
             }
         }
     }
@@ -131,7 +134,8 @@ pub struct PushRecord {
 
 impl PushRecord {
     pub fn new<F>(future: F, is_full: bool, new_batch: bool) -> Self
-        where F: IntoFuture<Item = RecordMetadata, Error = Error> + 'static
+    where
+        F: IntoFuture<Item = RecordMetadata, Error = Error> + 'static,
     {
         PushRecord {
             future: future.static_boxed(),
@@ -170,10 +174,7 @@ impl<'a> Stream for Batches<'a> {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         for (tp, batches) in self.batches.borrow_mut().iter_mut() {
-            let ready = self.force ||
-                        batches
-                            .back()
-                            .map_or(false, |batch| {
+            let ready = self.force || batches.back().map_or(false, |batch| {
                 batch.is_full() || batch.create_time().elapsed() >= self.linger
             });
 

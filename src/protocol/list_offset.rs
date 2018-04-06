@@ -4,10 +4,9 @@ use std::borrow::Cow;
 use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, Offset, PARTITION_ID_SIZE,
-               ParseTag, PartitionId, REPLICA_ID_SIZE, Record, ReplicaId, RequestHeader,
-               ResponseHeader, STR_LEN_SIZE, TIMESTAMP_SIZE, Timestamp, WriteExt,
-               parse_response_header, parse_string};
+use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, Offset, ParseTag, PartitionId,
+               Record, ReplicaId, RequestHeader, ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE,
+               PARTITION_ID_SIZE, REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
 
 const MAX_NUMBER_OF_OFFSETS_SIZE: usize = 4;
 
@@ -67,18 +66,15 @@ pub struct ListPartitionOffset {
 
 impl<'a> Record for ListOffsetRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.header.size(api_version) + REPLICA_ID_SIZE +
-            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
-                size + STR_LEN_SIZE + topic.topic_name.len() +
-                    topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
-                        size + PARTITION_ID_SIZE + TIMESTAMP_SIZE +
-                            if api_version == 0 {
-                                MAX_NUMBER_OF_OFFSETS_SIZE
-                            } else {
-                                0
-                            }
-                    })
+        self.header.size(api_version) + REPLICA_ID_SIZE + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+            size + STR_LEN_SIZE + topic.topic_name.len() + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
+                size + PARTITION_ID_SIZE + TIMESTAMP_SIZE + if api_version == 0 {
+                    MAX_NUMBER_OF_OFFSETS_SIZE
+                } else {
+                    0
+                }
             })
+        })
     }
 }
 
@@ -197,34 +193,29 @@ mod tests {
                 client_id: Some("client".into()),
             },
             replica_id: 2,
-            topics: vec![ListTopicOffset {
-                topic_name: "topic".into(),
-                partitions: vec![ListPartitionOffset {
-                    partition_id: 5,
-                    timestamp: 6,
-                    max_number_of_offsets: 7
-                }],
-            }],
+            topics: vec![
+                ListTopicOffset {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        ListPartitionOffset {
+                            partition_id: 5,
+                            timestamp: 6,
+                            max_number_of_offsets: 7,
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // ListOffsetRequest
-                // RequestHeader
-                0, 2,                               // api_key
-                0, 0,                               // api_version
-                0, 0, 0, 123,                       // correlation_id
-                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
-            0, 0, 0, 2,                             // replica_id
-                // topics: [ListTopicOffset]
-                0, 0, 0, 1,
-                    // ListTopicOffset
-                    0, 5, 116, 111, 112, 105, 99,   // topic_name
-                    // partitions: [ListPartitionOffset]
-                    0, 0, 0, 1,
-                        // ListPartitionOffset
-                        0, 0, 0, 5,                 // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,     // timestamp
-                        0, 0, 0, 7,                 // max_number_of_offsets
+            /* ListOffsetRequest
+             * RequestHeader */ 0, 2 /* api_key */, 0,
+            0 /* api_version */, 0, 0, 0, 123 /* correlation_id */, 0, 6, 99, 108, 105, 101, 110,
+            116 /* client_id */, 0, 0, 0, 2 /* replica_id */, /* topics: [ListTopicOffset] */ 0, 0, 0,
+            1, /* ListTopicOffset */ 0, 5, 116, 111, 112, 105, 99 /* topic_name */,
+            /* partitions: [ListPartitionOffset] */ 0, 0, 0, 1, /* ListPartitionOffset */ 0, 0, 0,
+            5 /* partition */, 0, 0, 0, 0, 0, 0, 0, 6 /* timestamp */, 0, 0, 0,
+            7 /* max_number_of_offsets */,
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -246,33 +237,28 @@ mod tests {
                 client_id: Some("client".into()),
             },
             replica_id: 2,
-            topics: vec![ListTopicOffset {
-                topic_name: "topic".into(),
-                partitions: vec![ListPartitionOffset {
-                    partition_id: 5,
-                    timestamp: 6,
-                    max_number_of_offsets: 0
-                }],
-            }],
+            topics: vec![
+                ListTopicOffset {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        ListPartitionOffset {
+                            partition_id: 5,
+                            timestamp: 6,
+                            max_number_of_offsets: 0,
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // ListOffsetRequest
-                // RequestHeader
-                0, 2,                               // api_key
-                0, 1,                               // api_version
-                0, 0, 0, 123,                       // correlation_id
-                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
-            0, 0, 0, 2,                             // replica_id
-                // topics: [ListTopicOffset]
-                0, 0, 0, 1,
-                    // ListTopicOffset
-                    0, 5, 116, 111, 112, 105, 99,   // topic_name
-                    // partitions: [ListPartitionOffset]
-                    0, 0, 0, 1,
-                        // ListPartitionOffset
-                        0, 0, 0, 5,                 // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,     // timestamp
+            /* ListOffsetRequest
+             * RequestHeader */ 0, 2 /* api_key */, 0,
+            1 /* api_version */, 0, 0, 0, 123 /* correlation_id */, 0, 6, 99, 108, 105, 101, 110,
+            116 /* client_id */, 0, 0, 0, 2 /* replica_id */, /* topics: [ListTopicOffset] */ 0, 0, 0,
+            1, /* ListTopicOffset */ 0, 5, 116, 111, 112, 105, 99 /* topic_name */,
+            /* partitions: [ListPartitionOffset] */ 0, 0, 0, 1, /* ListPartitionOffset */ 0, 0, 0,
+            5 /* partition */, 0, 0, 0, 0, 0, 0, 0, 6 /* timestamp */,
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -288,33 +274,27 @@ mod tests {
     fn test_parse_list_offset_response_v0() {
         let response = ListOffsetResponse {
             header: ResponseHeader { correlation_id: 123 },
-            topics: vec![ListOffsetTopicStatus {
-                topic_name: "topic".to_owned(),
-                partitions: vec![ListOffsetPartitionStatus {
-                    partition_id: 1,
-                    error_code: 2,
-                    timestamp: None,
-                    offsets: vec![3, 4, 5, 6],
-                }],
-            }],
+            topics: vec![
+                ListOffsetTopicStatus {
+                    topic_name: "topic".to_owned(),
+                    partitions: vec![
+                        ListOffsetPartitionStatus {
+                            partition_id: 1,
+                            error_code: 2,
+                            timestamp: None,
+                            offsets: vec![3, 4, 5, 6],
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // ResponseHeader
-            0, 0, 0, 123,   // correlation_id
-            // topics: [ListOffsetTopicStatus]
-            0, 0, 0, 1,
-                0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
-                // partitions: [ListOffsetPartitionStatus]
-                0, 0, 0, 1,
-                    0, 0, 0, 1,             // partition
-                    0, 2,                   // error_code
-                    // offsets: [Offset]
-                    0, 0, 0, 4,
-                        0, 0, 0, 0, 0, 0, 0, 3,
-                        0, 0, 0, 0, 0, 0, 0, 4,
-                        0, 0, 0, 0, 0, 0, 0, 5,
-                        0, 0, 0, 0, 0, 0, 0, 6,
+            /* ResponseHeader */ 0, 0, 0, 123 /* correlation_id */,
+            /* topics: [ListOffsetTopicStatus] */ 0, 0, 0, 1, 0, 5, b't', b'o', b'p', b'i',
+            b'c' /* topic_name */, /* partitions: [ListOffsetPartitionStatus] */ 0, 0, 0, 1, 0, 0, 0,
+            1 /* partition */, 0, 2 /* error_code */, /* offsets: [Offset] */ 0, 0, 0, 4, 0, 0, 0, 0, 0,
+            0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 6,
         ];
 
         let res = parse_list_offset_response(&data[..], 0);
@@ -328,29 +308,27 @@ mod tests {
     fn test_parse_list_offset_response_v1() {
         let response = ListOffsetResponse {
             header: ResponseHeader { correlation_id: 123 },
-            topics: vec![ListOffsetTopicStatus {
-                topic_name: "topic".to_owned(),
-                partitions: vec![ListOffsetPartitionStatus {
-                    partition_id: 1,
-                    error_code: 2,
-                    timestamp: Some(3),
-                    offsets: vec![4],
-                }],
-            }],
+            topics: vec![
+                ListOffsetTopicStatus {
+                    topic_name: "topic".to_owned(),
+                    partitions: vec![
+                        ListOffsetPartitionStatus {
+                            partition_id: 1,
+                            error_code: 2,
+                            timestamp: Some(3),
+                            offsets: vec![4],
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // ResponseHeader
-            0, 0, 0, 123,   // correlation_id
-            // topics: [ListOffsetTopicStatus]
-            0, 0, 0, 1,
-                0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
-                // partitions: [ListOffsetPartitionStatus]
-                0, 0, 0, 1,
-                    0, 0, 0, 1,             // partition
-                    0, 2,                   // error_code
-                    0, 0, 0, 0, 0, 0, 0, 3, // timestamp
-                    0, 0, 0, 0, 0, 0, 0, 4, // offset
+            /* ResponseHeader */ 0, 0, 0, 123 /* correlation_id */,
+            /* topics: [ListOffsetTopicStatus] */ 0, 0, 0, 1, 0, 5, b't', b'o', b'p', b'i',
+            b'c' /* topic_name */, /* partitions: [ListOffsetPartitionStatus] */ 0, 0, 0, 1, 0, 0, 0,
+            1 /* partition */, 0, 2 /* error_code */, 0, 0, 0, 0, 0, 0, 0, 3 /* timestamp */, 0, 0, 0,
+            0, 0, 0, 0, 4 /* offset */,
         ];
 
         let res = parse_list_offset_response(&data[..], 1);

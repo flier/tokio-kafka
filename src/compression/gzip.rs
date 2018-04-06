@@ -7,13 +7,13 @@ use flate2::write::GzEncoder;
 use errors::Result;
 
 pub fn compress(src: &[u8]) -> Result<Vec<u8>> {
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::Default);
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(src)?;
     Ok(encoder.finish()?)
 }
 
 pub fn uncompress<T: Read>(src: T) -> Result<Vec<u8>> {
-    let mut decoder = GzDecoder::new(src)?;
+    let mut decoder = GzDecoder::new(src);
     let mut buffer: Vec<u8> = Vec::new();
     decoder.read_to_end(&mut buffer)?;
     Ok(buffer)
@@ -27,8 +27,9 @@ mod tests {
     fn test_uncompress() {
         use std::io::Cursor;
         // The vector should uncompress to "test"
-        let msg: Vec<u8> = vec![31, 139, 8, 0, 192, 248, 79, 85, 2, 255, 43, 73, 45, 46, 1, 0, 12,
-                                126, 127, 216, 4, 0, 0, 0];
+        let msg: Vec<u8> = vec![
+            31, 139, 8, 0, 192, 248, 79, 85, 2, 255, 43, 73, 45, 46, 1, 0, 12, 126, 127, 216, 4, 0, 0, 0
+        ];
         let uncomp_msg = String::from_utf8(uncompress(Cursor::new(msg)).unwrap()).unwrap();
         assert_eq!(&uncomp_msg[..], "test");
     }

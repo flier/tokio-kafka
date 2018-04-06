@@ -6,10 +6,9 @@ use bytes::{BufMut, ByteOrder, BytesMut};
 use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ARRAY_LEN_SIZE, ApiVersion, BYTES_LEN_SIZE, Encodable, ErrorCode, MessageSet,
-               MessageSetEncoder, Offset, PARTITION_ID_SIZE, ParseTag, PartitionId, Record,
-               RequestHeader, RequiredAck, ResponseHeader, STR_LEN_SIZE, Timestamp, WriteExt,
-               parse_response_header, parse_string};
+use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder,
+               Offset, ParseTag, PartitionId, Record, RequestHeader, RequiredAck, ResponseHeader, Timestamp, WriteExt,
+               ARRAY_LEN_SIZE, BYTES_LEN_SIZE, PARTITION_ID_SIZE, STR_LEN_SIZE};
 
 const REQUIRED_ACKS_SIZE: usize = 2;
 const ACK_TIMEOUT_SIZE: usize = 4;
@@ -36,16 +35,12 @@ pub struct ProducePartitionData<'a> {
 
 impl<'a> Record for ProduceRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.header.size(api_version) + REQUIRED_ACKS_SIZE + ACK_TIMEOUT_SIZE +
-            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
-                size + STR_LEN_SIZE + topic.topic_name.len() +
-                    topic.partitions.iter().fold(
-                        ARRAY_LEN_SIZE,
-                        |size, partition| {
-                            size + PARTITION_ID_SIZE + BYTES_LEN_SIZE +
-                                partition.message_set.size(api_version)
-                        },
-                    )
+        self.header.size(api_version) + REQUIRED_ACKS_SIZE + ACK_TIMEOUT_SIZE
+            + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len()
+                    + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, partition| {
+                        size + PARTITION_ID_SIZE + BYTES_LEN_SIZE + partition.message_set.size(api_version)
+                    })
             })
     }
 }
@@ -231,21 +226,27 @@ mod tests {
             },
             required_acks: RequiredAcks::All as RequiredAck,
             ack_timeout: 123,
-            topics: vec![ProduceTopicData {
-                topic_name: "topic".into(),
-                partitions: vec![ProducePartitionData {
-                    partition_id: 1,
-                    message_set: Cow::Owned(MessageSet {
-                        messages: vec![Message {
-                            offset: 0,
-                            compression: Compression::None,
-                            key: Some(Bytes::from(&b"key"[..])),
-                            value: Some(Bytes::from(&b"value"[..])),
-                            timestamp: Some(MessageTimestamp::CreateTime(456)),
-                        }],
-                    }),
-                }],
-            }],
+            topics: vec![
+                ProduceTopicData {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        ProducePartitionData {
+                            partition_id: 1,
+                            message_set: Cow::Owned(MessageSet {
+                                messages: vec![
+                                    Message {
+                                        offset: 0,
+                                        compression: Compression::None,
+                                        key: Some(Bytes::from(&b"key"[..])),
+                                        value: Some(Bytes::from(&b"value"[..])),
+                                        timestamp: Some(MessageTimestamp::CreateTime(456)),
+                                    },
+                                ],
+                            }),
+                        },
+                    ],
+                },
+            ],
         };
 
         let mut buf = BytesMut::with_capacity(128);
@@ -259,7 +260,9 @@ mod tests {
 
     #[test]
     fn test_parse_produce_response() {
-        assert_eq!(parse_produce_response(TEST_RESPONSE_DATA.as_slice(), 2),
-                   IResult::Done(&[][..], TEST_RESPONSE.clone()));
+        assert_eq!(
+            parse_produce_response(TEST_RESPONSE_DATA.as_slice(), 2),
+            IResult::Done(&[][..], TEST_RESPONSE.clone())
+        );
     }
 }

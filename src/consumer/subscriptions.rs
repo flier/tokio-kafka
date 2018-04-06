@@ -39,10 +39,7 @@ impl<'a> Subscriptions<'a> {
         I: IntoIterator<Item = S>,
         S: AsRef<str> + Hash + Eq,
     {
-        let topic_names: Vec<String> = topic_names
-            .into_iter()
-            .map(|s| s.as_ref().to_owned())
-            .collect();
+        let topic_names: Vec<String> = topic_names.into_iter().map(|s| s.as_ref().to_owned()).collect();
 
         Subscriptions {
             default_reset_strategy: default_reset_strategy,
@@ -61,10 +58,7 @@ impl<'a> Subscriptions<'a> {
         I: IntoIterator<Item = S>,
         S: AsRef<str> + Hash + Eq,
     {
-        let topic_names: Vec<String> = topic_names
-            .into_iter()
-            .map(|s| s.as_ref().to_owned())
-            .collect();
+        let topic_names: Vec<String> = topic_names.into_iter().map(|s| s.as_ref().to_owned()).collect();
         self.subscription = HashSet::from_iter(topic_names.iter().cloned());
         self.group_subscription = &self.group_subscription | &self.subscription;
     }
@@ -74,15 +68,9 @@ impl<'a> Subscriptions<'a> {
     /// This is used by the group leader to ensure that it receives metadata updates for all
     /// topics
     /// that the group is interested in.
-    pub fn group_subscribe<I: IntoIterator<Item = S>, S: AsRef<str> + Hash + Eq>(
-        &mut self,
-        topic_names: I,
-    ) {
-        self.group_subscription.extend(
-            topic_names.into_iter().map(|s| {
-                s.as_ref().to_owned()
-            }),
-        )
+    pub fn group_subscribe<I: IntoIterator<Item = S>, S: AsRef<str> + Hash + Eq>(&mut self, topic_names: I) {
+        self.group_subscription
+            .extend(topic_names.into_iter().map(|s| s.as_ref().to_owned()))
     }
 
     pub fn topics(&self) -> Vec<&str> {
@@ -91,22 +79,17 @@ impl<'a> Subscriptions<'a> {
 
     /// Change the assignment to the specified partitions returned from the coordinator
     pub fn assign_from_subscribed(&mut self, partitions: Vec<TopicPartition<'a>>) -> Result<()> {
-        if let Some(tp) = partitions.iter().find(|tp| {
-            !self.subscription.contains(
-                &String::from(tp.topic_name.to_owned()),
-            )
-        })
+        if let Some(tp) = partitions
+            .iter()
+            .find(|tp| !self.subscription.contains(&String::from(tp.topic_name.to_owned())))
         {
             bail!(ErrorKind::IllegalArgument(format!(
                 "assigned partition {}#{} for non-subscribed topic",
-                tp.topic_name,
-                tp.partition_id
+                tp.topic_name, tp.partition_id
             )))
         }
 
-        self.assignment = HashMap::from_iter(partitions.into_iter().map(|tp| {
-            (tp, TopicPartitionState::default())
-        }));
+        self.assignment = HashMap::from_iter(partitions.into_iter().map(|tp| (tp, TopicPartitionState::default())));
 
         Ok(())
     }
@@ -123,20 +106,14 @@ impl<'a> Subscriptions<'a> {
         self.assignment.get(tp)
     }
 
-    pub fn assigned_state_mut(
-        &mut self,
-        tp: &TopicPartition<'a>,
-    ) -> Option<&mut TopicPartitionState> {
+    pub fn assigned_state_mut(&mut self, tp: &TopicPartition<'a>) -> Option<&mut TopicPartitionState> {
         self.assignment.get_mut(tp)
     }
 
     pub fn seek(&mut self, tp: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
         self.assignment
             .get_mut(tp)
-            .ok_or_else(|| {
-                ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp))
-                    .into()
-            })
+            .ok_or_else(|| ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp)).into())
             .map(|state| match pos {
                 SeekTo::Beginning => {
                     state.need_offset_reset(OffsetResetStrategy::Earliest);
@@ -154,9 +131,9 @@ impl<'a> Subscriptions<'a> {
         self.assignment
             .iter()
             .flat_map(|(tp, state)| {
-                state.position.map(|position| {
-                    (tp.clone(), offset_and_metadata!(position))
-                })
+                state
+                    .position
+                    .map(|position| (tp.clone(), offset_and_metadata!(position)))
             })
             .collect()
     }
@@ -180,21 +157,19 @@ impl<'a> Subscriptions<'a> {
     pub fn pause(&mut self, tp: &TopicPartition<'a>) -> Result<()> {
         self.assignment
             .get_mut(tp)
-            .map(|state| { state.paused = true; })
-            .ok_or_else(|| {
-                ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp))
-                    .into()
+            .map(|state| {
+                state.paused = true;
             })
+            .ok_or_else(|| ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp)).into())
     }
 
     pub fn resume(&mut self, tp: &TopicPartition<'a>) -> Result<()> {
         self.assignment
             .get_mut(tp)
-            .map(|state| { state.paused = true; })
-            .ok_or_else(|| {
-                ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp))
-                    .into()
+            .map(|state| {
+                state.paused = true;
             })
+            .ok_or_else(|| ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp)).into())
     }
 }
 
@@ -248,10 +223,7 @@ impl TopicPartitionState {
         self.committed.is_some()
     }
 
-    pub fn need_offset_reset(
-        &mut self,
-        reset_strategy: OffsetResetStrategy,
-    ) -> Option<OffsetResetStrategy> {
+    pub fn need_offset_reset(&mut self, reset_strategy: OffsetResetStrategy) -> Option<OffsetResetStrategy> {
         mem::replace(&mut self.reset_strategy, Some(reset_strategy))
     }
 

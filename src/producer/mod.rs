@@ -1,21 +1,20 @@
-mod record;
-mod partitioner;
-mod config;
-mod batch;
 mod accumulator;
-mod sender;
-mod producer;
-mod interceptor;
+mod batch;
 mod builder;
+mod config;
+mod interceptor;
+mod partitioner;
+mod producer;
+mod record;
+mod sender;
 
-pub use self::record::{ProducerRecord, RecordMetadata};
-pub use self::partitioner::{DefaultPartitioner, Partitioner};
-pub use self::config::{DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
-                       DEFAULT_MAX_REQUEST_SIZE, ProducerConfig};
-pub use self::batch::{ProducerBatch, Thunk};
 pub use self::accumulator::{Accumulator, PushRecord, RecordAccumulator};
-pub use self::sender::{SendBatch, Sender};
-pub use self::producer::{Flush, GetTopic, KafkaProducer, Producer, ProducerPartition,
-                         ProducerTopic, SendRecord};
-pub use self::interceptor::{Interceptors, ProducerInterceptor, ProducerInterceptors};
+pub use self::batch::{ProducerBatch, Thunk};
 pub use self::builder::ProducerBuilder;
+pub use self::config::{ProducerConfig, DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
+                       DEFAULT_MAX_REQUEST_SIZE};
+pub use self::interceptor::{Interceptors, ProducerInterceptor, ProducerInterceptors};
+pub use self::partitioner::{DefaultPartitioner, Partitioner};
+pub use self::producer::{Flush, GetTopic, KafkaProducer, Producer, ProducerPartition, ProducerTopic, SendRecord};
+pub use self::record::{ProducerRecord, RecordMetadata};
+pub use self::sender::{SendBatch, Sender};

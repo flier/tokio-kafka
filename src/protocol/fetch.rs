@@ -6,10 +6,9 @@ use bytes::{BufMut, ByteOrder, BytesMut};
 use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, MessageSet, OFFSET_SIZE, Offset,
-               PARTITION_ID_SIZE, ParseTag, PartitionId, REPLICA_ID_SIZE, Record, ReplicaId,
-               RequestHeader, ResponseHeader, STR_LEN_SIZE, WriteExt, parse_message_set,
-               parse_response_header, parse_string};
+use protocol::{parse_message_set, parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, MessageSet,
+               Offset, ParseTag, PartitionId, Record, ReplicaId, RequestHeader, ResponseHeader, WriteExt,
+               ARRAY_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE, REPLICA_ID_SIZE, STR_LEN_SIZE};
 
 pub const DEFAULT_RESPONSE_MAX_BYTES: i32 = i32::MAX;
 
@@ -61,11 +60,10 @@ pub struct FetchPartition {
 
 impl<'a> Record for FetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.header.size(api_version) + REQUEST_OVERHEAD +
-            if api_version > 2 { MAX_BYTES_SIZE } else { 0 } +
-            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
-                size + STR_LEN_SIZE + topic.topic_name.len() +
-                    topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
+        self.header.size(api_version) + REQUEST_OVERHEAD + if api_version > 2 { MAX_BYTES_SIZE } else { 0 }
+            + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len()
+                    + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
                         size + PARTITION_ID_SIZE + FETCH_OFFSET_SIZE + MAX_BYTES_SIZE
                     })
             })
@@ -195,36 +193,29 @@ mod tests {
             max_wait_time: 3,
             min_bytes: 4,
             max_bytes: 0,
-            topics: vec![FetchTopic {
-                topic_name: "topic".into(),
-                partitions: vec![FetchPartition {
-                    partition_id: 5,
-                    fetch_offset: 6,
-                    max_bytes: 7
-                }],
-            }],
+            topics: vec![
+                FetchTopic {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        FetchPartition {
+                            partition_id: 5,
+                            fetch_offset: 6,
+                            max_bytes: 7,
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // FetchRequest
-                // RequestHeader
-                0, 1,                               // api_key
-                0, 1,                               // api_version
-                0, 0, 0, 123,                       // correlation_id
-                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
-            0, 0, 0, 2,                             // replica_id
-            0, 0, 0, 3,                             // max_wait_time
-            0, 0, 0, 4,                             // max_bytes
-                // topics: [FetchTopicData]
-                0, 0, 0, 1,
-                    // FetchTopicData
-                    0, 5, 116, 111, 112, 105, 99,   // topic_name
-                    // partitions: [FetchPartitionData]
-                    0, 0, 0, 1,
-                        // FetchPartitionData
-                        0, 0, 0, 5,                 // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,     // fetch_offset
-                        0, 0, 0, 7,                 // max_bytes
+            /* FetchRequest
+             * RequestHeader */ 0, 1 /* api_key */, 0, 1 /* api_version */,
+            0, 0, 0, 123 /* correlation_id */, 0, 6, 99, 108, 105, 101, 110, 116 /* client_id */, 0, 0, 0,
+            2 /* replica_id */, 0, 0, 0, 3 /* max_wait_time */, 0, 0, 0, 4 /* max_bytes */,
+            /* topics: [FetchTopicData] */ 0, 0, 0, 1, /* FetchTopicData */ 0, 5, 116, 111, 112, 105,
+            99 /* topic_name */, /* partitions: [FetchPartitionData] */ 0, 0, 0, 1,
+            /* FetchPartitionData */ 0, 0, 0, 5 /* partition */, 0, 0, 0, 0, 0, 0, 0,
+            6 /* fetch_offset */, 0, 0, 0, 7 /* max_bytes */,
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -249,37 +240,29 @@ mod tests {
             max_wait_time: 3,
             min_bytes: 4,
             max_bytes: 1024,
-            topics: vec![FetchTopic {
-                topic_name: "topic".into(),
-                partitions: vec![FetchPartition {
-                    partition_id: 5,
-                    fetch_offset: 6,
-                    max_bytes: 7
-                }],
-            }],
+            topics: vec![
+                FetchTopic {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        FetchPartition {
+                            partition_id: 5,
+                            fetch_offset: 6,
+                            max_bytes: 7,
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // FetchRequest
-                // RequestHeader
-                0, 1,                               // api_key
-                0, 3,                               // api_version
-                0, 0, 0, 123,                       // correlation_id
-                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
-            0, 0, 0, 2,                             // replica_id
-            0, 0, 0, 3,                             // max_wait_time
-            0, 0, 0, 4,                             // min_bytes
-            0, 0, 4, 0,                             // max_bytes
-                // topics: [FetchTopicData]
-                0, 0, 0, 1,
-                    // FetchTopicData
-                    0, 5, 116, 111, 112, 105, 99,   // topic_name
-                    // partitions: [FetchPartitionData]
-                    0, 0, 0, 1,
-                        // FetchPartitionData
-                        0, 0, 0, 5,                 // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,     // fetch_offset
-                        0, 0, 0, 7,                 // max_bytes
+            /* FetchRequest
+             * RequestHeader */ 0, 1 /* api_key */, 0, 3 /* api_version */,
+            0, 0, 0, 123 /* correlation_id */, 0, 6, 99, 108, 105, 101, 110, 116 /* client_id */, 0, 0, 0,
+            2 /* replica_id */, 0, 0, 0, 3 /* max_wait_time */, 0, 0, 0, 4 /* min_bytes */, 0, 0, 4,
+            0 /* max_bytes */, /* topics: [FetchTopicData] */ 0, 0, 0, 1, /* FetchTopicData */ 0, 5,
+            116, 111, 112, 105, 99 /* topic_name */, /* partitions: [FetchPartitionData] */ 0, 0, 0, 1,
+            /* FetchPartitionData */ 0, 0, 0, 5 /* partition */, 0, 0, 0, 0, 0, 0, 0,
+            6 /* fetch_offset */, 0, 0, 0, 7 /* max_bytes */,
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -296,48 +279,42 @@ mod tests {
         let response = FetchResponse {
             header: ResponseHeader { correlation_id: 123 },
             throttle_time: None,
-            topics: vec![FetchTopicData {
-                topic_name: "topic".to_owned(),
-                partitions: vec![FetchPartitionData {
-                    partition_id: 1,
-                    error_code: 2,
-                    high_watermark: 3,
-                    message_set: MessageSet {
-                        messages: vec![Message {
-                            offset: 0,
-                            compression: Compression::None,
-                            key: Some(Bytes::from(&b"key"[..])),
-                            value: Some(Bytes::from(&b"value"[..])),
-                            timestamp: None,
-                        }],
-                    },
-                }],
-            }],
+            topics: vec![
+                FetchTopicData {
+                    topic_name: "topic".to_owned(),
+                    partitions: vec![
+                        FetchPartitionData {
+                            partition_id: 1,
+                            error_code: 2,
+                            high_watermark: 3,
+                            message_set: MessageSet {
+                                messages: vec![
+                                    Message {
+                                        offset: 0,
+                                        compression: Compression::None,
+                                        key: Some(Bytes::from(&b"key"[..])),
+                                        value: Some(Bytes::from(&b"value"[..])),
+                                        timestamp: None,
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // ResponseHeader
-            0, 0, 0, 123,   // correlation_id
-            //0, 0, 0, 1,     // throttle_time
-            // topics: [TopicData]
-            0, 0, 0, 1,
-                0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
-                // partitions: [PartitionData]
-                0, 0, 0, 1,
-                    0, 0, 0, 1,             // partition
-                    0, 2,                   // error_code
-                    0, 0, 0, 0, 0, 0, 0, 3, // highwater_mark_offset
-                    // MessageSet
-                    0, 0, 0, 34,            // size
-                        // messages: [Message]
-                        0, 0, 0, 0, 0, 0, 0, 0,             // offset
-                        0, 0, 0, 22,                        // size
-                        197, 70, 142, 169,                  // crc
-                        0,                                  // magic
-                        8,                                  // attributes
-                        //0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
-                        0, 0, 0, 3, 107, 101, 121,          // key
-                        0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+            /* ResponseHeader */ 0, 0, 0, 123 /* correlation_id */,
+            /* 0, 0, 0, 1,     // throttle_time
+             * topics: [TopicData] */ 0, 0, 0, 1, 0, 5, b't',
+            b'o', b'p', b'i', b'c' /* topic_name */, /* partitions: [PartitionData] */ 0, 0, 0, 1, 0, 0, 0,
+            1 /* partition */, 0, 2 /* error_code */, 0, 0, 0, 0, 0, 0, 0,
+            3 /* highwater_mark_offset */, /* MessageSet */ 0, 0, 0, 34 /* size */,
+            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 22 /* size */, 197,
+            70, 142, 169 /* crc */, 0 /* magic */, 8 /* attributes */,
+            /* 0, 0, 0, 0, 0, 0, 1, 200,           // timestamp */ 0, 0, 0, 3, 107, 101, 121 /* key */, 0, 0,
+            0, 5, 118, 97, 108, 117, 101 /* value */,
         ];
 
         let res = parse_fetch_response(&data[..], 0);
@@ -352,48 +329,40 @@ mod tests {
         let response = FetchResponse {
             header: ResponseHeader { correlation_id: 123 },
             throttle_time: Some(1),
-            topics: vec![FetchTopicData {
-                topic_name: "topic".to_owned(),
-                partitions: vec![FetchPartitionData {
-                    partition_id: 1,
-                    error_code: 2,
-                    high_watermark: 3,
-                    message_set: MessageSet {
-                        messages: vec![Message {
-                            offset: 0,
-                            compression: Compression::None,
-                            key: Some(Bytes::from(&b"key"[..])),
-                            value: Some(Bytes::from(&b"value"[..])),
-                            timestamp: Some(MessageTimestamp::LogAppendTime(456)),
-                        }],
-                    },
-                }],
-            }],
+            topics: vec![
+                FetchTopicData {
+                    topic_name: "topic".to_owned(),
+                    partitions: vec![
+                        FetchPartitionData {
+                            partition_id: 1,
+                            error_code: 2,
+                            high_watermark: 3,
+                            message_set: MessageSet {
+                                messages: vec![
+                                    Message {
+                                        offset: 0,
+                                        compression: Compression::None,
+                                        key: Some(Bytes::from(&b"key"[..])),
+                                        value: Some(Bytes::from(&b"value"[..])),
+                                        timestamp: Some(MessageTimestamp::LogAppendTime(456)),
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // ResponseHeader
-            0, 0, 0, 123,   // correlation_id
-            0, 0, 0, 1,     // throttle_time
-            // topics: [TopicData]
-            0, 0, 0, 1,
-                0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
-                // partitions: [PartitionData]
-                0, 0, 0, 1,
-                    0, 0, 0, 1,             // partition
-                    0, 2,                   // error_code
-                    0, 0, 0, 0, 0, 0, 0, 3, // highwater_mark_offset
-                    // MessageSet
-                    0, 0, 0, 42,            // size
-                        // messages: [Message]
-                        0, 0, 0, 0, 0, 0, 0, 0,             // offset
-                        0, 0, 0, 30,                        // size
-                        206, 63, 210, 11,                   // crc
-                        1,                                  // magic
-                        8,                                  // attributes
-                        0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
-                        0, 0, 0, 3, 107, 101, 121,          // key
-                        0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+            /* ResponseHeader */ 0, 0, 0, 123 /* correlation_id */, 0, 0, 0, 1 /* throttle_time */,
+            /* topics: [TopicData] */ 0, 0, 0, 1, 0, 5, b't', b'o', b'p', b'i', b'c' /* topic_name */,
+            /* partitions: [PartitionData] */ 0, 0, 0, 1, 0, 0, 0, 1 /* partition */, 0,
+            2 /* error_code */, 0, 0, 0, 0, 0, 0, 0, 3 /* highwater_mark_offset */, /* MessageSet */ 0,
+            0, 0, 42 /* size */, /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0,
+            30 /* size */, 206, 63, 210, 11 /* crc */, 1 /* magic */, 8 /* attributes */, 0, 0, 0,
+            0, 0, 0, 1, 200 /* timestamp */, 0, 0, 0, 3, 107, 101, 121 /* key */, 0, 0, 0, 5, 118, 97, 108,
+            117, 101 /* value */,
         ];
 
         let res = parse_fetch_response(&data[..], 1);

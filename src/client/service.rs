@@ -1,4 +1,3 @@
-
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::io;
@@ -8,21 +7,20 @@ use std::time::Duration;
 
 use bytes::BytesMut;
 
-use futures::{Async, Poll, Stream};
 use futures::future::Future;
 use futures::unsync::oneshot;
+use futures::{Async, Poll, Stream};
 use tokio_core::reactor::Handle;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_proto::BindClient;
-use tokio_proto::streaming::{Body, Message};
 use tokio_proto::streaming::pipeline::ClientProto;
+use tokio_proto::streaming::{Body, Message};
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
 
 use client::{Metrics, StaticBoxFuture, ToStaticBoxFuture};
 use errors::Error;
-use network::{ConnectionId, KafkaCodec, KafkaConnection, KafkaConnector, KafkaRequest,
-              KafkaResponse, Pool, Pooled};
+use network::{ConnectionId, KafkaCodec, KafkaConnection, KafkaConnector, KafkaRequest, KafkaResponse, Pool, Pooled};
 
 #[derive(Debug, Default)]
 struct State {
@@ -45,11 +43,7 @@ pub struct KafkaService<'a> {
 }
 
 impl<'a> KafkaService<'a> {
-    pub fn new(
-        handle: Handle,
-        max_connection_idle: Duration,
-        metrics: Option<Rc<Metrics>>,
-    ) -> Self {
+    pub fn new(handle: Handle, max_connection_idle: Duration, metrics: Option<Rc<Metrics>>) -> Self {
         KafkaService {
             handle: handle.clone(),
             pool: Pool::new(max_connection_idle),
@@ -72,9 +66,9 @@ where
     fn call(&self, req: Self::Request) -> Self::Future {
         let (addr, request) = req;
 
-        self.metrics.as_ref().map(|metrics| {
-            metrics.send_request(&addr, &request)
-        });
+        self.metrics
+            .as_ref()
+            .map(|metrics| metrics.send_request(&addr, &request));
 
         let checkout = self.pool.checkout(addr);
         let connect = {
@@ -114,8 +108,7 @@ where
                 debug!("received message: {:?}", msg);
 
                 match msg {
-                    Message::WithoutBody(res) |
-                    Message::WithBody(res, _) => res,
+                    Message::WithoutBody(res) | Message::WithBody(res, _) => res,
                 }
             })
             .map(move |response| {
@@ -143,11 +136,7 @@ impl Stream for KafkaBody {
     }
 }
 
-type TokioClient<'a> = ClientProxy<
-    Message<KafkaRequest<'a>, KafkaBody>,
-    Message<KafkaResponse, TokioBody>,
-    io::Error,
->;
+type TokioClient<'a> = ClientProxy<Message<KafkaRequest<'a>, KafkaBody>, Message<KafkaResponse, TokioBody>, io::Error>;
 
 type PooledClient<'a> = Pooled<SocketAddr, TokioClient<'a>>;
 
@@ -170,17 +159,11 @@ where
     type BindTransport = BindingClient<'a, T>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        trace!(
-            "connection #{} bind transport for {:?}",
-            self.connection_id,
-            io
-        );
+        trace!("connection #{} bind transport for {:?}", self.connection_id, io);
 
         BindingClient {
             connection_id: self.connection_id,
-            rx: self.client_rx.borrow_mut().take().expect(
-                "client_rx was lost",
-            ),
+            rx: self.client_rx.borrow_mut().take().expect("client_rx was lost"),
             io: Some(io),
         }
     }
