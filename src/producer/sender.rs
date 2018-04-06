@@ -40,13 +40,13 @@ where
         let (thunks, message_set) = batch.build()?;
 
         Ok(Sender {
-            client: client,
-            interceptors: interceptors,
-            acks: acks,
-            ack_timeout: ack_timeout,
-            tp: tp,
+            client,
+            interceptors,
+            acks,
+            ack_timeout,
+            tp,
             thunks: Rc::new(RefCell::new(Some(thunks))),
-            message_set: message_set,
+            message_set,
         })
     }
 

@@ -170,7 +170,8 @@ pub struct DescribeGroupsGroupStatus {
     /// The current state of the group (one of: Dead, Stable, AwaitingSync, or PreparingRebalance,
     /// or empty if there is no active group)
     pub state: String,
-    /// The current group protocol type (will be empty if there is no active group)
+    /// The current group protocol type (will be empty if there is no active
+    /// group)
     pub protocol_type: String,
     /// The current group protocol (only provided if the group is Stable)
     pub protocol: String,
@@ -184,7 +185,8 @@ pub struct DescribeGroupsMemberStatus {
     pub member_id: String,
     /// The client id used in the member's latest join group request
     pub client_id: String,
-    /// The client host used in the request session corresponding to the member's join group.
+    /// The client host used in the request session corresponding to the
+    /// member's join group.
     pub client_host: String,
     /// The metadata corresponding to the current group protocol in use (will only be present if
     /// the group is stable).
@@ -212,7 +214,8 @@ pub struct ListGroupsResponse {
 pub struct ListGroupsGroupStatus {
     /// The unique group id.
     pub group_id: String,
-    /// The current group protocol type (will be empty if there is no active group)
+    /// The current group protocol type (will be empty if there is no active
+    /// group)
     pub protocol_type: String,
 }
 
@@ -365,11 +368,11 @@ named!(
             header: parse_response_header >> error_code: be_i16 >> coordinator_id: be_i32
                 >> coordinator_host: parse_string >> coordinator_port: be_i32
                 >> (GroupCoordinatorResponse {
-                    header: header,
-                    error_code: error_code,
-                    coordinator_id: coordinator_id,
-                    coordinator_host: coordinator_host,
-                    coordinator_port: coordinator_port,
+                    header,
+                    error_code,
+                    coordinator_id,
+                    coordinator_host,
+                    coordinator_port,
                 })
         )
     )
@@ -389,13 +392,13 @@ named!(
             header: parse_response_header >> error_code: be_i16 >> generation_id: be_i32 >> protocol: parse_string
                 >> leader_id: parse_string >> member_id: parse_string
                 >> members: length_count!(be_i32, parse_group_member) >> (JoinGroupResponse {
-                header: header,
-                error_code: error_code,
-                generation_id: generation_id,
-                protocol: protocol,
-                leader_id: leader_id,
-                member_id: member_id,
-                members: members,
+                header,
+                error_code,
+                generation_id,
+                protocol,
+                leader_id,
+                member_id,
+                members,
             })
         )
     )
@@ -407,8 +410,8 @@ named!(
         ParseTag::JoinGroupMember,
         do_parse!(
             member_id: parse_string >> member_metadata: parse_bytes >> (JoinGroupMember {
-                member_id: member_id,
-                member_metadata: member_metadata,
+                member_id,
+                member_metadata,
             })
         )
     )
@@ -424,12 +427,7 @@ named!(
     parse_heartbeat_response<HeartbeatResponse>,
     parse_tag!(
         ParseTag::HeartbeatResponse,
-        do_parse!(
-            header: parse_response_header >> error_code: be_i16 >> (HeartbeatResponse {
-                header: header,
-                error_code: error_code,
-            })
-        )
+        do_parse!(header: parse_response_header >> error_code: be_i16 >> (HeartbeatResponse { header, error_code }))
     )
 );
 
@@ -443,12 +441,7 @@ named!(
     parse_leave_group_response<LeaveGroupResponse>,
     parse_tag!(
         ParseTag::LeaveGroupResponse,
-        do_parse!(
-            header: parse_response_header >> error_code: be_i16 >> (LeaveGroupResponse {
-                header: header,
-                error_code: error_code,
-            })
-        )
+        do_parse!(header: parse_response_header >> error_code: be_i16 >> (LeaveGroupResponse { header, error_code }))
     )
 );
 
@@ -465,9 +458,9 @@ named!(
         do_parse!(
             header: parse_response_header >> error_code: be_i16 >> member_assignment: parse_bytes
                 >> (SyncGroupResponse {
-                    header: header,
-                    error_code: error_code,
-                    member_assignment: member_assignment,
+                    header,
+                    error_code,
+                    member_assignment,
                 })
         )
     )
@@ -485,10 +478,7 @@ named!(
         ParseTag::DescribeGroupsResponse,
         do_parse!(
             header: parse_response_header >> groups: length_count!(be_i32, parse_describe_groups_group_status)
-                >> (DescribeGroupsResponse {
-                    header: header,
-                    groups: groups,
-                })
+                >> (DescribeGroupsResponse { header, groups })
         )
     )
 );
@@ -502,12 +492,12 @@ named!(
                 >> protocol: parse_string
                 >> members: length_count!(be_i32, parse_describe_groups_member_status)
                 >> (DescribeGroupsGroupStatus {
-                    error_code: error_code,
-                    group_id: group_id,
-                    state: state,
-                    protocol_type: protocol_type,
-                    protocol: protocol,
-                    members: members,
+                    error_code,
+                    group_id,
+                    state,
+                    protocol_type,
+                    protocol,
+                    members,
                 })
         )
     )
@@ -521,11 +511,11 @@ named!(
             member_id: parse_string >> client_id: parse_string >> client_host: parse_string
                 >> member_metadata: parse_bytes >> member_assignment: parse_bytes
                 >> (DescribeGroupsMemberStatus {
-                    member_id: member_id,
-                    client_id: client_id,
-                    client_host: client_host,
-                    member_metadata: member_metadata,
-                    member_assignment: member_assignment,
+                    member_id,
+                    client_id,
+                    client_host,
+                    member_metadata,
+                    member_assignment,
                 })
         )
     )
@@ -544,9 +534,9 @@ named!(
         do_parse!(
             header: parse_response_header >> error_code: be_i16
                 >> groups: length_count!(be_i32, parse_list_groups_group_status) >> (ListGroupsResponse {
-                header: header,
-                error_code: error_code,
-                groups: groups,
+                header,
+                error_code,
+                groups,
             })
         )
     )
@@ -558,8 +548,8 @@ named!(
         ParseTag::ListGroupsGroupStatus,
         do_parse!(
             group_id: parse_string >> protocol_type: parse_string >> (ListGroupsGroupStatus {
-                group_id: group_id,
-                protocol_type: protocol_type,
+                group_id,
+                protocol_type,
             })
         )
     )

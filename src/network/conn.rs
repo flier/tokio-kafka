@@ -141,10 +141,7 @@ where
         match frame {
             Frame::Message { message: request, body } => self.stream.start_send(request).map(|async| match async {
                 AsyncSink::Ready => AsyncSink::Ready,
-                AsyncSink::NotReady(request) => AsyncSink::NotReady(Frame::Message {
-                    message: request,
-                    body: body,
-                }),
+                AsyncSink::NotReady(request) => AsyncSink::NotReady(Frame::Message { message: request, body }),
             }),
             Frame::Body { .. } | Frame::Error { .. } => Ok(AsyncSink::Ready),
         }
@@ -174,9 +171,9 @@ where
 {
     pub fn new(id: ConnectionId, stream: I, codec: KafkaCodec<'a>, keep_alive: K) -> Self {
         KafkaConnection {
-            id: id,
+            id,
             stream: stream.framed(codec),
-            state: State { keep_alive: keep_alive },
+            state: State { keep_alive },
         }
     }
 

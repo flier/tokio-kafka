@@ -62,10 +62,10 @@ impl Metrics {
         registry.register(Box::new(received_responses.clone()))?;
 
         Ok(Metrics {
-            registry: registry,
-            send_requests: send_requests,
-            in_flight_requests: in_flight_requests,
-            received_responses: received_responses,
+            registry,
+            send_requests,
+            in_flight_requests,
+            received_responses,
         })
     }
 

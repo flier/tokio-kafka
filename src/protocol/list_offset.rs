@@ -136,8 +136,8 @@ named_args!(parse_list_offset_response(api_version: ApiVersion)<ListOffsetRespon
             header: parse_response_header
          >> topics: length_count!(be_i32, apply!(parse_list_offset_topic_status, api_version))
          >> (ListOffsetResponse {
-                header: header,
-                topics: topics,
+                header,
+                topics,
             })
         )
     )
@@ -149,8 +149,8 @@ named_args!(parse_list_offset_topic_status(api_version: ApiVersion)<ListOffsetTo
             topic_name: parse_string
          >> partitions: length_count!(be_i32, apply!(parse_list_offset_partition_status, api_version))
          >> (ListOffsetTopicStatus {
-                topic_name: topic_name,
-                partitions: partitions,
+                topic_name,
+                partitions,
             })
         )
     )
@@ -165,9 +165,9 @@ named_args!(parse_list_offset_partition_status(api_version: ApiVersion)<ListOffs
          >> timestamp: cond!(api_version > 0, be_i64)
          >> offset: cond!(api_version > 0, be_i64)
          >> (ListOffsetPartitionStatus {
-                partition_id: partition_id,
-                error_code: error_code,
-                timestamp: timestamp,
+                partition_id,
+                error_code,
+                timestamp,
                 offsets: if api_version == 0 { offsets.unwrap_or_default() } else { vec![offset.unwrap_or_default()] },
             })
         )

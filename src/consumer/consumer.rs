@@ -67,10 +67,10 @@ impl<'a, K, V> KafkaConsumer<'a, K, V> {
     pub fn new(client: KafkaClient<'a>, config: ConsumerConfig, key_deserializer: K, value_deserializer: V) -> Self {
         KafkaConsumer {
             inner: Rc::new(Inner {
-                client: client,
-                config: config,
-                key_deserializer: key_deserializer,
-                value_deserializer: value_deserializer,
+                client,
+                config,
+                key_deserializer,
+                value_deserializer,
             }),
         }
     }
@@ -181,7 +181,7 @@ where
                         partition_fetch_bytes,
                     );
 
-                    SubscribedTopics::new(KafkaConsumer { inner: inner }, subscriptions, coordinator, fetcher)
+                    SubscribedTopics::new(KafkaConsumer { inner }, subscriptions, coordinator, fetcher)
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
                 }

@@ -106,9 +106,9 @@ named_args!(parse_produce_response(api_version: ApiVersion)<ProduceResponse>,
          >> topics: length_count!(be_i32, apply!(parse_produce_topic_status, api_version))
          >> throttle_time: cond!(api_version > 0, be_i32)
          >> (ProduceResponse {
-                header: header,
-                topics: topics,
-                throttle_time: throttle_time,
+                header,
+                topics,
+                throttle_time,
             })
         )
     )
@@ -120,8 +120,8 @@ named_args!(parse_produce_topic_status(api_version: ApiVersion)<ProduceTopicStat
             topic_name: parse_string
          >> partitions: length_count!(be_i32, apply!(parse_produce_partition_status, api_version))
          >> (ProduceTopicStatus {
-                topic_name: topic_name,
-                partitions: partitions,
+                topic_name,
+                partitions,
             })
         )
     )
@@ -135,10 +135,10 @@ named_args!(parse_produce_partition_status(api_version: ApiVersion)<ProduceParti
          >> offset: be_i64
          >> timestamp: cond!(api_version > 1, be_i64)
          >> (ProducePartitionStatus {
-                partition_id: partition_id,
-                error_code: error_code,
-                offset: offset,
-                timestamp: timestamp,
+                partition_id,
+                error_code,
+                offset,
+                timestamp,
             })
         )
     )

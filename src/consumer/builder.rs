@@ -58,7 +58,7 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
     /// Construct a `ConsumerBuilder` from ConsumerConfig
     pub fn with_config(config: ConsumerConfig, handle: Handle) -> Self {
         ConsumerBuilder {
-            config: config,
+            config,
             handle: Some(handle),
             ..Default::default()
         }

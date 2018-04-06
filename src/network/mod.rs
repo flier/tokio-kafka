@@ -60,17 +60,11 @@ pub struct OffsetAndMetadata {
 
 impl OffsetAndMetadata {
     pub fn new(offset: Offset) -> Self {
-        OffsetAndMetadata {
-            offset: offset,
-            metadata: None,
-        }
+        OffsetAndMetadata { offset, metadata: None }
     }
 
     pub fn with_metadata(offset: Offset, metadata: Option<String>) -> Self {
-        OffsetAndMetadata {
-            offset: offset,
-            metadata: metadata,
-        }
+        OffsetAndMetadata { offset, metadata }
     }
 }
 
@@ -102,16 +96,13 @@ pub struct OffsetAndTimestamp {
 impl OffsetAndTimestamp {
     pub fn new(offset: Offset) -> Self {
         OffsetAndTimestamp {
-            offset: offset,
+            offset,
             timestamp: None,
         }
     }
 
     pub fn with_timestamp(offset: Offset, timestamp: Option<Timestamp>) -> Self {
-        OffsetAndTimestamp {
-            offset: offset,
-            timestamp: timestamp,
-        }
+        OffsetAndTimestamp { offset, timestamp }
     }
 }
 

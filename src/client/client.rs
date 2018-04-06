@@ -22,9 +22,9 @@ use tokio_core::reactor::{Handle, Timeout};
 use tokio_service::Service;
 use tokio_timer::Timer;
 
-use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware,
-             KafkaService, Metadata, Metrics};
 use client::middleware::Timeout as TimeoutMiddleware;
+use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware, KafkaService, Metadata,
+             Metrics};
 use errors::{Error, ErrorKind, Result};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
@@ -327,26 +327,22 @@ where
             None
         };
         let service = InFlightMiddleware::new(TimeoutMiddleware::new(
-            KafkaService::new(
-                handle.clone(),
-                config.max_connection_idle(),
-                metrics.clone(),
-            ),
+            KafkaService::new(handle.clone(), config.max_connection_idle(), metrics.clone()),
             config.timer(),
             config.request_timeout(),
         ));
 
         let timer = Rc::new(config.timer());
         let inner = Rc::new(Inner {
-            config: config,
-            handle: handle.clone(),
-            service: service,
-            timer: timer,
-            metrics: metrics,
+            config,
+            handle,
+            service,
+            timer,
+            metrics,
             state: Rc::new(RefCell::new(State::default())),
         });
 
-        let mut client = KafkaClient { inner: inner };
+        let mut client = KafkaClient { inner };
 
         client.refresh_metadata();
 
@@ -416,7 +412,7 @@ where
     ) -> ProduceRecords {
         let inner = self.inner.clone();
         self.metadata()
-            .and_then(move |metadata| inner.produce_records(metadata, required_acks, timeout, tp, records))
+            .and_then(move |metadata| inner.produce_records(&metadata, required_acks, timeout, &tp, records))
             .static_boxed()
     }
 
@@ -431,7 +427,7 @@ where
         self.metadata()
             .and_then(move |metadata| {
                 inner
-                    .topics_by_broker(metadata, partitions)
+                    .topics_by_broker(&metadata, partitions)
                     .into_future()
                     .and_then(move |topics| {
                         inner.fetch_records(fetch_max_wait, fetch_min_bytes, fetch_max_bytes, topics)
@@ -445,7 +441,7 @@ where
         self.metadata()
             .and_then(move |metadata| {
                 inner
-                    .topics_by_broker(metadata, partitions)
+                    .topics_by_broker(&metadata, partitions)
                     .into_future()
                     .and_then(move |topics| inner.list_offsets(topics))
             })
@@ -525,7 +521,7 @@ where
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
         let inner = self.inner.clone();
         self.metadata()
-            .and_then(move |metadata| inner.group_coordinator(metadata, group_id))
+            .and_then(move |metadata| inner.group_coordinator(&metadata, group_id))
             .static_boxed()
     }
 
@@ -637,7 +633,7 @@ where
 
     /// Choose the node with the fewest outstanding requests which is at least eligible for
     /// connection.
-    pub fn least_loaded_broker(&self, metadata: Rc<Metadata>) -> Result<(SocketAddr, BrokerRef)> {
+    pub fn least_loaded_broker(&self, metadata: &Metadata) -> Result<(SocketAddr, BrokerRef)> {
         let mut brokers = metadata.brokers().to_vec();
 
         rand::thread_rng().shuffle(&mut brokers);
@@ -752,7 +748,7 @@ where
             .static_boxed()
     }
 
-    fn load_api_versions(&self, metadata: Rc<Metadata>) -> LoadApiVersions {
+    fn load_api_versions(&self, metadata: &Metadata) -> LoadApiVersions {
         trace!("load API versions from brokers, {:?}", metadata.brokers());
 
         let responses = {
@@ -774,13 +770,13 @@ where
 
     fn produce_records(
         &self,
-        metadata: Rc<Metadata>,
+        metadata: &Metadata,
         required_acks: RequiredAcks,
         timeout: Duration,
-        tp: TopicPartition<'a>,
+        tp: &TopicPartition<'a>,
         records: Vec<Cow<'a, MessageSet>>,
     ) -> ProduceRecords {
-        let (api_version, addr) = metadata.leader_for(&tp).map_or_else(
+        let (api_version, addr) = metadata.leader_for(tp).map_or_else(
             || (0, *self.config.hosts.iter().next().unwrap()),
             |broker| {
                 (
@@ -796,7 +792,7 @@ where
             self.client_id(),
             required_acks,
             timeout,
-            &tp,
+            tp,
             records,
         );
 
@@ -833,7 +829,7 @@ where
 
     fn topics_by_broker<T>(
         &self,
-        metadata: Rc<Metadata>,
+        metadata: &Metadata,
         partitions: Vec<(TopicPartition<'a>, T)>,
     ) -> Result<TopicsByBroker<'a, T>> {
         let mut topics = HashMap::new();
@@ -878,7 +874,7 @@ where
                         partitions: partitions
                             .iter()
                             .map(|&(partition_id, ref fetch_data)| FetchPartition {
-                                partition_id: partition_id,
+                                partition_id,
                                 fetch_offset: fetch_data.offset,
                                 max_bytes: fetch_data.max_bytes.unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
                             })
@@ -1145,7 +1141,7 @@ where
             .static_boxed()
     }
 
-    fn group_coordinator(&self, metadata: Rc<Metadata>, group_id: Cow<'a, str>) -> GroupCoordinator {
+    fn group_coordinator(&self, metadata: &Metadata, group_id: Cow<'a, str>) -> GroupCoordinator {
         debug!("disover group coordinator of group `{}`", group_id);
 
         let addr = {
@@ -1388,7 +1384,7 @@ impl State {
         }
     }
 
-    pub fn update_metadata(&mut self, metadata: Rc<Metadata>) {
+    pub fn update_metadata(&mut self, metadata: &Rc<Metadata>) {
         let status = mem::replace(&mut self.metadata_status, MetadataStatus::Loaded(metadata.clone()));
 
         if let MetadataStatus::Loading(senders) = status {
@@ -1422,7 +1418,7 @@ where
 
         LoadMetadata {
             state: Loading::Metadata(fetch_metadata),
-            inner: inner,
+            inner,
         }
     }
 }
@@ -1444,7 +1440,7 @@ where
                         let inner = self.inner.clone();
 
                         if inner.config.api_version_request {
-                            state = Loading::ApiVersions(metadata.clone(), inner.load_api_versions(metadata));
+                            state = Loading::ApiVersions(metadata.clone(), inner.load_api_versions(&metadata));
                         } else {
                             let fallback_api_versions = inner.config.broker_version_fallback.api_versions();
 
@@ -1464,7 +1460,7 @@ where
                 },
                 Loading::ApiVersions(ref metadata, ref mut future) => match future.poll() {
                     Ok(Async::Ready(api_versions)) => {
-                        let metadata = Rc::new(metadata.with_api_versions(api_versions));
+                        let metadata = Rc::new(metadata.with_api_versions(&api_versions));
 
                         state = Loading::Finished(metadata);
                     }
@@ -1472,7 +1468,7 @@ where
                     Err(err) => return Err(err),
                 },
                 Loading::Finished(ref metadata) => {
-                    (*self.inner.state).borrow_mut().update_metadata(metadata.clone());
+                    (*self.inner.state).borrow_mut().update_metadata(metadata);
 
                     return Ok(Async::Ready(metadata.clone()));
                 }

@@ -100,7 +100,7 @@ pub trait PartitionAssignor {
     /// subscription.
     fn subscription<'a>(&self, topics: Vec<Cow<'a, str>>) -> Subscription<'a> {
         Subscription {
-            topics: topics,
+            topics,
             user_data: None,
         }
     }

@@ -65,11 +65,11 @@ impl<'a> KafkaRequest<'a> {
         let topics = records
             .into_iter()
             .map(move |message_set| ProduceTopicData {
-                topic_name: tp.topic_name.to_owned().into(),
+                topic_name: tp.topic_name.to_owned(),
                 partitions: vec![
                     ProducePartitionData {
                         partition_id: tp.partition_id,
-                        message_set: message_set,
+                        message_set,
                     },
                 ],
             })
@@ -78,13 +78,13 @@ impl<'a> KafkaRequest<'a> {
         let request = ProduceRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Produce as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                api_version,
+                correlation_id,
+                client_id,
             },
             required_acks: required_acks as RequiredAck,
             ack_timeout: ack_timeout.as_millis() as i32,
-            topics: topics,
+            topics,
         };
 
         KafkaRequest::Produce(request)
@@ -102,14 +102,14 @@ impl<'a> KafkaRequest<'a> {
         let request = FetchRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Fetch as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                api_version,
+                correlation_id,
+                client_id,
             },
             replica_id: CONSUMER_REPLICA_ID,
             max_wait_time: max_wait_time.as_millis() as i32,
-            min_bytes: min_bytes,
-            max_bytes: max_bytes,
+            min_bytes,
+            max_bytes,
             topics,
         };
 
@@ -140,12 +140,12 @@ impl<'a> KafkaRequest<'a> {
         let request = ListOffsetRequest {
             header: RequestHeader {
                 api_key: ApiKeys::ListOffsets as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                api_version,
+                correlation_id,
+                client_id,
             },
             replica_id: -1,
-            topics: topics,
+            topics,
         };
 
         KafkaRequest::ListOffsets(request)
@@ -160,9 +160,9 @@ impl<'a> KafkaRequest<'a> {
         let request = MetadataRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Metadata as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                api_version,
+                correlation_id,
+                client_id,
             },
             topic_names: topic_names.iter().map(|s| Cow::from(s.as_ref().to_owned())).collect(),
         };
@@ -195,24 +195,21 @@ impl<'a> KafkaRequest<'a> {
                 topics
             })
             .into_iter()
-            .map(|(topic_name, partitions)| OffsetCommitTopic {
-                topic_name: topic_name,
-                partitions: partitions,
-            })
+            .map(|(topic_name, partitions)| OffsetCommitTopic { topic_name, partitions })
             .collect();
 
         let request = OffsetCommitRequest {
             header: RequestHeader {
                 api_key: ApiKeys::OffsetCommit as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                api_version,
+                correlation_id,
+                client_id,
             },
-            group_id: group_id,
-            group_generation_id: group_generation_id,
-            member_id: member_id,
+            group_id,
+            group_generation_id,
+            member_id,
             retention_time: retention_time.map(|t| t.as_millis() as i64),
-            topics: topics,
+            topics,
         };
 
         KafkaRequest::OffsetCommit(request)
@@ -237,20 +234,17 @@ impl<'a> KafkaRequest<'a> {
                 topics
             })
             .into_iter()
-            .map(|(topic_name, partitions)| OffsetFetchTopic {
-                topic_name: topic_name,
-                partitions: partitions,
-            })
+            .map(|(topic_name, partitions)| OffsetFetchTopic { topic_name, partitions })
             .collect();
         let request = OffsetFetchRequest {
             header: RequestHeader {
                 api_key: ApiKeys::OffsetFetch as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                api_version,
+                correlation_id,
+                client_id,
             },
-            group_id: group_id,
-            topics: topics,
+            group_id,
+            topics,
         };
 
         KafkaRequest::OffsetFetch(request)
@@ -265,11 +259,11 @@ impl<'a> KafkaRequest<'a> {
         let request = GroupCoordinatorRequest {
             header: RequestHeader {
                 api_key: ApiKeys::GroupCoordinator as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                api_version,
+                correlation_id,
+                client_id,
             },
-            group_id: group_id,
+            group_id,
         };
 
         KafkaRequest::GroupCoordinator(request)
@@ -286,12 +280,12 @@ impl<'a> KafkaRequest<'a> {
             header: RequestHeader {
                 api_key: ApiKeys::Heartbeat as ApiKey,
                 api_version: 0,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                correlation_id,
+                client_id,
             },
-            group_id: group_id,
-            group_generation_id: group_generation_id,
-            member_id: member_id,
+            group_id,
+            group_generation_id,
+            member_id,
         };
 
         KafkaRequest::Heartbeat(request)
@@ -311,15 +305,15 @@ impl<'a> KafkaRequest<'a> {
         let request = JoinGroupRequest {
             header: RequestHeader {
                 api_key: ApiKeys::JoinGroup as ApiKey,
-                api_version: api_version,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                api_version,
+                correlation_id,
+                client_id,
             },
-            group_id: group_id,
-            session_timeout: session_timeout,
-            rebalance_timeout: rebalance_timeout,
-            member_id: member_id,
-            protocol_type: protocol_type,
+            group_id,
+            session_timeout,
+            rebalance_timeout,
+            member_id,
+            protocol_type,
             protocols: group_protocols,
         };
 
@@ -336,11 +330,11 @@ impl<'a> KafkaRequest<'a> {
             header: RequestHeader {
                 api_key: ApiKeys::LeaveGroup as ApiKey,
                 api_version: 0,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                correlation_id,
+                client_id,
             },
-            group_id: group_id,
-            member_id: member_id,
+            group_id,
+            member_id,
         };
 
         KafkaRequest::LeaveGroup(request)
@@ -358,12 +352,12 @@ impl<'a> KafkaRequest<'a> {
             header: RequestHeader {
                 api_key: ApiKeys::SyncGroup as ApiKey,
                 api_version: 0,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                correlation_id,
+                client_id,
             },
-            group_id: group_id,
-            group_generation_id: group_generation_id,
-            member_id: member_id,
+            group_id,
+            group_generation_id,
+            member_id,
             group_assignment: group_assignment
                 .into_iter()
                 .map(|assignment| SyncGroupAssignment {
@@ -381,8 +375,8 @@ impl<'a> KafkaRequest<'a> {
             header: RequestHeader {
                 api_key: ApiKeys::ApiVersions as ApiKey,
                 api_version: 0,
-                correlation_id: correlation_id,
-                client_id: client_id,
+                correlation_id,
+                client_id,
             },
         };
 

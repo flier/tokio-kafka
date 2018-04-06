@@ -128,10 +128,7 @@ named!(
         ParseTag::OffsetCommitResponse,
         do_parse!(
             header: parse_response_header >> topics: length_count!(be_i32, parse_offset_commit_topic_status)
-                >> (OffsetCommitResponse {
-                    header: header,
-                    topics: topics,
-                })
+                >> (OffsetCommitResponse { header, topics })
         )
     )
 );
@@ -142,10 +139,7 @@ named!(
         ParseTag::OffsetCommitTopicStatus,
         do_parse!(
             topic_name: parse_string >> partitions: length_count!(be_i32, parse_offset_commit_partition_status)
-                >> (OffsetCommitTopicStatus {
-                    topic_name: topic_name,
-                    partitions: partitions,
-                })
+                >> (OffsetCommitTopicStatus { topic_name, partitions })
         )
     )
 );
@@ -156,8 +150,8 @@ named!(
         ParseTag::OffsetCommitPartitionStatus,
         do_parse!(
             partition_id: be_i32 >> error_code: be_i16 >> (OffsetCommitPartitionStatus {
-                partition_id: partition_id,
-                error_code: error_code,
+                partition_id,
+                error_code,
             })
         )
     )

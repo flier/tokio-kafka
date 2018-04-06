@@ -173,13 +173,13 @@ impl<'de> Visitor<'de> for VarIntVisitor {
 
         while let Ok(Some(b)) = seq.next_element::<u8>() {
             if (b & 0x80) != 0 {
-                value |= ((b & 0x7f) as u32) << i;
+                value |= u32::from(b & 0x7f) << i;
                 i += 7;
                 if i > 28 {
-                    return Err(de::Error::invalid_value(de::Unexpected::Unsigned(b as u64), &self));
+                    return Err(de::Error::invalid_value(de::Unexpected::Unsigned(u64::from(b)), &self));
                 }
             } else {
-                value |= (b as u32) << i;
+                value |= u32::from(b) << i;
                 break;
             }
         }
@@ -235,13 +235,13 @@ impl<'de> Visitor<'de> for VarLongVisitor {
 
         while let Ok(Some(b)) = seq.next_element::<u8>() {
             if (b & 0x80) != 0 {
-                value |= ((b & 0x7f) as u64) << i;
+                value |= u64::from(b & 0x7f) << i;
                 i += 7;
                 if i > 63 {
-                    return Err(de::Error::invalid_value(de::Unexpected::Unsigned(b as u64), &self));
+                    return Err(de::Error::invalid_value(de::Unexpected::Unsigned(u64::from(b)), &self));
                 }
             } else {
-                value |= (b as u64) << i;
+                value |= u64::from(b) << i;
                 break;
             }
         }
@@ -653,7 +653,7 @@ pub struct SchemaDeserializer<O, R> {
 impl<O, R> SchemaDeserializer<O, R> {
     pub fn new(input: R) -> Self {
         SchemaDeserializer {
-            input: input,
+            input,
             phantom: PhantomData,
         }
     }
@@ -970,8 +970,8 @@ struct SeqVisitor<'a, O: 'a, R: 'a> {
 impl<'a, O: 'a, R: 'a> SeqVisitor<'a, O, R> {
     pub fn new(deserializer: &'a mut SchemaDeserializer<O, R>, len: isize) -> Self {
         SeqVisitor {
-            deserializer: deserializer,
-            len: len,
+            deserializer,
+            len,
             pos: 0,
         }
     }
@@ -1022,9 +1022,9 @@ impl<'a, O: 'a, R: 'a> StructVisitor<'a, O, R> {
         fields: &'static [&'static str],
     ) -> Self {
         StructVisitor {
-            deserializer: deserializer,
-            name: name,
-            fields: fields,
+            deserializer,
+            name,
+            fields,
             pos: 0,
         }
     }

@@ -43,7 +43,7 @@ named!(pub parse_response_header<ResponseHeader>,
     parse_tag!(ParseTag::ResponseHeader, do_parse!(
         correlation_id: be_i32
      >> (ResponseHeader {
-            correlation_id: correlation_id,
+            correlation_id,
         })
     ))
 );

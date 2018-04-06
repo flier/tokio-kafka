@@ -136,10 +136,10 @@ impl Config {
         });
 
         Ok(Config {
-            brokers: brokers,
+            brokers,
             client_id: m.opt_str("client-id").unwrap_or(DEFAULT_CLIENT_ID.to_owned()),
-            api_version_request: api_version_request,
-            broker_version: broker_version,
+            api_version_request,
+            broker_version,
             topic_name: m.opt_str("topic").unwrap_or_else(|| DEFAULT_TOPIC.to_owned()),
             input_file: m.opt_str("input"),
             batch_size: m.opt_str("batch-size")

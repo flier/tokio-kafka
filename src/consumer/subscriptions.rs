@@ -27,7 +27,7 @@ pub struct Subscriptions<'a> {
 impl<'a> Subscriptions<'a> {
     pub fn new(default_reset_strategy: OffsetResetStrategy) -> Self {
         Subscriptions {
-            default_reset_strategy: default_reset_strategy,
+            default_reset_strategy,
             subscription: HashSet::new(),
             group_subscription: HashSet::new(),
             assignment: HashMap::new(),
@@ -42,7 +42,7 @@ impl<'a> Subscriptions<'a> {
         let topic_names: Vec<String> = topic_names.into_iter().map(|s| s.as_ref().to_owned()).collect();
 
         Subscriptions {
-            default_reset_strategy: default_reset_strategy,
+            default_reset_strategy,
             subscription: HashSet::from_iter(topic_names.iter().cloned()),
             group_subscription: HashSet::from_iter(topic_names.iter().cloned()),
             assignment: HashMap::new(),

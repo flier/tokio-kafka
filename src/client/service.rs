@@ -48,7 +48,7 @@ impl<'a> KafkaService<'a> {
             handle: handle.clone(),
             pool: Pool::new(max_connection_idle),
             connector: KafkaConnector::new(handle),
-            metrics: metrics,
+            metrics,
             state: Rc::new(RefCell::new(State::default())),
         }
     }
@@ -79,7 +79,7 @@ where
             self.connector.tcp(addr).map(move |io| {
                 let (tx, rx) = oneshot::channel();
                 let client = RemoteClient {
-                    connection_id: connection_id,
+                    connection_id,
                     client_rx: RefCell::new(Some(rx)),
                 }.bind_client(&handle, io);
                 let pooled = pool.pooled(addr, client);
@@ -98,7 +98,7 @@ where
                 // XXX: should wait on the Checkout? Problem is
                 // that if the connector is failing, it may be that we
                 // never had a pooled stream at all
-                err.into()
+                err
             });
 
         let metrics = self.metrics.clone();

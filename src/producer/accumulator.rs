@@ -52,9 +52,9 @@ pub struct RecordAccumulator<'a> {
 impl<'a> RecordAccumulator<'a> {
     pub fn new(batch_size: usize, compression: Compression, linger: Duration) -> Self {
         RecordAccumulator {
-            batch_size: batch_size,
-            compression: compression,
-            linger: linger,
+            batch_size,
+            compression,
+            linger,
             batches: Rc::new(RefCell::new(HashMap::new())),
         }
     }
@@ -63,7 +63,7 @@ impl<'a> RecordAccumulator<'a> {
         Batches {
             batches: self.batches.clone(),
             linger: self.linger,
-            force: force,
+            force,
         }
     }
 }
@@ -139,8 +139,8 @@ impl PushRecord {
     {
         PushRecord {
             future: future.static_boxed(),
-            is_full: is_full,
-            new_batch: new_batch,
+            is_full,
+            new_batch,
         }
     }
 

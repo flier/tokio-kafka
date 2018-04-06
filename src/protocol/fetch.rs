@@ -21,7 +21,8 @@ const FETCH_OFFSET_SIZE: usize = OFFSET_SIZE;
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchRequest<'a> {
     pub header: RequestHeader<'a>,
-    /// The replica id indicates the node id of the replica initiating this request.
+    /// The replica id indicates the node id of the replica initiating this
+    /// request.
     pub replica_id: ReplicaId,
     /// The maximum amount of time in milliseconds to block waiting if insufficient data is
     /// available at the time the request is issued.
@@ -98,7 +99,8 @@ impl<'a> Encodable for FetchRequest<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchResponse {
     pub header: ResponseHeader,
-    /// Duration in milliseconds for which the request was throttled due to quota violation.
+    /// Duration in milliseconds for which the request was throttled due to
+    /// quota violation.
     pub throttle_time: Option<i32>,
     pub topics: Vec<FetchTopicData>,
 }
@@ -133,9 +135,9 @@ named_args!(parse_fetch_response(api_version: ApiVersion)<FetchResponse>,
          >> throttle_time: cond!(api_version > 0, be_i32)
          >> topics: length_count!(be_i32, apply!(parse_fetch_topic_data, api_version))
          >> (FetchResponse {
-                header: header,
-                throttle_time: throttle_time,
-                topics: topics,
+                header,
+                throttle_time,
+                topics,
             })
         )
     )
@@ -147,8 +149,8 @@ named_args!(parse_fetch_topic_data(api_version: ApiVersion)<FetchTopicData>,
             topic_name: parse_string
          >> partitions: length_count!(be_i32, apply!(parse_fetch_partition_data, api_version))
          >> (FetchTopicData {
-                topic_name: topic_name,
-                partitions: partitions,
+                topic_name,
+                partitions,
             })
         )
     )
@@ -162,10 +164,10 @@ named_args!(parse_fetch_partition_data(api_version: ApiVersion)<FetchPartitionDa
          >> high_watermark: be_i64
          >> message_set: length_value!(be_i32, apply!(parse_message_set, api_version))
          >> (FetchPartitionData {
-                partition_id: partition_id,
-                error_code: error_code,
-                high_watermark: high_watermark,
-                message_set: message_set,
+                partition_id,
+                error_code,
+                high_watermark,
+                message_set,
             })
         )
     )

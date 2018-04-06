@@ -75,7 +75,7 @@ where
     ) -> Self {
         ProducerRecord {
             topic_name: topic_name.as_ref().to_owned(),
-            partition_id: partition_id,
+            partition_id,
             key: record.key,
             value: record.value,
             timestamp: record.timestamp,

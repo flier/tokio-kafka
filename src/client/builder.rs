@@ -35,7 +35,7 @@ impl<'a> ClientBuilder<'a> {
     /// Construct a `ClientBuilder` from ClientConfig
     pub fn with_config(config: ClientConfig, handle: Handle) -> Self {
         ClientBuilder {
-            config: config,
+            config,
             handle: Some(handle),
             phantom: PhantomData,
         }

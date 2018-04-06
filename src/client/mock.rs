@@ -74,7 +74,7 @@ impl<'a> MockClient<'a> {
             member_id,
             Assignment {
                 partitions: partitions.to_vec(),
-                user_data: user_data,
+                user_data,
             },
         );
         self

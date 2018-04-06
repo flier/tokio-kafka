@@ -68,7 +68,7 @@ where
 
     pub fn checkout(&self, key: K) -> Checkout<K, T> {
         Checkout {
-            key: key,
+            key,
             pool: self.clone(),
             parked: None,
         }
@@ -111,11 +111,11 @@ where
 
         Pooled {
             entry: Entry {
-                value: value,
+                value,
                 reused: false,
                 status: Rc::new(Cell::new(Status::Busy)),
             },
-            key: key,
+            key,
             pool: self.clone(),
         }
     }
@@ -126,8 +126,8 @@ where
         entry.reused = true;
         entry.status.set(Status::Busy);
         Pooled {
-            entry: entry,
-            key: key,
+            entry,
+            key,
             pool: self.clone(),
         }
     }

@@ -28,7 +28,7 @@ impl Metadata {
     /// Create a new Metadata with the given brokers
     pub fn with_brokers(brokers: Vec<Broker>) -> Self {
         Metadata {
-            brokers: brokers,
+            brokers,
             topic_partitions: HashMap::new(),
             group_coordinators: HashMap::new(),
         }
@@ -41,14 +41,14 @@ impl Metadata {
             topic_partitions: HashMap::from_iter(
                 topics
                     .into_iter()
-                    .map(|(topic_name, partitions)| (topic_name, TopicPartitions { partitions: partitions })),
+                    .map(|(topic_name, partitions)| (topic_name, TopicPartitions { partitions })),
             ),
             group_coordinators: HashMap::new(),
         }
     }
 
     /// Create a new Metadata with the given brokers API versions
-    pub fn with_api_versions(&self, api_versions: HashMap<BrokerRef, UsableApiVersions>) -> Self {
+    pub fn with_api_versions(&self, api_versions: &HashMap<BrokerRef, UsableApiVersions>) -> Self {
         Metadata {
             brokers: self.brokers
                 .iter()

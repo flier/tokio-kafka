@@ -98,10 +98,7 @@ named!(
         ParseTag::OffsetFetchResponse,
         do_parse!(
             header: parse_response_header >> topics: length_count!(be_i32, parse_offset_fetch_topic_status)
-                >> (OffsetFetchResponse {
-                    header: header,
-                    topics: topics,
-                })
+                >> (OffsetFetchResponse { header, topics })
         )
     )
 );
@@ -112,10 +109,7 @@ named!(
         ParseTag::OffsetFetchTopicStatus,
         do_parse!(
             topic_name: parse_string >> partitions: length_count!(be_i32, parse_offset_fetch_partition_status)
-                >> (OffsetFetchTopicStatus {
-                    topic_name: topic_name,
-                    partitions: partitions,
-                })
+                >> (OffsetFetchTopicStatus { topic_name, partitions })
         )
     )
 );
@@ -127,10 +121,10 @@ named!(
         do_parse!(
             partition_id: be_i32 >> offset: be_i64 >> metadata: parse_opt_string >> error_code: be_i16
                 >> (OffsetFetchPartitionStatus {
-                    partition_id: partition_id,
-                    offset: offset,
-                    metadata: metadata,
-                    error_code: error_code,
+                    partition_id,
+                    offset,
+                    metadata,
+                    error_code,
                 })
         )
     )

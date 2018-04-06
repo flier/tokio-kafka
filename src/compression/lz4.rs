@@ -28,8 +28,8 @@ fn xxhash32(src: &[u8], seed: u32) -> u32 {
     hasher.finish() as u32
 }
 
-pub const LZ4_MAGIC: u32 = 0x184D2204;
-pub const LZ4_FRAME_INCOMPRESSIBLE_MASK: u32 = 0x80000000;
+pub const LZ4_MAGIC: u32 = 0x184D_2204;
+pub const LZ4_FRAME_INCOMPRESSIBLE_MASK: u32 = 0x8000_0000;
 pub const FLAG_VERSION_SHIFT: u8 = 6;
 pub const FLAG_INDEPENDENT_SHIFT: u8 = 5;
 pub const FLAG_BLOCK_CHECKSUM_SHIFT: u8 = 4;
@@ -116,9 +116,9 @@ impl Lz4Frame {
         let checksum = reader.read_u8()?;
 
         let frame = Lz4Frame {
-            flag: flag,
-            bd: bd,
-            size: size,
+            flag,
+            bd,
+            size,
             content_hash: if (flag >> FLAG_CONTENT_CHECKSUM_SHIFT) == 0 {
                 None
             } else {
@@ -246,9 +246,9 @@ impl<R: Read> Lz4Reader<R> {
         let frame = Lz4Frame::read_header(&mut reader, verify_header_checksum, header_checksum_include_magic)?;
         let block = Vec::with_capacity(frame.block_max_size().unwrap_or(4096));
         Ok(Lz4Reader {
-            reader: reader,
-            frame: frame,
-            block: block,
+            reader,
+            frame,
+            block,
             finished: false,
         })
     }
@@ -310,7 +310,7 @@ impl<'a, W: Write> Lz4Writer<'a, W> {
         };
 
         let frame = Lz4Frame {
-            flag: flag,
+            flag,
             bd: (block_max_size & BLOCKSIZE_MASK) << BLOCKSIZE_SHIFT,
             size: None,
             content_hash: if content_checksum {
@@ -324,11 +324,7 @@ impl<'a, W: Write> Lz4Writer<'a, W> {
 
         let buf = frame.block_max_size().map_or_else(Vec::new, Vec::with_capacity);
 
-        Ok(Lz4Writer {
-            writer: writer,
-            frame: frame,
-            buf: buf,
-        })
+        Ok(Lz4Writer { writer, frame, buf })
     }
 
     fn write_block(&mut self) -> io::Result<()> {

@@ -109,11 +109,11 @@ where
         let state = State::Joining(coordinator.join_group());
 
         Ok(SubscribedTopics {
-            consumer: consumer,
-            subscriptions: subscriptions,
-            coordinator: coordinator,
-            fetcher: fetcher,
-            state: state,
+            consumer,
+            subscriptions,
+            coordinator,
+            fetcher,
+            state,
         })
     }
 }
@@ -193,8 +193,8 @@ where
 
                                     record.messages.into_iter().map(move |message| ConsumerRecord {
                                         topic_name: Cow::from(topic_name.clone()),
-                                        partition_id: partition_id,
-                                        offset: offset,
+                                        partition_id,
+                                        offset,
                                         key: message.key.as_ref().and_then(|buf| {
                                             key_deserializer
                                                 .clone()

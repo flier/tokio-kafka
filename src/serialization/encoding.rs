@@ -34,7 +34,7 @@ pub struct StrEncodingSerializer<E, T> {
 impl<E, T> StrEncodingSerializer<E, T> {
     pub fn new(encoding: E) -> Self {
         StrEncodingSerializer {
-            encoding: encoding,
+            encoding,
             phantom: PhantomData,
         }
     }
@@ -67,7 +67,7 @@ pub struct StrEncodingDeserializer<E, T> {
 impl<E, T> StrEncodingDeserializer<E, T> {
     pub fn new(encoding: E) -> Self {
         StrEncodingDeserializer {
-            encoding: encoding,
+            encoding,
             phantom: PhantomData,
         }
     }

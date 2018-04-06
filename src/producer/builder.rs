@@ -99,7 +99,7 @@ where
         ProducerBuilder {
             client: None,
             handle: Some(handle),
-            config: config,
+            config,
             key_serializer: None,
             value_serializer: None,
             partitioner: None,

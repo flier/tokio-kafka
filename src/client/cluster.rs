@@ -55,7 +55,7 @@ impl Broker {
         Broker {
             node_id: id,
             host: host.to_owned(),
-            port: port,
+            port,
             api_versions: None,
         }
     }
@@ -98,7 +98,7 @@ impl Broker {
             node_id: self.node_id,
             host: self.host.clone(),
             port: self.port,
-            api_versions: api_versions,
+            api_versions,
         }
     }
 }

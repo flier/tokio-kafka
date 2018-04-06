@@ -82,9 +82,9 @@ named!(
         do_parse!(
             header: parse_response_header >> error_code: be_i16
                 >> api_versions: length_count!(be_i32, parse_api_version) >> (ApiVersionsResponse {
-                header: header,
-                error_code: error_code,
-                api_versions: api_versions,
+                header,
+                error_code,
+                api_versions,
             })
         )
     )
@@ -97,8 +97,8 @@ named!(
         do_parse!(
             api_key: be_i16 >> min_version: be_i16 >> max_version: be_i16 >> (UsableApiVersion {
                 api_key: ApiKeys::from(api_key),
-                min_version: min_version,
-                max_version: max_version,
+                min_version,
+                max_version,
             })
         )
     )

@@ -149,12 +149,12 @@ pub trait ToMilliseconds {
 
 impl ToMilliseconds for Duration {
     fn as_millis(&self) -> u64 {
-        self.as_secs() * 1000 + self.subsec_nanos() as u64 / 1000_000
+        self.as_secs() * 1000 + u64::from(self.subsec_nanos()) / 1_000_000
     }
 }
 
 impl ToMilliseconds for Timespec {
     fn as_millis(&self) -> u64 {
-        self.sec as u64 * 1000 + self.nsec as u64 / 1000_000
+        self.sec as u64 * 1000 + self.nsec as u64 / 1_000_000
     }
 }

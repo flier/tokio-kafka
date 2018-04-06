@@ -98,9 +98,9 @@ impl Config {
 
         Ok(Config {
             brokers: brokers.iter().flat_map(|s| s.to_socket_addrs().unwrap()).collect(),
-            api_version_request: api_version_request,
-            broker_version: broker_version,
-            topic_names: topic_names,
+            api_version_request,
+            broker_version,
+            topic_names,
             show_header: !matches.opt_present("no-header"),
             show_host: !matches.opt_present("no-host"),
             show_size: !matches.opt_present("no-size"),

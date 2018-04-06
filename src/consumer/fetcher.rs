@@ -35,12 +35,12 @@ where
         partition_fetch_bytes: usize,
     ) -> Self {
         Fetcher {
-            client: client,
-            subscriptions: subscriptions,
-            fetch_min_bytes: fetch_min_bytes,
-            fetch_max_bytes: fetch_max_bytes,
-            fetch_max_wait: fetch_max_wait,
-            partition_fetch_bytes: partition_fetch_bytes,
+            client,
+            subscriptions,
+            fetch_min_bytes,
+            fetch_max_bytes,
+            fetch_max_wait,
+            partition_fetch_bytes,
         }
     }
 
@@ -212,7 +212,7 @@ pub struct RetrieveOffsets<'a, T: 'a> {
 impl<'a, T> RetrieveOffsets<'a, T> {
     pub fn new(offsets: ListOffsets) -> RetrieveOffsets<'a, T> {
         RetrieveOffsets {
-            offsets: offsets,
+            offsets,
             phantom: PhantomData,
         }
     }

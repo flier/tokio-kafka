@@ -35,7 +35,7 @@ impl Thunk {
         let result = if error_code == KafkaCode::None {
             Ok(RecordMetadata {
                 topic_name: topic_name.to_owned(),
-                partition_id: partition_id,
+                partition_id,
                 offset: base_offset + self.relative_offset,
                 timestamp: self.timestamp,
                 serialized_key_size: self.key_size,
@@ -103,15 +103,15 @@ impl ProducerBatch {
         let (sender, receiver) = channel();
 
         self.thunks.push(Thunk {
-            sender: sender,
-            relative_offset: relative_offset,
-            timestamp: timestamp,
-            key_size: key_size,
-            value_size: value_size,
+            sender,
+            relative_offset,
+            timestamp,
+            key_size,
+            value_size,
         });
         self.last_push_time = Instant::now();
 
-        Ok(FutureRecordMetadata { receiver: receiver })
+        Ok(FutureRecordMetadata { receiver })
     }
 
     pub fn build(self) -> Result<(Vec<Thunk>, MessageSet)> {

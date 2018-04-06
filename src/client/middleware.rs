@@ -2,9 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::net::SocketAddr;
-use tokio_timer::{self as timer, Timer};
-use std::time::Duration;
 use std::rc::Rc;
+use std::time::Duration;
+use tokio_timer::{self as timer, Timer};
 
 use futures::Future;
 use tokio_service::Service;
@@ -42,7 +42,7 @@ impl State {
 impl<S> InFlightMiddleware<S> {
     pub fn new(upstream: S) -> InFlightMiddleware<S> {
         InFlightMiddleware {
-            upstream: upstream,
+            upstream,
             state: Rc::new(RefCell::new(State {
                 requests: HashMap::new(),
             })),
@@ -109,16 +109,17 @@ impl<S> Timeout<S> {
     /// been reached.
     pub fn new(upstream: S, timer: Timer, duration: Duration) -> Timeout<S> {
         Timeout {
-            upstream: upstream,
-            duration: duration,
-            timer: timer,
+            upstream,
+            duration,
+            timer,
         }
     }
 }
 
 impl<S, E> Service for Timeout<S>
-    where S: Service<Error = E>,
-          E: From<timer::TimeoutError<S::Future>>,
+where
+    S: Service<Error = E>,
+    E: From<timer::TimeoutError<S::Future>>,
 {
     type Request = S::Request;
     type Response = S::Response;

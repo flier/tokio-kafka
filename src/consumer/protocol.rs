@@ -106,7 +106,7 @@ impl<'a> ser::Serialize for Assignment<'a> {
                 .into_iter()
                 .map(|(topic_name, partitions)| TopicAssignment {
                     topics: String::from(topic_name.to_owned()),
-                    partitions: partitions,
+                    partitions,
                 })
                 .collect(),
             user_data: self.user_data.as_ref().map(|user_data| user_data.to_vec()).into(),
@@ -138,7 +138,7 @@ impl<'a, 'de> de::Deserialize<'de> for Assignment<'a> {
             let partitions = topic_partitions
                 .iter()
                 .flat_map(|assignment| {
-                    let topic_name = String::from(assignment.topics.to_owned());
+                    let topic_name = assignment.topics.to_owned();
 
                     assignment
                         .partitions
@@ -148,7 +148,7 @@ impl<'a, 'de> de::Deserialize<'de> for Assignment<'a> {
                 .collect();
 
             Ok(Assignment {
-                partitions: partitions,
+                partitions,
                 user_data: user_data.into_raw().map(Cow::Owned),
             })
         }

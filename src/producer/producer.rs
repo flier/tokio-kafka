@@ -94,12 +94,12 @@ where
         KafkaProducer {
             inner: Rc::new(Inner {
                 client: Rc::new(client),
-                config: config,
-                accumulator: accumulator,
-                key_serializer: key_serializer,
-                value_serializer: value_serializer,
-                partitioner: partitioner,
-                interceptors: interceptors,
+                config,
+                accumulator,
+                key_serializer,
+                value_serializer,
+                partitioner,
+                interceptors,
             }),
         }
     }
@@ -138,7 +138,7 @@ where
             .client
             .metadata()
             .and_then(move |metadata| {
-                let push_record = inner.push_record(metadata, record);
+                let push_record = inner.push_record(&metadata, record);
 
                 if push_record.is_full() {
                     let flush = inner.flush_batches(false).map_err(|err| {
@@ -211,7 +211,7 @@ where
     P: Partitioner,
     Self: 'static,
 {
-    fn push_record(&self, metadata: Rc<Metadata>, mut record: ProducerRecord<K::Item, V::Item>) -> PushRecord {
+    fn push_record(&self, metadata: &Metadata, mut record: ProducerRecord<K::Item, V::Item>) -> PushRecord {
         trace!("sending record {:?}", record);
 
         if let Some(ref interceptors) = self.interceptors {
@@ -232,7 +232,7 @@ where
         } = record;
 
         let partition = self.partitioner
-            .partition(&topic_name, partition_id, key.as_ref(), value.as_ref(), &metadata)
+            .partition(&topic_name, partition_id, key.as_ref(), value.as_ref(), metadata)
             .unwrap_or_default();
 
         let key = key.and_then(|key| self.key_serializer.serialize(&topic_name, key).ok());
@@ -397,7 +397,7 @@ where
                     inner: self.producer.inner.clone(),
                 },
                 topic_name: self.topic_name.clone(),
-                partition_id: partition_id,
+                partition_id,
                 pending: Pending::new(),
             })
         } else {

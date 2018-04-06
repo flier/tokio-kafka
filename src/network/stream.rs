@@ -21,7 +21,7 @@ pub struct KafkaConnector {
 impl KafkaConnector {
     pub fn new(handle: Handle) -> Self {
         KafkaConnector {
-            handle: handle,
+            handle,
             resolver: DnsResolver::default(),
         }
     }

@@ -109,7 +109,7 @@ impl State {
     pub fn member_id(&self) -> Option<String> {
         match *self {
             State::Stable { ref generation, .. } | State::Rebalancing { ref generation, .. } => {
-                Some(String::from(generation.member_id.clone()))
+                Some(generation.member_id.clone())
             }
             State::Unjoined => None,
         }
@@ -119,8 +119,8 @@ impl State {
         mem::replace(
             self,
             State::Rebalancing {
-                coordinator: coordinator,
-                generation: generation,
+                coordinator,
+                generation,
             },
         )
     }
@@ -129,8 +129,8 @@ impl State {
         mem::replace(
             self,
             State::Stable {
-                coordinator: coordinator,
-                generation: generation,
+                coordinator,
+                generation,
             },
         )
     }
@@ -155,16 +155,16 @@ impl<'a, C> ConsumerCoordinator<'a, C> {
     ) -> Self {
         ConsumerCoordinator {
             inner: Rc::new(Inner {
-                client: client,
-                group_id: group_id,
-                subscriptions: subscriptions,
-                session_timeout: session_timeout,
-                rebalance_timeout: rebalance_timeout,
-                heartbeat_interval: heartbeat_interval,
-                retention_time: retention_time,
-                auto_commit_interval: auto_commit_interval,
-                assignors: assignors,
-                timer: timer,
+                client,
+                group_id,
+                subscriptions,
+                session_timeout,
+                rebalance_timeout,
+                heartbeat_interval,
+                retention_time,
+                auto_commit_interval,
+                assignors,
+                timer,
                 state: Rc::new(RefCell::new(State::Unjoined)),
             }),
         }
@@ -321,7 +321,7 @@ where
                 let state = state.clone();
 
                 let matched = *state.borrow() == (State::Stable {
-                    coordinator: coordinator,
+                    coordinator,
                     generation: generation.clone(),
                 });
 

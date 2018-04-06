@@ -113,7 +113,7 @@ impl Default for MessageTimestamp {
     fn default() -> Self {
         let ts = time::now_utc().to_timespec();
 
-        MessageTimestamp::CreateTime(ts.sec * 1000_000 + ts.nsec as Timestamp / 1000)
+        MessageTimestamp::CreateTime(ts.sec * 1_000_000 + Timestamp::from(ts.nsec) / 1000)
     }
 }
 
@@ -134,8 +134,8 @@ pub struct MessageSetEncoder {
 impl MessageSetEncoder {
     pub fn new(api_version: ApiVersion, compression: Option<Compression>) -> Self {
         MessageSetEncoder {
-            api_version: api_version,
-            compression: compression,
+            api_version,
+            compression,
         }
     }
 
@@ -203,7 +203,7 @@ named_args!(pub parse_message_set(api_version: ApiVersion)<MessageSet>,
         do_parse!(
             messages: many0!(apply!(parse_message, api_version))
          >> (MessageSet {
-                messages: messages,
+                messages,
             })
         )
     )
@@ -225,21 +225,21 @@ named_args!(parse_message(api_version: ApiVersion)<Message>,
 
                 crc == checksum as u32
             }))
-         >> _magic: verify!(be_i8, |v: i8| v as ApiVersion == api_version)
+         >> _magic: verify!(be_i8, |v: i8| ApiVersion::from(v) == api_version)
          >> attrs: be_i8
          >> timestamp: cond!(api_version > 0, be_i64)
          >> key: parse_opt_bytes
          >> value: parse_opt_bytes
          >> (Message {
-                offset: offset,
+                offset,
                 timestamp: timestamp.map(|ts| if (attrs & TIMESTAMP_TYPE_MASK) == 0 {
                     MessageTimestamp::CreateTime(ts)
                 }else {
                     MessageTimestamp::LogAppendTime(ts)
                 }),
                 compression: Compression::from(attrs & COMPRESSION_CODEC_MASK),
-                key: key,
-                value: value,
+                key,
+                value,
             })
         )
     )
@@ -261,11 +261,11 @@ pub struct MessageSetBuilder {
 impl MessageSetBuilder {
     pub fn new(api_version: ApiVersion, compression: Compression, write_limit: usize, base_offset: Offset) -> Self {
         MessageSetBuilder {
-            api_version: api_version,
-            compression: compression,
-            write_limit: write_limit,
+            api_version,
+            compression,
+            write_limit,
             written_uncompressed: 0,
-            base_offset: base_offset,
+            base_offset,
             last_offset: None,
             base_timestamp: None,
             message_set: MessageSet { messages: vec![] },
@@ -313,7 +313,7 @@ impl MessageSetBuilder {
                 Message {
                     offset: 0,
                     timestamp: Some(MessageTimestamp::default()),
-                    compression: compression,
+                    compression,
                     key: None,
                     value: Some(Bytes::from(compressed)),
                 },
@@ -374,8 +374,8 @@ impl MessageSetBuilder {
             offset: relative_offset,
             timestamp: Some(MessageTimestamp::CreateTime(timestamp)),
             compression: self.compression,
-            key: key,
-            value: value,
+            key,
+            value,
         });
 
         self.last_offset = Some(offset);

@@ -42,7 +42,7 @@ impl DefaultPartitioner {
     /// Create a `DefaultPartitioner` with the special hasher.
     pub fn with_hasher<B: BuildHasher>(hash_builder: B) -> DefaultPartitioner<B> {
         DefaultPartitioner {
-            hash_builder: hash_builder.into(),
+            hash_builder,
             records: AtomicUsize::new(0),
         }
     }
