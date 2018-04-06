@@ -96,7 +96,8 @@ pub trait PartitionAssignor {
     /// strategy for this assignor
     fn strategy(&self) -> AssignmentStrategy;
 
-    /// Return a serializable object representing the local member's subscription.
+    /// Return a serializable object representing the local member's
+    /// subscription.
     fn subscription<'a>(&self, topics: Vec<Cow<'a, str>>) -> Subscription<'a> {
         Subscription {
             topics: topics,
@@ -255,7 +256,7 @@ impl PartitionAssignor for RoundRobinAssignor {
 
         let mut consumers = consumers.iter().cycle();
 
-        /// get sorted topic names
+        // get sorted topic names
         let mut topic_names = HashSet::new();
 
         topic_names.extend(

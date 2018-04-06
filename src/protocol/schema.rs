@@ -398,63 +398,63 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
     type SerializeStruct = Self;
     type SerializeStructVariant = ser::Impossible<Self::Ok, Self::Error>;
 
-    fn serialize_bool(mut self, v: bool) -> Result<()> {
+    fn serialize_bool(self, v: bool) -> Result<()> {
         trace!("serialize bool: {}", v);
 
         self.buf.write_u8(if v { 1 } else { 0 })?;
 
         Ok(())
     }
-    fn serialize_i8(mut self, v: i8) -> Result<()> {
+    fn serialize_i8(self, v: i8) -> Result<()> {
         trace!("serialize i8: {}", v);
 
         self.buf.write_i8(v)?;
 
         Ok(())
     }
-    fn serialize_i16(mut self, v: i16) -> Result<()> {
+    fn serialize_i16(self, v: i16) -> Result<()> {
         trace!("serialize i16: {}", v);
 
         self.buf.write_i16::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_i32(mut self, v: i32) -> Result<()> {
+    fn serialize_i32(self, v: i32) -> Result<()> {
         trace!("serialize i32: {}", v);
 
         self.buf.write_i32::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_i64(mut self, v: i64) -> Result<()> {
+    fn serialize_i64(self, v: i64) -> Result<()> {
         trace!("serialize i64: {}", v);
 
         self.buf.write_i64::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_u8(mut self, v: u8) -> Result<()> {
+    fn serialize_u8(self, v: u8) -> Result<()> {
         trace!("serialize u8: {}", v);
 
         self.buf.write_u8(v)?;
 
         Ok(())
     }
-    fn serialize_u16(mut self, v: u16) -> Result<()> {
+    fn serialize_u16(self, v: u16) -> Result<()> {
         trace!("serialize u16: {}", v);
 
         self.buf.write_u16::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_u32(mut self, v: u32) -> Result<()> {
+    fn serialize_u32(self, v: u32) -> Result<()> {
         trace!("serialize u32: {}", v);
 
         self.buf.write_u32::<O>(v)?;
 
         Ok(())
     }
-    fn serialize_u64(mut self, v: u64) -> Result<()> {
+    fn serialize_u64(self, v: u64) -> Result<()> {
         trace!("serialize u64: {}", v);
 
         self.buf.write_u64::<O>(v)?;
@@ -480,7 +480,7 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
 
         bail!(ErrorKind::SchemaError("unsupported type: char".to_owned()))
     }
-    fn serialize_str(mut self, v: &str) -> Result<()> {
+    fn serialize_str(self, v: &str) -> Result<()> {
         trace!("serialize str, len={}: {}", v.len(), v);
 
         if v.len() > i16::MAX as usize {
@@ -495,7 +495,7 @@ impl<'a, O: ByteOrder> ser::Serializer for &'a mut SchemaSerializer<O> {
 
         Ok(())
     }
-    fn serialize_bytes(mut self, v: &[u8]) -> Result<()> {
+    fn serialize_bytes(self, v: &[u8]) -> Result<()> {
         trace!("serialize bytes, len={}\n{}", v.len(), hexdump!(v));
 
         self.buf.write_all(v)?;

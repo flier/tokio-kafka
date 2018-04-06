@@ -282,8 +282,6 @@ named!(pub parse_opt_bytes<Option<Bytes>>,
 
 #[cfg(test)]
 mod tests {
-    use std::str;
-
     use bytes::Bytes;
 
     use nom::verbose_errors::Err;

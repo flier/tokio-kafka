@@ -41,7 +41,7 @@ const MAGIC: &'static [u8] = &[0x82, b'S', b'N', b'A', b'P', b'P', b'Y', 0];
 // ~ reads a i32 valud and "advances" the given slice by four bytes;
 // assumes "slice" is a mutable reference to a &[u8].
 macro_rules! next_i32 {
-    ($slice:expr) => {{
+    ($slice: expr) => {{
         if $slice.len() < 4 {
             bail!(ErrorKind::UnexpectedEOF);
         }
@@ -174,7 +174,7 @@ impl<'a> SnappyReader<'a> {
 }
 
 macro_rules! to_io_error {
-    ($expr:expr) => {
+    ($expr: expr) => {
         match $expr {
             Ok(n) => Ok(n),
             // ~ pass io errors through directly
@@ -199,8 +199,6 @@ impl<'a> Read for SnappyReader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::str;
-
     use super::{compress, uncompress_to};
     use errors::{Error, ErrorKind, Result};
 
