@@ -18,10 +18,11 @@ use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, Timestamp,
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
 
+const MSG_SIZE: usize = 4;
 const CRC_SIZE: usize = 4;
 const MAGIC_SIZE: usize = 1;
 const ATTRIBUTE_SIZE: usize = 1;
-const RECORD_HEADER_SIZE: usize = OFFSET_SIZE + CRC_SIZE + MAGIC_SIZE + ATTRIBUTE_SIZE;
+const RECORD_HEADER_SIZE: usize = OFFSET_SIZE + MSG_SIZE + CRC_SIZE + MAGIC_SIZE + ATTRIBUTE_SIZE;
 
 const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
 
@@ -52,7 +53,7 @@ impl Deref for MessageSet {
 impl Record for MessageSet {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.messages.iter().fold(
-            ARRAY_LEN_SIZE, // The size, in bytes, of the message set that follows.
+            0, // The size, in bytes, of the message set that follows.
             |size, message| size + message.size(api_version),
         )
     }
