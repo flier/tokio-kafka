@@ -18,10 +18,11 @@ use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, Timestamp,
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
 
+const MSG_SIZE: usize = 4;
 const CRC_SIZE: usize = 4;
 const MAGIC_SIZE: usize = 1;
 const ATTRIBUTE_SIZE: usize = 1;
-const RECORD_HEADER_SIZE: usize = OFFSET_SIZE + CRC_SIZE + MAGIC_SIZE + ATTRIBUTE_SIZE;
+const RECORD_HEADER_SIZE: usize = OFFSET_SIZE + MSG_SIZE + CRC_SIZE + MAGIC_SIZE + ATTRIBUTE_SIZE;
 
 const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
 
