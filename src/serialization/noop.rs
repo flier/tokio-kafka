@@ -15,12 +15,7 @@ impl<T> Serializer for NoopSerializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<B: BufMut>(
-        &self,
-        _topic_name: &str,
-        _data: Self::Item,
-        _buf: &mut B,
-    ) -> Result<()> {
+    fn serialize_to<B: BufMut>(&self, _topic_name: &str, _data: Self::Item, _buf: &mut B) -> Result<()> {
         Ok(())
     }
 
@@ -39,12 +34,7 @@ impl<T> Deserializer for NoopDeserializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn deserialize_to<B: Buf>(
-        &self,
-        _topic_name: &str,
-        buf: &mut B,
-        _data: &mut Self::Item,
-    ) -> Result<()> {
+    fn deserialize_to<B: Buf>(&self, _topic_name: &str, buf: &mut B, _data: &mut Self::Item) -> Result<()> {
         let len = buf.remaining();
         buf.advance(len);
         Ok(())
@@ -77,18 +67,11 @@ mod tests {
         let mut cur = Cursor::new(Vec::from("data"));
         let mut s = "";
 
-        deserializer
-            .deserialize_to("topic", &mut cur, &mut s)
-            .unwrap();
+        deserializer.deserialize_to("topic", &mut cur, &mut s).unwrap();
 
         assert_eq!(cur.position(), 4);
         assert!(s.is_empty());
 
-        assert!(
-            deserializer
-                .deserialize("topic", &mut cur)
-                .unwrap()
-                .is_empty()
-        );
+        assert!(deserializer.deserialize("topic", &mut cur).unwrap().is_empty());
     }
 }

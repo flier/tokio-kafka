@@ -126,14 +126,8 @@ mod tests {
     fn test_properties() {
         let config = ProducerConfig::default();
 
-        assert_eq!(
-            config.linger(),
-            Duration::from_millis(DEFAULT_LINGER_MILLIS)
-        );
-        assert_eq!(
-            config.ack_timeout(),
-            Duration::from_millis(DEFAULT_ACK_TIMEOUT_MILLIS)
-        );
+        assert_eq!(config.linger(), Duration::from_millis(DEFAULT_LINGER_MILLIS));
+        assert_eq!(config.ack_timeout(), Duration::from_millis(DEFAULT_ACK_TIMEOUT_MILLIS));
     }
 
     #[test]
@@ -161,9 +155,6 @@ mod tests {
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);
-        assert_eq!(
-            serde_json::from_str::<ProducerConfig>(json).unwrap(),
-            config
-        );
+        assert_eq!(serde_json::from_str::<ProducerConfig>(json).unwrap(), config);
     }
 }

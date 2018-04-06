@@ -1,4 +1,3 @@
-
 use std::cell::RefCell;
 use std::hash::Hash;
 use std::ops::Deref;
@@ -7,14 +6,13 @@ use std::time::Instant;
 
 use bytes::{BigEndian, Bytes};
 
+use futures::unsync::oneshot::{channel, Canceled, Receiver, Sender};
 use futures::{Async, Future, Poll};
-use futures::unsync::oneshot::{Canceled, Receiver, Sender, channel};
 
 use compression::Compression;
 use errors::{Error, ErrorKind, Result};
 use producer::{ProducerInterceptor, ProducerInterceptors, RecordMetadata};
-use protocol::{ApiVersion, KafkaCode, MessageSet, MessageSetBuilder, Offset, PartitionId,
-               Timestamp};
+use protocol::{ApiVersion, KafkaCode, MessageSet, MessageSetBuilder, Offset, PartitionId, Timestamp};
 
 #[derive(Debug)]
 pub struct Thunk {

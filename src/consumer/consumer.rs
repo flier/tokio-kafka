@@ -8,8 +8,7 @@ use futures::{Future, Stream};
 use tokio_core::reactor::Handle;
 
 use client::{Client, Cluster, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
-use consumer::{ConsumerBuilder, ConsumerConfig, ConsumerCoordinator, Fetcher, SubscribedTopics,
-               Subscriptions};
+use consumer::{ConsumerBuilder, ConsumerConfig, ConsumerCoordinator, Fetcher, SubscribedTopics, Subscriptions};
 use errors::{Error, ErrorKind};
 use protocol::{MessageTimestamp, Offset, PartitionId};
 use serialization::Deserializer;
@@ -65,12 +64,7 @@ struct Inner<'a, K, V> {
 
 impl<'a, K, V> KafkaConsumer<'a, K, V> {
     /// Construct a `KafkaConsumer`
-    pub fn new(
-        client: KafkaClient<'a>,
-        config: ConsumerConfig,
-        key_deserializer: K,
-        value_deserializer: V,
-    ) -> Self {
+    pub fn new(client: KafkaClient<'a>, config: ConsumerConfig, key_deserializer: K, value_deserializer: V) -> Self {
         KafkaConsumer {
             inner: Rc::new(Inner {
                 client: client,
@@ -187,12 +181,7 @@ where
                         partition_fetch_bytes,
                     );
 
-                    SubscribedTopics::new(
-                        KafkaConsumer { inner: inner },
-                        subscriptions,
-                        coordinator,
-                        fetcher,
-                    )
+                    SubscribedTopics::new(KafkaConsumer { inner: inner }, subscriptions, coordinator, fetcher)
                 } else {
                     bail!(ErrorKind::TopicNotFound(not_found.join(",")))
                 }

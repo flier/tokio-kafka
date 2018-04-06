@@ -175,26 +175,18 @@ impl PartitionAssignor for RangeAssignor {
         topic_names.sort();
 
         for topic_name in topic_names {
-            if let (Some(mut partitions), Some(mut consumers)) =
-                (
-                    metadata.partitions_for_topic(&topic_name),
-                    consumers_per_topic.get_mut(&topic_name),
-                )
-            {
+            if let (Some(mut partitions), Some(mut consumers)) = (
+                metadata.partitions_for_topic(&topic_name),
+                consumers_per_topic.get_mut(&topic_name),
+            ) {
                 consumers.sort();
 
                 let partitions_per_consumer = partitions.len() / consumers.len();
                 let consumers_with_extra_partition = partitions.len() % consumers.len();
 
                 for (i, member_id) in consumers.iter().enumerate() {
-                    let remaining = partitions.split_off(
-                        partitions_per_consumer +
-                            if i >= consumers_with_extra_partition {
-                                0
-                            } else {
-                                1
-                            },
-                    );
+                    let remaining = partitions
+                        .split_off(partitions_per_consumer + if i >= consumers_with_extra_partition { 0 } else { 1 });
 
                     assignment
                         .entry(member_id.clone())
@@ -266,9 +258,11 @@ impl PartitionAssignor for RoundRobinAssignor {
         /// get sorted topic names
         let mut topic_names = HashSet::new();
 
-        topic_names.extend(subscriptions.values().flat_map(|subscription| {
-            subscription.topics.iter().cloned()
-        }));
+        topic_names.extend(
+            subscriptions
+                .values()
+                .flat_map(|subscription| subscription.topics.iter().cloned()),
+        );
 
         let mut topic_names: Vec<Cow<'a, str>> = topic_names.into_iter().collect();
 
@@ -280,10 +274,7 @@ impl PartitionAssignor for RoundRobinAssignor {
             if let Some(partitions) = metadata.partitions_for_topic(&topic_name) {
                 for partition in partitions {
                     while let Some(consumer) = consumers.next() {
-                        if subscriptions[*consumer].topics.contains(
-                            &partition.topic_name,
-                        )
-                        {
+                        if subscriptions[*consumer].topics.contains(&partition.topic_name) {
                             assignment
                                 .entry((*consumer).clone())
                                 .or_insert_with(Assignment::default)
@@ -417,19 +408,11 @@ mod tests {
         let metadata = Metadata::with_topics(vec![
             (
                 "t0".into(),
-                vec![
-                    PartitionInfo::new(0),
-                    PartitionInfo::new(1),
-                    PartitionInfo::new(2),
-                ]
+                vec![PartitionInfo::new(0), PartitionInfo::new(1), PartitionInfo::new(2)],
             ),
             (
                 "t1".into(),
-                vec![
-                    PartitionInfo::new(0),
-                    PartitionInfo::new(1),
-                    PartitionInfo::new(2),
-                ]
+                vec![PartitionInfo::new(0), PartitionInfo::new(1), PartitionInfo::new(2)],
             ),
         ]);
         let subscriptions = HashMap::from_iter(
@@ -439,14 +422,14 @@ mod tests {
                     Subscription {
                         topics: vec!["t0".into(), "t1".into()],
                         user_data: None,
-                    }
+                    },
                 ),
                 (
                     "c1".into(),
                     Subscription {
                         topics: vec!["t0".into(), "t1".into()],
                         user_data: None,
-                    }
+                    },
                 ),
             ].into_iter(),
         );
@@ -489,19 +472,11 @@ mod tests {
         let metadata = Metadata::with_topics(vec![
             (
                 "t0".into(),
-                vec![
-                    PartitionInfo::new(0),
-                    PartitionInfo::new(1),
-                    PartitionInfo::new(2),
-                ]
+                vec![PartitionInfo::new(0), PartitionInfo::new(1), PartitionInfo::new(2)],
             ),
             (
                 "t1".into(),
-                vec![
-                    PartitionInfo::new(0),
-                    PartitionInfo::new(1),
-                    PartitionInfo::new(2),
-                ]
+                vec![PartitionInfo::new(0), PartitionInfo::new(1), PartitionInfo::new(2)],
             ),
         ]);
         let subscriptions = HashMap::from_iter(
@@ -511,14 +486,14 @@ mod tests {
                     Subscription {
                         topics: vec!["t0".into(), "t1".into()],
                         user_data: None,
-                    }
+                    },
                 ),
                 (
                     "c1".into(),
                     Subscription {
                         topics: vec!["t0".into(), "t1".into()],
                         user_data: None,
-                    }
+                    },
                 ),
             ].into_iter(),
         );
@@ -565,17 +540,10 @@ mod tests {
         let assignor = RoundRobinAssignor::default();
         let metadata = Metadata::with_topics(vec![
             ("t0".into(), vec![PartitionInfo::new(0)]),
-            (
-                "t1".into(),
-                vec![PartitionInfo::new(0), PartitionInfo::new(1)]
-            ),
+            ("t1".into(), vec![PartitionInfo::new(0), PartitionInfo::new(1)]),
             (
                 "t2".into(),
-                vec![
-                    PartitionInfo::new(0),
-                    PartitionInfo::new(1),
-                    PartitionInfo::new(2),
-                ]
+                vec![PartitionInfo::new(0), PartitionInfo::new(1), PartitionInfo::new(2)],
             ),
         ]);
         let subscriptions = HashMap::from_iter(
@@ -585,21 +553,21 @@ mod tests {
                     Subscription {
                         topics: vec!["t0".into()],
                         user_data: None,
-                    }
+                    },
                 ),
                 (
                     "c1".into(),
                     Subscription {
                         topics: vec!["t0".into(), "t1".into()],
                         user_data: None,
-                    }
+                    },
                 ),
                 (
                     "c2".into(),
                     Subscription {
                         topics: vec!["t0".into(), "t1".into(), "t2".into()],
                         user_data: None,
-                    }
+                    },
                 ),
             ].into_iter(),
         );

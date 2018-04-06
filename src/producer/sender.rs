@@ -74,21 +74,18 @@ where
                     partitions
                         .iter()
                         .find(|partition| partition.partition_id == partition_id)
-                        .map(|partition| if let Some(thunks) = (*thunks)
-                            .borrow_mut()
-                            .take()
-                        {
-                            for thunk in thunks {
-                                match thunk.done(
-                                    interceptors.clone(),
-                                    &topic_name,
-                                    partition.partition_id,
-                                    partition.base_offset,
-                                    partition.error_code,
-                                ) {
-                                    Ok(()) => {}
-                                    Err(metadata) => {
-                                        warn!("fail to send record metadata, {:?}", metadata)
+                        .map(|partition| {
+                            if let Some(thunks) = (*thunks).borrow_mut().take() {
+                                for thunk in thunks {
+                                    match thunk.done(
+                                        interceptors.clone(),
+                                        &topic_name,
+                                        partition.partition_id,
+                                        partition.base_offset,
+                                        partition.error_code,
+                                    ) {
+                                        Ok(()) => {}
+                                        Err(metadata) => warn!("fail to send record metadata, {:?}", metadata),
                                     }
                                 }
                             }

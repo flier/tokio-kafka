@@ -316,9 +316,6 @@ mod tests {
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);
-        assert_eq!(
-            serde_json::from_str::<ConsumerConfig>(json).unwrap(),
-            config
-        );
+        assert_eq!(serde_json::from_str::<ConsumerConfig>(json).unwrap(), config);
     }
 }

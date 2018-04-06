@@ -6,15 +6,14 @@ use bytes::{ByteOrder, BytesMut};
 
 use errors::Result;
 use network::{OffsetAndMetadata, TopicPartition};
-use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CONSUMER_REPLICA_ID,
-               CorrelationId, DEFAULT_TIMESTAMP, DescribeGroupsRequest, Encodable, FetchOffset,
-               FetchRequest, FetchTopic, GenerationId, GroupCoordinatorRequest, HeartbeatRequest,
-               JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest,
-               ListOffsetRequest, ListPartitionOffset, ListTopicOffset, MessageSet,
-               MetadataRequest, OffsetCommitPartition, OffsetCommitRequest, OffsetCommitTopic,
-               OffsetFetchPartition, OffsetFetchRequest, OffsetFetchTopic, PartitionId,
-               ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
-               RequiredAck, RequiredAcks, SyncGroupAssignment, SyncGroupRequest, ToMilliseconds};
+use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, DescribeGroupsRequest, Encodable,
+               FetchOffset, FetchRequest, FetchTopic, GenerationId, GroupCoordinatorRequest, HeartbeatRequest,
+               JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest, ListOffsetRequest,
+               ListPartitionOffset, ListTopicOffset, MessageSet, MetadataRequest, OffsetCommitPartition,
+               OffsetCommitRequest, OffsetCommitTopic, OffsetFetchPartition, OffsetFetchRequest, OffsetFetchTopic,
+               PartitionId, ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
+               RequiredAck, RequiredAcks, SyncGroupAssignment, SyncGroupRequest, ToMilliseconds, CONSUMER_REPLICA_ID,
+               DEFAULT_TIMESTAMP};
 
 #[derive(Debug)]
 pub enum KafkaRequest<'a> {
@@ -65,16 +64,14 @@ impl<'a> KafkaRequest<'a> {
     ) -> KafkaRequest<'a> {
         let topics = records
             .into_iter()
-            .map(move |message_set| {
-                ProduceTopicData {
-                    topic_name: tp.topic_name.to_owned().into(),
-                    partitions: vec![
-                        ProducePartitionData {
-                            partition_id: tp.partition_id,
-                            message_set: message_set,
-                        },
-                    ],
-                }
+            .map(move |message_set| ProduceTopicData {
+                topic_name: tp.topic_name.to_owned().into(),
+                partitions: vec![
+                    ProducePartitionData {
+                        partition_id: tp.partition_id,
+                        message_set: message_set,
+                    },
+                ],
             })
             .collect();
 
@@ -127,20 +124,16 @@ impl<'a> KafkaRequest<'a> {
     ) -> KafkaRequest<'a> {
         let topics = topics
             .into_iter()
-            .map(|(topic_name, partitions)| {
-                ListTopicOffset {
-                    topic_name: topic_name.clone(),
-                    partitions: partitions
-                        .into_iter()
-                        .map(|(id, offset)| {
-                            ListPartitionOffset {
-                                partition_id: id,
-                                timestamp: offset.into(),
-                                max_number_of_offsets: 16,
-                            }
-                        })
-                        .collect(),
-                }
+            .map(|(topic_name, partitions)| ListTopicOffset {
+                topic_name: topic_name.clone(),
+                partitions: partitions
+                    .into_iter()
+                    .map(|(id, offset)| ListPartitionOffset {
+                        partition_id: id,
+                        timestamp: offset.into(),
+                        max_number_of_offsets: 16,
+                    })
+                    .collect(),
             })
             .collect();
 
@@ -171,10 +164,7 @@ impl<'a> KafkaRequest<'a> {
                 correlation_id: correlation_id,
                 client_id: client_id,
             },
-            topic_names: topic_names
-                .iter()
-                .map(|s| Cow::from(s.as_ref().to_owned()))
-                .collect(),
+            topic_names: topic_names.iter().map(|s| Cow::from(s.as_ref().to_owned())).collect(),
         };
 
         KafkaRequest::Metadata(request)
@@ -193,22 +183,21 @@ impl<'a> KafkaRequest<'a> {
         let topics = offsets
             .into_iter()
             .fold(HashMap::new(), |mut topics, (tp, offset)| {
-                topics.entry(tp.topic_name).or_insert_with(Vec::new).push(
-                    OffsetCommitPartition {
+                topics
+                    .entry(tp.topic_name)
+                    .or_insert_with(Vec::new)
+                    .push(OffsetCommitPartition {
                         partition_id: tp.partition_id,
                         offset: offset.offset,
                         timestamp: DEFAULT_TIMESTAMP,
                         metadata: offset.metadata.map(|s| s.into()),
-                    },
-                );
+                    });
                 topics
             })
             .into_iter()
-            .map(|(topic_name, partitions)| {
-                OffsetCommitTopic {
-                    topic_name: topic_name,
-                    partitions: partitions,
-                }
+            .map(|(topic_name, partitions)| OffsetCommitTopic {
+                topic_name: topic_name,
+                partitions: partitions,
             })
             .collect();
 
@@ -239,17 +228,18 @@ impl<'a> KafkaRequest<'a> {
         let topics = partitions
             .into_iter()
             .fold(HashMap::new(), |mut topics, tp| {
-                topics.entry(tp.topic_name).or_insert_with(Vec::new).push(
-                    OffsetFetchPartition { partition_id: tp.partition_id },
-                );
+                topics
+                    .entry(tp.topic_name)
+                    .or_insert_with(Vec::new)
+                    .push(OffsetFetchPartition {
+                        partition_id: tp.partition_id,
+                    });
                 topics
             })
             .into_iter()
-            .map(|(topic_name, partitions)| {
-                OffsetFetchTopic {
-                    topic_name: topic_name,
-                    partitions: partitions,
-                }
+            .map(|(topic_name, partitions)| OffsetFetchTopic {
+                topic_name: topic_name,
+                partitions: partitions,
             })
             .collect();
         let request = OffsetFetchRequest {
@@ -376,11 +366,9 @@ impl<'a> KafkaRequest<'a> {
             member_id: member_id,
             group_assignment: group_assignment
                 .into_iter()
-                .map(|assignment| {
-                    SyncGroupAssignment {
-                        member_id: assignment.member_id,
-                        member_assignment: assignment.member_assignment,
-                    }
+                .map(|assignment| SyncGroupAssignment {
+                    member_id: assignment.member_id,
+                    member_assignment: assignment.member_assignment,
                 })
                 .collect(),
         };
@@ -388,10 +376,7 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::SyncGroup(request)
     }
 
-    pub fn api_versions(
-        correlation_id: CorrelationId,
-        client_id: Option<Cow<'a, str>>,
-    ) -> KafkaRequest<'a> {
+    pub fn api_versions(correlation_id: CorrelationId, client_id: Option<Cow<'a, str>>) -> KafkaRequest<'a> {
         let request = ApiVersionsRequest {
             header: RequestHeader {
                 api_key: ApiKeys::ApiVersions as ApiKey,

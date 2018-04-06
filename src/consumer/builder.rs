@@ -159,10 +159,7 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
 
     /// Sets the partition assignment strategy to use when elected group leader assigns
     /// partitions to group members.
-    pub fn with_assignment_strategy(
-        mut self,
-        assignment_strategy: Vec<AssignmentStrategy>,
-    ) -> Self {
+    pub fn with_assignment_strategy(mut self, assignment_strategy: Vec<AssignmentStrategy>) -> Self {
         self.config.assignment_strategy = assignment_strategy;
         self
     }
@@ -236,12 +233,10 @@ where
         Ok(KafkaConsumer::new(
             client,
             self.config,
-            self.key_deserializer.ok_or(ErrorKind::ConfigError(
-                "missed key serializer",
-            ))?,
-            self.value_deserializer.ok_or(ErrorKind::ConfigError(
-                "missed value serializer",
-            ))?,
+            self.key_deserializer
+                .ok_or(ErrorKind::ConfigError("missed key serializer"))?,
+            self.value_deserializer
+                .ok_or(ErrorKind::ConfigError("missed value serializer"))?,
         ))
     }
 }

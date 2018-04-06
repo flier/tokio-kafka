@@ -1,11 +1,10 @@
-use std::borrow::Cow;
 use bytes::{BufMut, ByteOrder, BytesMut};
+use std::borrow::Cow;
 
 use nom::be_i32;
 
 use errors::Result;
-use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, ParseTag, Record, STR_LEN_SIZE,
-               WriteExt};
+use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, ParseTag, Record, WriteExt, STR_LEN_SIZE};
 
 const API_KEY_SIZE: usize = 2;
 const API_VERSION_SIZE: usize = 2;
@@ -71,9 +70,13 @@ mod tests {
 
         assert_eq!(hdr.size(hdr.api_version), buf.len());
 
-        assert_eq!(&buf[..],
-                   &[0, 1 /* api_key */, 0, 2 /* api_version */, 0, 0, 0,
-                     123 /* correlation_id */, 0, 4, 116, 101, 115, 116]);
+        assert_eq!(
+            &buf[..],
+            &[
+                0, 1 /* api_key */, 0, 2 /* api_version */, 0, 0, 0, 123 /* correlation_id */, 0, 4,
+                116, 101, 115, 116,
+            ]
+        );
 
         let bytes = &[0, 0, 0, 123];
         let res = parse_response_header(bytes);

@@ -7,9 +7,9 @@ use std::rc::Rc;
 use bytes::IntoBuf;
 use futures::{Async, Future, Poll, Stream};
 
-use client::{FetchRecords, StaticBoxFuture, KafkaClient, ToStaticBoxFuture};
-use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup,
-               KafkaConsumer, LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions, UpdatePositions};
+use client::{FetchRecords, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
+use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup, KafkaConsumer,
+               LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions, UpdatePositions};
 use errors::{Error, ErrorKind, Result};
 use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
 use protocol::{FetchOffset, Offset, Timestamp};
@@ -58,10 +58,7 @@ pub trait Subscribed<'a> {
     fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
 
     /// Look up the offsets for the given partitions by timestamp.
-    fn offsets_for_times(
-        &self,
-        partitions: HashMap<TopicPartition<'a>, Timestamp>,
-    ) -> OffsetsForTimes<'a>;
+    fn offsets_for_times(&self, partitions: HashMap<TopicPartition<'a>, Timestamp>) -> OffsetsForTimes<'a>;
 
     /// Get the first offset for the given partitions.
     fn beginning_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> BeginningOffsets<'a>;
@@ -143,102 +140,87 @@ where
             let next_state;
 
             match self.state {
-                State::Joining(ref mut join_group) => {
-                    match join_group.poll() {
-                        Ok(Async::Ready(_)) => {
-                            let partitions = self.subscriptions.borrow().assigned_partitions();
+                State::Joining(ref mut join_group) => match join_group.poll() {
+                    Ok(Async::Ready(_)) => {
+                        let partitions = self.subscriptions.borrow().assigned_partitions();
 
-                            trace!("updating postion of partitions: {:?}", partitions);
+                        trace!("updating postion of partitions: {:?}", partitions);
 
-                            next_state = State::Updating(self.fetcher.update_positions(partitions))
-                        }
-                        Ok(Async::NotReady) => {
-                            return Ok(Async::NotReady);
-                        }
-                        Err(err) => {
-                            warn!("fail to join the group, {}", err);
-
-                            return Err(err);
-                        }
+                        next_state = State::Updating(self.fetcher.update_positions(partitions))
                     }
-                }
-                State::Updating(ref mut update_positions) => {
-                    match update_positions.poll() {
-                        Ok(Async::Ready(_)) => {
-                            let partitions = self.subscriptions.borrow().assigned_partitions();
-
-                            trace!("fetching records of partitions: {:?}", partitions);
-
-                            next_state = State::Fetching(self.fetcher.fetch_records(partitions))
-                        }
-                        Ok(Async::NotReady) => {
-                            return Ok(Async::NotReady);
-                        }
-                        Err(err) => {
-                            warn!("fail to update positions, {}", err);
-
-                            return Err(err);
-                        }
+                    Ok(Async::NotReady) => {
+                        return Ok(Async::NotReady);
                     }
-                }
-                State::Fetching(ref mut fetch) => {
-                    match fetch.poll() {
-                        Ok(Async::Ready(records)) => {
-                            let key_deserializer = self.consumer.key_deserializer();
-                            let value_deserializer = self.consumer.value_deserializer();
+                    Err(err) => {
+                        warn!("fail to join the group, {}", err);
 
-                            next_state = State::Fetched(Box::new(records.into_iter().flat_map(
-                                move |(topic_name, records)| {
+                        return Err(err);
+                    }
+                },
+                State::Updating(ref mut update_positions) => match update_positions.poll() {
+                    Ok(Async::Ready(_)) => {
+                        let partitions = self.subscriptions.borrow().assigned_partitions();
+
+                        trace!("fetching records of partitions: {:?}", partitions);
+
+                        next_state = State::Fetching(self.fetcher.fetch_records(partitions))
+                    }
+                    Ok(Async::NotReady) => {
+                        return Ok(Async::NotReady);
+                    }
+                    Err(err) => {
+                        warn!("fail to update positions, {}", err);
+
+                        return Err(err);
+                    }
+                },
+                State::Fetching(ref mut fetch) => match fetch.poll() {
+                    Ok(Async::Ready(records)) => {
+                        let key_deserializer = self.consumer.key_deserializer();
+                        let value_deserializer = self.consumer.value_deserializer();
+
+                        next_state =
+                            State::Fetched(Box::new(records.into_iter().flat_map(move |(topic_name, records)| {
+                                let key_deserializer = key_deserializer.clone();
+                                let value_deserializer = value_deserializer.clone();
+
+                                records.into_iter().flat_map(move |record| {
+                                    let topic_name = topic_name.clone();
+                                    let partition_id = record.partition_id;
+                                    let offset = record.fetch_offset;
                                     let key_deserializer = key_deserializer.clone();
                                     let value_deserializer = value_deserializer.clone();
 
-                                    records.into_iter().flat_map(move |record| {
-                                        let topic_name = topic_name.clone();
-                                        let partition_id = record.partition_id;
-                                        let offset = record.fetch_offset;
-                                        let key_deserializer = key_deserializer.clone();
-                                        let value_deserializer = value_deserializer.clone();
-
-                                        record.messages.into_iter().map(move |message| {
-                                            ConsumerRecord {
-                                                topic_name: Cow::from(topic_name.clone()),
-                                                partition_id: partition_id,
-                                                offset: offset,
-                                                key: message.key.as_ref().and_then(|buf| {
-                                                    key_deserializer
-                                                        .clone()
-                                                        .deserialize(
-                                                            topic_name.as_ref(),
-                                                            &mut buf.into_buf(),
-                                                        )
-                                                        .ok()
-                                                }),
-                                                value: message.value.as_ref().and_then(|buf| {
-                                                    value_deserializer
-                                                        .clone()
-                                                        .deserialize(
-                                                            topic_name.as_ref(),
-                                                            &mut buf.into_buf(),
-                                                        )
-                                                        .ok()
-                                                }),
-                                                timestamp: message.timestamp.clone(),
-                                            }
-                                        })
+                                    record.messages.into_iter().map(move |message| ConsumerRecord {
+                                        topic_name: Cow::from(topic_name.clone()),
+                                        partition_id: partition_id,
+                                        offset: offset,
+                                        key: message.key.as_ref().and_then(|buf| {
+                                            key_deserializer
+                                                .clone()
+                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                                .ok()
+                                        }),
+                                        value: message.value.as_ref().and_then(|buf| {
+                                            value_deserializer
+                                                .clone()
+                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                                .ok()
+                                        }),
+                                        timestamp: message.timestamp.clone(),
                                     })
-                                },
-                            )))
-                        }
-                        Ok(Async::NotReady) => {
-                            return Ok(Async::NotReady);
-                        }
-                        Err(err) => {
-                            warn!("fail to fetch the records, {}", err);
-
-                            return Err(err);
-                        }
+                                })
+                            })))
                     }
-                }
+                    Ok(Async::NotReady) => {
+                        return Ok(Async::NotReady);
+                    }
+                    Err(err) => {
+                        warn!("fail to fetch the records, {}", err);
+
+                        return Err(err);
+                    }
+                },
                 State::Fetched(ref mut records) => {
                     if let Some(record) = records.next() {
                         return Ok(Async::Ready(Some(record)));
@@ -301,9 +283,7 @@ where
             .borrow()
             .assigned_state(partition)
             .ok_or_else(|| {
-                ErrorKind::IllegalArgument(
-                    format!("No current assignment for partition {}", partition),
-                ).into()
+                ErrorKind::IllegalArgument(format!("No current assignment for partition {}", partition)).into()
             })
             .map(|state| state.position)
     }
@@ -322,15 +302,10 @@ where
                             .iter()
                             .find(|partition| partition.partition_id == partition_id)
                             .map(move |fetched| {
-                                OffsetAndMetadata::with_metadata(
-                                    fetched.offset,
-                                    fetched.metadata.clone(),
-                                )
+                                OffsetAndMetadata::with_metadata(fetched.offset, fetched.metadata.clone())
                             })
                     })
-                    .ok_or_else(|| {
-                        ErrorKind::NoOffsetForPartition(topic_name, partition_id).into()
-                    })
+                    .ok_or_else(|| ErrorKind::NoOffsetForPartition(topic_name, partition_id).into())
             })
             .static_boxed()
     }
@@ -353,10 +328,7 @@ where
         Ok(())
     }
 
-    fn offsets_for_times(
-        &self,
-        partitions: HashMap<TopicPartition<'a>, Timestamp>,
-    ) -> OffsetsForTimes<'a> {
+    fn offsets_for_times(&self, partitions: HashMap<TopicPartition<'a>, Timestamp>) -> OffsetsForTimes<'a> {
         self.fetcher.retrieve_offsets(
             partitions
                 .into_iter()
@@ -366,20 +338,12 @@ where
     }
 
     fn beginning_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> BeginningOffsets<'a> {
-        self.fetcher.retrieve_offsets(
-            partitions
-                .into_iter()
-                .map(|tp| (tp, FetchOffset::Earliest))
-                .collect(),
-        )
+        self.fetcher
+            .retrieve_offsets(partitions.into_iter().map(|tp| (tp, FetchOffset::Earliest)).collect())
     }
 
     fn end_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> EndOffsets<'a> {
-        self.fetcher.retrieve_offsets(
-            partitions
-                .into_iter()
-                .map(|tp| (tp, FetchOffset::Latest))
-                .collect(),
-        )
+        self.fetcher
+            .retrieve_offsets(partitions.into_iter().map(|tp| (tp, FetchOffset::Latest)).collect())
     }
 }

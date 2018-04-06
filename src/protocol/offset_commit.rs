@@ -4,10 +4,9 @@ use std::borrow::Cow;
 use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, OFFSET_SIZE, Offset,
-               PARTITION_ID_SIZE, ParseTag, PartitionId, Record, RequestHeader, ResponseHeader,
-               STR_LEN_SIZE, TIMESTAMP_SIZE, Timestamp, WriteExt, parse_response_header,
-               parse_string};
+use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, Offset, ParseTag, PartitionId,
+               Record, RequestHeader, ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE, OFFSET_SIZE,
+               PARTITION_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
 
 pub const DEFAULT_RETENTION_TIME: i64 = -1;
 
@@ -74,23 +73,17 @@ pub struct OffsetCommitPartitionStatus {
 
 impl<'a> Record for OffsetCommitRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len() +
-            if api_version > 0 {
-                GROUP_GENERATION_ID_SIZE + STR_LEN_SIZE + self.member_id.len()
-            } else {
-                0
-            } + if api_version > 1 { RETENTION_TIME } else { 0 } +
-            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
-                size + STR_LEN_SIZE + topic.topic_name.len() +
-                    topic.partitions.iter().fold(
-                        ARRAY_LEN_SIZE,
-                        |size, partition| {
-                            size + PARTITION_ID_SIZE + OFFSET_SIZE +
-                                if api_version == 1 { TIMESTAMP_SIZE } else { 0 } +
-                                STR_LEN_SIZE +
-                                partition.metadata.as_ref().map_or(0, |s| s.len())
-                        },
-                    )
+        self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len() + if api_version > 0 {
+            GROUP_GENERATION_ID_SIZE + STR_LEN_SIZE + self.member_id.len()
+        } else {
+            0
+        } + if api_version > 1 { RETENTION_TIME } else { 0 }
+            + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len()
+                    + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, partition| {
+                        size + PARTITION_ID_SIZE + OFFSET_SIZE + if api_version == 1 { TIMESTAMP_SIZE } else { 0 }
+                            + STR_LEN_SIZE + partition.metadata.as_ref().map_or(0, |s| s.len())
+                    })
             })
     }
 }
@@ -129,38 +122,40 @@ impl OffsetCommitResponse {
     }
 }
 
-named!(parse_offset_commit_response<OffsetCommitResponse>,
-    parse_tag!(ParseTag::OffsetCommitResponse,
+named!(
+    parse_offset_commit_response<OffsetCommitResponse>,
+    parse_tag!(
+        ParseTag::OffsetCommitResponse,
         do_parse!(
-            header: parse_response_header
-         >> topics: length_count!(be_i32, parse_offset_commit_topic_status)
-         >> (OffsetCommitResponse {
-                header: header,
-                topics: topics,
-            })
+            header: parse_response_header >> topics: length_count!(be_i32, parse_offset_commit_topic_status)
+                >> (OffsetCommitResponse {
+                    header: header,
+                    topics: topics,
+                })
         )
     )
 );
 
-named!(parse_offset_commit_topic_status<OffsetCommitTopicStatus>,
-    parse_tag!(ParseTag::OffsetCommitTopicStatus,
+named!(
+    parse_offset_commit_topic_status<OffsetCommitTopicStatus>,
+    parse_tag!(
+        ParseTag::OffsetCommitTopicStatus,
         do_parse!(
-            topic_name: parse_string
-         >> partitions: length_count!(be_i32, parse_offset_commit_partition_status)
-         >> (OffsetCommitTopicStatus {
-                topic_name: topic_name,
-                partitions: partitions,
-            })
+            topic_name: parse_string >> partitions: length_count!(be_i32, parse_offset_commit_partition_status)
+                >> (OffsetCommitTopicStatus {
+                    topic_name: topic_name,
+                    partitions: partitions,
+                })
         )
     )
 );
 
-named!(parse_offset_commit_partition_status<OffsetCommitPartitionStatus>,
-    parse_tag!(ParseTag::OffsetCommitPartitionStatus,
+named!(
+    parse_offset_commit_partition_status<OffsetCommitPartitionStatus>,
+    parse_tag!(
+        ParseTag::OffsetCommitPartitionStatus,
         do_parse!(
-            partition_id: be_i32
-         >> error_code: be_i16
-         >> (OffsetCommitPartitionStatus {
+            partition_id: be_i32 >> error_code: be_i16 >> (OffsetCommitPartitionStatus {
                 partition_id: partition_id,
                 error_code: error_code,
             })
@@ -189,37 +184,30 @@ mod tests {
             group_generation_id: Default::default(),
             member_id: "member".into(),
             retention_time: None,
-            topics: vec![OffsetCommitTopic {
-                topic_name: "topic".into(),
-                partitions: vec![OffsetCommitPartition {
-                    partition_id: 5,
-                    offset: 6,
-                    timestamp: Default::default(),
-                    metadata: Some("metadata".into())
-                }],
-            }],
+            topics: vec![
+                OffsetCommitTopic {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        OffsetCommitPartition {
+                            partition_id: 5,
+                            offset: 6,
+                            timestamp: Default::default(),
+                            metadata: Some("metadata".into()),
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // OffsetCommitRequest
-                // RequestHeader
-                0, 8,                                       // api_key
-                0, 0,                                       // api_version
-                0, 0, 0, 123,                               // correlation_id
-                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
-
-            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
-
-                // topics: [OffsetCommitTopic]
-                0, 0, 0, 1,
-                    // OffsetCommitTopic
-                    0, 5, b't', b'o', b'p', b'i', b'c',             // topic_name
-                    // partitions: [OffsetCommitPartition]
-                    0, 0, 0, 1,
-                        // OffsetCommitPartition
-                        0, 0, 0, 5,                                             // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,                                 // offset
-                        0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a',   // metadata
+            /* OffsetCommitRequest
+             * RequestHeader */ 0, 8 /* api_key */, 0,
+            0 /* api_version */, 0, 0, 0, 123 /* correlation_id */, 0, 6, b'c', b'l', b'i', b'e', b'n',
+            b't' /* client_id */, 0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r' /* group_id */,
+            /* topics: [OffsetCommitTopic] */ 0, 0, 0, 1, /* OffsetCommitTopic */ 0, 5, b't', b'o', b'p',
+            b'i', b'c' /* topic_name */, /* partitions: [OffsetCommitPartition] */ 0, 0, 0, 1,
+            /* OffsetCommitPartition */ 0, 0, 0, 5 /* partition */, 0, 0, 0, 0, 0, 0, 0, 6 /* offset */,
+            0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a' /* metadata */,
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -244,40 +232,32 @@ mod tests {
             group_generation_id: 456,
             member_id: "member".into(),
             retention_time: None,
-            topics: vec![OffsetCommitTopic {
-                topic_name: "topic".into(),
-                partitions: vec![OffsetCommitPartition {
-                    partition_id: 5,
-                    offset: 6,
-                    timestamp: 7,
-                    metadata: Some("metadata".into())
-                }],
-            }],
+            topics: vec![
+                OffsetCommitTopic {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        OffsetCommitPartition {
+                            partition_id: 5,
+                            offset: 6,
+                            timestamp: 7,
+                            metadata: Some("metadata".into()),
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // OffsetCommitRequest
-                // RequestHeader
-                0, 8,                                       // api_key
-                0, 1,                                       // api_version
-                0, 0, 0, 123,                               // correlation_id
-                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
-
-            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
-            0, 0, 1, 200,                                           // group_generation_id
-            0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
-
-                // topics: [OffsetCommitTopic]
-                0, 0, 0, 1,
-                    // OffsetCommitTopic
-                    0, 5, b't', b'o', b'p', b'i', b'c',             // topic_name
-                    // partitions: [OffsetCommitPartition]
-                    0, 0, 0, 1,
-                        // OffsetCommitPartition
-                        0, 0, 0, 5,                                             // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,                                 // offset
-                        0, 0, 0, 0, 0, 0, 0, 7,                                 // timestamp
-                        0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a',   // metadata
+            /* OffsetCommitRequest
+             * RequestHeader */ 0, 8 /* api_key */, 0,
+            1 /* api_version */, 0, 0, 0, 123 /* correlation_id */, 0, 6, b'c', b'l', b'i', b'e', b'n',
+            b't' /* client_id */, 0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r' /* group_id */, 0, 0,
+            1, 200 /* group_generation_id */, 0, 6, b'm', b'e', b'm', b'b', b'e', b'r' /* member_id */,
+            /* topics: [OffsetCommitTopic] */ 0, 0, 0, 1, /* OffsetCommitTopic */ 0, 5, b't', b'o', b'p',
+            b'i', b'c' /* topic_name */, /* partitions: [OffsetCommitPartition] */ 0, 0, 0, 1,
+            /* OffsetCommitPartition */ 0, 0, 0, 5 /* partition */, 0, 0, 0, 0, 0, 0, 0, 6 /* offset */,
+            0, 0, 0, 0, 0, 0, 0, 7 /* timestamp */, 0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't',
+            b'a' /* metadata */,
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -302,40 +282,32 @@ mod tests {
             group_generation_id: 456,
             member_id: "member".into(),
             retention_time: Some(789),
-            topics: vec![OffsetCommitTopic {
-                topic_name: "topic".into(),
-                partitions: vec![OffsetCommitPartition {
-                    partition_id: 5,
-                    offset: 6,
-                    timestamp: Default::default(),
-                    metadata: Some("metadata".into())
-                }],
-            }],
+            topics: vec![
+                OffsetCommitTopic {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        OffsetCommitPartition {
+                            partition_id: 5,
+                            offset: 6,
+                            timestamp: Default::default(),
+                            metadata: Some("metadata".into()),
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // OffsetCommitRequest
-                // RequestHeader
-                0, 8,                                       // api_key
-                0, 2,                                       // api_version
-                0, 0, 0, 123,                               // correlation_id
-                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
-
-            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
-            0, 0, 1, 200,                                           // group_generation_id
-            0, 6, b'm', b'e', b'm', b'b', b'e', b'r',               // member_id
-            0, 0, 0, 0, 0, 0, 3, 21,                                // retention_time
-
-                // topics: [OffsetCommitTopic]
-                0, 0, 0, 1,
-                    // OffsetCommitTopic
-                    0, 5, b't', b'o', b'p', b'i', b'c',             // topic_name
-                    // partitions: [OffsetCommitPartition]
-                    0, 0, 0, 1,
-                        // OffsetCommitPartition
-                        0, 0, 0, 5,                                             // partition
-                        0, 0, 0, 0, 0, 0, 0, 6,                                 // offset
-                        0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a',   // metadata
+            /* OffsetCommitRequest
+             * RequestHeader */ 0, 8 /* api_key */, 0,
+            2 /* api_version */, 0, 0, 0, 123 /* correlation_id */, 0, 6, b'c', b'l', b'i', b'e', b'n',
+            b't' /* client_id */, 0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r' /* group_id */, 0, 0,
+            1, 200 /* group_generation_id */, 0, 6, b'm', b'e', b'm', b'b', b'e', b'r' /* member_id */, 0, 0,
+            0, 0, 0, 0, 3, 21 /* retention_time */, /* topics: [OffsetCommitTopic] */ 0, 0, 0, 1,
+            /* OffsetCommitTopic */ 0, 5, b't', b'o', b'p', b'i', b'c' /* topic_name */,
+            /* partitions: [OffsetCommitPartition] */ 0, 0, 0, 1, /* OffsetCommitPartition */ 0, 0, 0,
+            5 /* partition */, 0, 0, 0, 0, 0, 0, 0, 6 /* offset */, 0, 8, b'm', b'e', b't', b'a', b'd', b'a',
+            b't', b'a' /* metadata */,
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -351,25 +323,24 @@ mod tests {
     fn test_parse_offset_commit_response() {
         let response = OffsetCommitResponse {
             header: ResponseHeader { correlation_id: 123 },
-            topics: vec![OffsetCommitTopicStatus {
-                topic_name: "topic".to_owned(),
-                partitions: vec![OffsetCommitPartitionStatus {
-                    partition_id: 1,
-                    error_code: 2,
-                }],
-            }],
+            topics: vec![
+                OffsetCommitTopicStatus {
+                    topic_name: "topic".to_owned(),
+                    partitions: vec![
+                        OffsetCommitPartitionStatus {
+                            partition_id: 1,
+                            error_code: 2,
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // ResponseHeader
-            0, 0, 0, 123,   // correlation_id
-            // topics: [OffsetCommitTopicStatus]
-            0, 0, 0, 1,
-                0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
-                // partitions: [OffsetCommitPartitionStatus]
-                0, 0, 0, 1,
-                    0, 0, 0, 1,             // partition
-                    0, 2,                   // error_code
+            /* ResponseHeader */ 0, 0, 0, 123 /* correlation_id */,
+            /* topics: [OffsetCommitTopicStatus] */ 0, 0, 0, 1, 0, 5, b't', b'o', b'p', b'i',
+            b'c' /* topic_name */, /* partitions: [OffsetCommitPartitionStatus] */ 0, 0, 0, 1, 0, 0, 0,
+            1 /* partition */, 0, 2 /* error_code */,
         ];
 
         let res = parse_offset_commit_response(&data[..]);

@@ -41,7 +41,9 @@ impl<S> InFlightMiddleware<S> {
     pub fn new(upstream: S) -> InFlightMiddleware<S> {
         InFlightMiddleware {
             upstream: upstream,
-            state: Rc::new(RefCell::new(State { requests: HashMap::new() })),
+            state: Rc::new(RefCell::new(State {
+                requests: HashMap::new(),
+            })),
         }
     }
 

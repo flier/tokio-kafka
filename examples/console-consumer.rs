@@ -65,12 +65,7 @@ impl Config {
         );
         opts.optopt("", "client-id", "Specify the client id.", "ID");
         opts.optopt("g", "group-id", "Specify the consumer group.", "NAME");
-        opts.reqopt(
-            "t",
-            "topics",
-            "The topic id to consume on (comma separated).",
-            "NAMES",
-        );
+        opts.reqopt("t", "topics", "The topic id to consume on (comma separated).", "NAMES");
         opts.optopt("o", "offset", "The offset id to consume from (a non-negative number), or 'earliest' which means from beginning, or 'latest' which means from end (default: latest).", "OFFSET");
         opts.optflag("", "from-beginning", "If the consumer does not already have an established offset to consume from, start with the earliest message present in the log rather than the latest message.");
         opts.optflag("", "no-commit", "Do not commit group offsets.");
@@ -95,18 +90,13 @@ impl Config {
                 || vec![DEFAULT_BROKER.to_owned()],
                 |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
             ),
-            client_id: m.opt_str("client-id")
-                .unwrap_or(DEFAULT_CLIENT_ID.to_owned()),
+            client_id: m.opt_str("client-id").unwrap_or(DEFAULT_CLIENT_ID.to_owned()),
             topics: m.opt_str("t").map_or_else(
                 || vec![DEFAULT_TOPIC.to_owned()],
                 |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
             ),
-            group_id: m.opt_str("g").unwrap_or_else(|| {
-                format!(
-                    "console-consumer-{}",
-                    rand::thread_rng().gen_range(1, 100000)
-                )
-            }),
+            group_id: m.opt_str("g")
+                .unwrap_or_else(|| format!("console-consumer-{}", rand::thread_rng().gen_range(1, 100000))),
             offset: m.opt_str("o").map_or_else(
                 || {
                     if m.opt_present("from-beginning") {
@@ -136,10 +126,7 @@ fn main() {
 fn run(config: Config) -> Result<()> {
     let mut core = Core::new()?;
 
-    let hosts = config
-        .brokers
-        .iter()
-        .flat_map(|s| s.to_socket_addrs().unwrap());
+    let hosts = config.brokers.iter().flat_map(|s| s.to_socket_addrs().unwrap());
 
     let handle = core.handle();
 
@@ -165,10 +152,7 @@ fn run(config: Config) -> Result<()> {
             topics.for_each(|record| {
                 println!(
                     "{} {} {}",
-                    record
-                        .timestamp
-                        .map(|ts| ts.to_string())
-                        .unwrap_or_default(),
+                    record.timestamp.map(|ts| ts.to_string()).unwrap_or_default(),
                     record.key.unwrap_or_default(),
                     record.value.unwrap_or_default()
                 );

@@ -156,13 +156,16 @@ pub enum KafkaCode {
     InvalidProducerEpoch = 47,
     /// The producer attempted a transactional operation in an invalid state
     InvalidTxnState = 48,
-    /// The producer attempted to use a producer id which is not currently assigned to its transactional id
+    /// The producer attempted to use a producer id which is not currently assigned to its
+    /// transactional id
     InvalidProducerIdMapper = 49,
     /// The transaction timeout is larger than the maximum value allowed by the broker
     InvalidTransactionTimeout = 50,
-    /// The producer attempted to update a transaction while another concurrent operation on the same transaction was ongoing
+    /// The producer attempted to update a transaction while another concurrent operation on the
+    /// same transaction was ongoing
     ConcurrentTransactions = 51,
-    /// Indicates that the transaction coordinator sending a WriteTxnMarker is no longer the current coordinator for a given producer
+    /// Indicates that the transaction coordinator sending a WriteTxnMarker is no longer the
+    /// current coordinator for a given producer
     TransactionCoordinatorFenced = 52,
     /// Transactional Id authorization failed
     TransactionalIdAuthorizationFailed = 53,

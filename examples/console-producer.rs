@@ -31,10 +31,9 @@ use tokio_file_unix::{DelimCodec, File, Newline, StdFile};
 use tokio_io::AsyncRead;
 use tokio_io::codec::FramedRead;
 
-use tokio_kafka::{BytesSerializer, Compression, KafkaProducer, KafkaVersion, Producer,
-                  ProducerInterceptor, ProducerRecord, RecordMetadata, RequiredAcks, TopicRecord,
-                  DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,
-                  DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
+use tokio_kafka::{BytesSerializer, Compression, KafkaProducer, KafkaVersion, Producer, ProducerInterceptor,
+                  ProducerRecord, RecordMetadata, RequiredAcks, TopicRecord, DEFAULT_ACK_TIMEOUT_MILLIS,
+                  DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS};
 
 const DEFAULT_BROKER: &str = "127.0.0.1:9092";
 const DEFAULT_CLIENT_ID: &str = "producer-1";
@@ -105,12 +104,7 @@ impl Config {
             "TYPE",
         );
         opts.optopt("", "ack-timeout", "Specify time to wait for acks.", "MS");
-        opts.optopt(
-            "",
-            "idle-timeout",
-            "Specify timeout for idle connections.",
-            "MS",
-        );
+        opts.optopt("", "idle-timeout", "Specify timeout for idle connections.", "MS");
         opts.optopt(
             "",
             "linger",
@@ -133,37 +127,30 @@ impl Config {
             |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
         );
 
-        let (api_version_request, broker_version) =
-            m.opt_str("broker-version").map_or((false, None), |s| {
-                if s == "auto" {
-                    (true, None)
-                } else {
-                    (false, Some(s.parse().unwrap()))
-                }
-            });
+        let (api_version_request, broker_version) = m.opt_str("broker-version").map_or((false, None), |s| {
+            if s == "auto" {
+                (true, None)
+            } else {
+                (false, Some(s.parse().unwrap()))
+            }
+        });
 
         Ok(Config {
             brokers: brokers,
-            client_id: m.opt_str("client-id")
-                .unwrap_or(DEFAULT_CLIENT_ID.to_owned()),
+            client_id: m.opt_str("client-id").unwrap_or(DEFAULT_CLIENT_ID.to_owned()),
             api_version_request: api_version_request,
             broker_version: broker_version,
-            topic_name: m.opt_str("topic")
-                .unwrap_or_else(|| DEFAULT_TOPIC.to_owned()),
+            topic_name: m.opt_str("topic").unwrap_or_else(|| DEFAULT_TOPIC.to_owned()),
             input_file: m.opt_str("input"),
             batch_size: m.opt_str("batch-size")
                 .map_or(DEFAULT_BATCH_SIZE, |s| s.parse().unwrap()),
-            compression: m.opt_str("compression")
-                .map(|s| s.parse().unwrap())
-                .unwrap_or_default(),
+            compression: m.opt_str("compression").map(|s| s.parse().unwrap()).unwrap_or_default(),
             required_acks: m.opt_str("required-acks")
                 .map(|s| s.parse().unwrap())
                 .unwrap_or_default(),
             idle_timeout: Duration::from_millis(
                 m.opt_str("idle-timeout")
-                    .map_or(DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, |s| {
-                        s.parse().unwrap()
-                    }),
+                    .map_or(DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, |s| s.parse().unwrap()),
             ),
             ack_timeout: Duration::from_millis(
                 m.opt_str("ack-timeout")
@@ -253,10 +240,7 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
 where
     I: AsyncRead,
 {
-    let hosts = config
-        .brokers
-        .iter()
-        .flat_map(|s| s.to_socket_addrs().unwrap());
+    let hosts = config.brokers.iter().flat_map(|s| s.to_socket_addrs().unwrap());
 
     let handle = core.handle();
 

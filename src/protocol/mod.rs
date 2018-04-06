@@ -8,49 +8,43 @@ use time::Timespec;
 
 use errors::{Error, ErrorKind, Result};
 
-mod code;
 mod api_key;
+mod code;
 mod encode;
 #[macro_use]
 mod parse;
-mod header;
-mod message;
-mod produce;
+mod api_versions;
 mod fetch;
+mod group;
+mod header;
 mod list_offset;
+mod message;
 mod metadata;
 mod offset_commit;
 mod offset_fetch;
-mod group;
-mod api_versions;
+mod produce;
 mod schema;
 
 pub use self::api_key::{ApiKey, ApiKeys};
-pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion,
-                             UsableApiVersions};
+pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion, UsableApiVersions};
 pub use self::code::{ErrorCode, KafkaCode};
-pub use self::encode::{ARRAY_LEN_SIZE, BYTES_LEN_SIZE, Encodable, OFFSET_SIZE, PARTITION_ID_SIZE,
-                       REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE, WriteExt};
-pub use self::fetch::{DEFAULT_RESPONSE_MAX_BYTES, FetchPartition, FetchRequest, FetchResponse,
-                      FetchTopic, FetchTopicData};
+pub use self::encode::{Encodable, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE,
+                       REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
+pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic, FetchTopicData,
+                      DEFAULT_RESPONSE_MAX_BYTES};
 pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordinatorRequest,
-                      GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse,
-                      JoinGroupMember, JoinGroupProtocol, JoinGroupRequest, JoinGroupResponse,
-                      LeaveGroupRequest, LeaveGroupResponse, ListGroupsRequest,
-                      ListGroupsResponse, SyncGroupAssignment, SyncGroupRequest, SyncGroupResponse};
-pub use self::header::{RequestHeader, ResponseHeader, parse_response_header};
-pub use self::list_offset::{EARLIEST_TIMESTAMP, FetchOffset, LATEST_TIMESTAMP, ListOffsetRequest,
-                            ListOffsetResponse, ListPartitionOffset, ListTopicOffset};
-pub use self::message::{Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
-                        MessageTimestamp, parse_message_set};
-pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata,
-                         TopicMetadata};
-pub use self::offset_commit::{OffsetCommitPartition, OffsetCommitRequest, OffsetCommitResponse,
-                              OffsetCommitTopic};
-pub use self::offset_fetch::{OffsetFetchPartition, OffsetFetchRequest, OffsetFetchResponse,
-                             OffsetFetchTopic};
-pub use self::parse::{PARSE_TAGS, ParseTag, display_parse_error, parse_bytes, parse_opt_bytes,
-                      parse_opt_str, parse_opt_string, parse_str, parse_string};
+                      GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse, JoinGroupMember,
+                      JoinGroupProtocol, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest, LeaveGroupResponse,
+                      ListGroupsRequest, ListGroupsResponse, SyncGroupAssignment, SyncGroupRequest, SyncGroupResponse};
+pub use self::header::{parse_response_header, RequestHeader, ResponseHeader};
+pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListOffsetResponse, ListPartitionOffset, ListTopicOffset,
+                            EARLIEST_TIMESTAMP, LATEST_TIMESTAMP};
+pub use self::message::{parse_message_set, Message, MessageSet, MessageSetBuilder, MessageSetEncoder, MessageTimestamp};
+pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata, TopicMetadata};
+pub use self::offset_commit::{OffsetCommitPartition, OffsetCommitRequest, OffsetCommitResponse, OffsetCommitTopic};
+pub use self::offset_fetch::{OffsetFetchPartition, OffsetFetchRequest, OffsetFetchResponse, OffsetFetchTopic};
+pub use self::parse::{display_parse_error, parse_bytes, parse_opt_bytes, parse_opt_str, parse_opt_string, parse_str,
+                      parse_string, ParseTag, PARSE_TAGS};
 pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
 
@@ -139,11 +133,7 @@ impl FromStr for RequiredAcks {
             "none" => Ok(RequiredAcks::None),
             "one" => Ok(RequiredAcks::One),
             "all" => Ok(RequiredAcks::All),
-            _ => {
-                bail!(ErrorKind::ParseError(
-                    format!("unknown required acks: {}", s),
-                ))
-            }
+            _ => bail!(ErrorKind::ParseError(format!("unknown required acks: {}", s),)),
         }
     }
 }

@@ -43,15 +43,14 @@ impl<'a> ser::Serialize for Subscription<'a> {
         S: ser::Serializer,
     {
         let mut schema = SubscriptionSchema {
-            header: ConsumerProtocolHeader { version: CONSUMER_PROTOCOL_V0 },
+            header: ConsumerProtocolHeader {
+                version: CONSUMER_PROTOCOL_V0,
+            },
             topics: self.topics
                 .iter()
                 .map(|topic_name| String::from(topic_name.to_owned()))
                 .collect(),
-            user_data: self.user_data
-                .as_ref()
-                .map(|user_data| user_data.to_vec())
-                .into(),
+            user_data: self.user_data.as_ref().map(|user_data| user_data.to_vec()).into(),
         };
 
         schema.topics.sort();
@@ -100,25 +99,20 @@ impl<'a> ser::Serialize for Assignment<'a> {
         }
 
         let mut schema = AssignmentSchema {
-            header: ConsumerProtocolHeader { version: CONSUMER_PROTOCOL_V0 },
+            header: ConsumerProtocolHeader {
+                version: CONSUMER_PROTOCOL_V0,
+            },
             topic_partitions: topic_partitions
                 .into_iter()
-                .map(|(topic_name, partitions)| {
-                    TopicAssignment {
-                        topics: String::from(topic_name.to_owned()),
-                        partitions: partitions,
-                    }
+                .map(|(topic_name, partitions)| TopicAssignment {
+                    topics: String::from(topic_name.to_owned()),
+                    partitions: partitions,
                 })
                 .collect(),
-            user_data: self.user_data
-                .as_ref()
-                .map(|user_data| user_data.to_vec())
-                .into(),
+            user_data: self.user_data.as_ref().map(|user_data| user_data.to_vec()).into(),
         };
 
-        schema.topic_partitions.sort_by(|lhs, rhs| {
-            lhs.topics.cmp(&rhs.topics)
-        });
+        schema.topic_partitions.sort_by(|lhs, rhs| lhs.topics.cmp(&rhs.topics));
 
         schema.serialize(serializer)
     }
@@ -146,9 +140,10 @@ impl<'a, 'de> de::Deserialize<'de> for Assignment<'a> {
                 .flat_map(|assignment| {
                     let topic_name = String::from(assignment.topics.to_owned());
 
-                    assignment.partitions.iter().map(move |&partition| {
-                        topic_partition!(topic_name.clone(), partition)
-                    })
+                    assignment
+                        .partitions
+                        .iter()
+                        .map(move |&partition| topic_partition!(topic_name.clone(), partition))
                 })
                 .collect();
 
@@ -222,32 +217,24 @@ mod tests {
 
     #[test]
     fn test_subscription_serializer() {
-        assert_eq!(
-            Schema::serialize(&*TEST_SUBSCRIPTION).unwrap(),
-            *TEST_SUBSCRIPTION_DATA
-        );
+        assert_eq!(Schema::serialize(&*TEST_SUBSCRIPTION).unwrap(), *TEST_SUBSCRIPTION_DATA);
     }
 
     #[test]
     fn test_subscription_deserializer() {
-        let subscription: Subscription =
-            Schema::deserialize(Cursor::new(TEST_SUBSCRIPTION_DATA.clone())).unwrap();
+        let subscription: Subscription = Schema::deserialize(Cursor::new(TEST_SUBSCRIPTION_DATA.clone())).unwrap();
 
         assert_eq!(subscription, *TEST_SUBSCRIPTION);
     }
 
     #[test]
     fn test_assignment_serializer() {
-        assert_eq!(
-            Schema::serialize(&*TEST_ASSIGNMENT).unwrap(),
-            *TEST_ASSIGNMENT_DATA
-        );
+        assert_eq!(Schema::serialize(&*TEST_ASSIGNMENT).unwrap(), *TEST_ASSIGNMENT_DATA);
     }
 
     #[test]
     fn test_assignment_deserializer() {
-        let assignment: Assignment = Schema::deserialize(Cursor::new(TEST_ASSIGNMENT_DATA.clone()))
-            .unwrap();
+        let assignment: Assignment = Schema::deserialize(Cursor::new(TEST_ASSIGNMENT_DATA.clone())).unwrap();
 
         assert_eq!(assignment, *TEST_ASSIGNMENT);
     }

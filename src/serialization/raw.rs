@@ -3,8 +3,8 @@ use std::mem;
 use std::ptr;
 use std::slice;
 
-use bytes::{Buf, BufMut, Bytes};
 use bytes::buf::FromBuf;
+use bytes::{Buf, BufMut, Bytes};
 
 use errors::{Error, ErrorKind, Result};
 use serialization::{Deserializer, Serializer};
@@ -19,15 +19,8 @@ impl<T> Serializer for RawSerializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<M: BufMut>(
-        &self,
-        _topic_name: &str,
-        data: Self::Item,
-        buf: &mut M,
-    ) -> Result<()> {
-        buf.put_slice(unsafe {
-            slice::from_raw_parts(&data as *const T as *const u8, mem::size_of::<T>())
-        });
+    fn serialize_to<M: BufMut>(&self, _topic_name: &str, data: Self::Item, buf: &mut M) -> Result<()> {
+        buf.put_slice(unsafe { slice::from_raw_parts(&data as *const T as *const u8, mem::size_of::<T>()) });
 
         Ok(())
     }
@@ -49,18 +42,11 @@ impl<T> Deserializer for RawDeserializer<T> {
     type Item = T;
     type Error = Error;
 
-    fn deserialize_to<B: Buf>(
-        &self,
-        _topic_name: &str,
-        buf: &mut B,
-        data: &mut Self::Item,
-    ) -> Result<()> {
+    fn deserialize_to<B: Buf>(&self, _topic_name: &str, buf: &mut B, data: &mut Self::Item) -> Result<()> {
         let len = mem::size_of::<T>();
 
         if buf.remaining() < len {
-            bail!(ErrorKind::ParseError(
-                "serialized data too small".to_owned(),
-            ));
+            bail!(ErrorKind::ParseError("serialized data too small".to_owned(),));
         }
 
         *data = unsafe { ptr::read(buf.bytes()[..len].as_ptr() as *const T) };
@@ -89,10 +75,7 @@ mod tests {
 
         assert_eq!(buf, data);
 
-        assert_eq!(
-            serializer.serialize("topic", v).unwrap(),
-            Bytes::from(data.clone())
-        );
+        assert_eq!(serializer.serialize("topic", v).unwrap(), Bytes::from(data.clone()));
     }
 
     #[test]
@@ -101,9 +84,7 @@ mod tests {
         let mut cur = Cursor::new(vec![0x78, 0x56, 0x34, 0x12]);
         let mut v = 0u32;
 
-        deserializer
-            .deserialize_to("topic", &mut cur, &mut v)
-            .unwrap();
+        deserializer.deserialize_to("topic", &mut cur, &mut v).unwrap();
 
         assert_eq!(cur.position(), 4);
         assert_eq!(v, 0x12345678);

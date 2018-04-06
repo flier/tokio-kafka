@@ -4,9 +4,9 @@ use std::borrow::Cow;
 use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
-use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, Offset, PARTITION_ID_SIZE,
-               ParseTag, PartitionId, Record, RequestHeader, ResponseHeader, STR_LEN_SIZE,
-               WriteExt, parse_opt_string, parse_response_header, parse_string};
+use protocol::{parse_opt_string, parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, Offset,
+               ParseTag, PartitionId, Record, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE,
+               PARTITION_ID_SIZE, STR_LEN_SIZE};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct OffsetFetchRequest<'a> {
@@ -60,12 +60,13 @@ pub struct OffsetFetchPartitionStatus {
 
 impl<'a> Record for OffsetFetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len() +
-            self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
-                size + STR_LEN_SIZE + topic.topic_name.len() +
-                    topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
-                        size + PARTITION_ID_SIZE
-                    })
+        self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
+            + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+                size + STR_LEN_SIZE + topic.topic_name.len()
+                    + topic
+                        .partitions
+                        .iter()
+                        .fold(ARRAY_LEN_SIZE, |size, _| size + PARTITION_ID_SIZE)
             })
     }
 }
@@ -91,45 +92,46 @@ impl OffsetFetchResponse {
     }
 }
 
-named!(parse_offset_fetch_response<OffsetFetchResponse>,
-    parse_tag!(ParseTag::OffsetFetchResponse,
+named!(
+    parse_offset_fetch_response<OffsetFetchResponse>,
+    parse_tag!(
+        ParseTag::OffsetFetchResponse,
         do_parse!(
-            header: parse_response_header
-         >> topics: length_count!(be_i32, parse_offset_fetch_topic_status)
-         >> (OffsetFetchResponse {
-                header: header,
-                topics: topics,
-            })
+            header: parse_response_header >> topics: length_count!(be_i32, parse_offset_fetch_topic_status)
+                >> (OffsetFetchResponse {
+                    header: header,
+                    topics: topics,
+                })
         )
     )
 );
 
-named!(parse_offset_fetch_topic_status<OffsetFetchTopicStatus>,
-    parse_tag!(ParseTag::OffsetFetchTopicStatus,
+named!(
+    parse_offset_fetch_topic_status<OffsetFetchTopicStatus>,
+    parse_tag!(
+        ParseTag::OffsetFetchTopicStatus,
         do_parse!(
-            topic_name: parse_string
-         >> partitions: length_count!(be_i32, parse_offset_fetch_partition_status)
-         >> (OffsetFetchTopicStatus {
-                topic_name: topic_name,
-                partitions: partitions,
-            })
+            topic_name: parse_string >> partitions: length_count!(be_i32, parse_offset_fetch_partition_status)
+                >> (OffsetFetchTopicStatus {
+                    topic_name: topic_name,
+                    partitions: partitions,
+                })
         )
     )
 );
 
-named!(parse_offset_fetch_partition_status<OffsetFetchPartitionStatus>,
-    parse_tag!(ParseTag::OffsetFetchPartitionStatus,
+named!(
+    parse_offset_fetch_partition_status<OffsetFetchPartitionStatus>,
+    parse_tag!(
+        ParseTag::OffsetFetchPartitionStatus,
         do_parse!(
-            partition_id: be_i32
-         >> offset: be_i64
-         >> metadata: parse_opt_string
-         >> error_code: be_i16
-         >> (OffsetFetchPartitionStatus {
-                partition_id: partition_id,
-                offset: offset,
-                metadata: metadata,
-                error_code: error_code,
-            })
+            partition_id: be_i32 >> offset: be_i64 >> metadata: parse_opt_string >> error_code: be_i16
+                >> (OffsetFetchPartitionStatus {
+                    partition_id: partition_id,
+                    offset: offset,
+                    metadata: metadata,
+                    error_code: error_code,
+                })
         )
     )
 );
@@ -152,32 +154,22 @@ mod tests {
                 client_id: Some("client".into()),
             },
             group_id: "consumer".into(),
-            topics: vec![OffsetFetchTopic {
-                topic_name: "topic".into(),
-                partitions: vec![OffsetFetchPartition {
-                    partition_id: 1,
-                }],
-            }],
+            topics: vec![
+                OffsetFetchTopic {
+                    topic_name: "topic".into(),
+                    partitions: vec![OffsetFetchPartition { partition_id: 1 }],
+                },
+            ],
         };
 
         let data = vec![
-            // OffsetFetchRequest
-                // RequestHeader
-                0, 9,                                       // api_key
-                0, 0,                                       // api_version
-                0, 0, 0, 123,                               // correlation_id
-                 0, 6, b'c', b'l', b'i', b'e', b'n', b't',  // client_id
-
-            0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r',   // group_id
-
-                // topics: [OffsetFetchTopic]
-                0, 0, 0, 1,
-                    // OffsetFetchTopic
-                    0, 5, b't', b'o', b'p', b'i', b'c',     // topic_name
-                    // partitions: [OffsetFetchPartition]
-                    0, 0, 0, 1,
-                        // OffsetFetchPartition
-                        0, 0, 0, 1,                         // partition
+            /* OffsetFetchRequest
+             * RequestHeader */ 0, 9 /* api_key */, 0,
+            0 /* api_version */, 0, 0, 0, 123 /* correlation_id */, 0, 6, b'c', b'l', b'i', b'e', b'n',
+            b't' /* client_id */, 0, 8, b'c', b'o', b'n', b's', b'u', b'm', b'e', b'r' /* group_id */,
+            /* topics: [OffsetFetchTopic] */ 0, 0, 0, 1, /* OffsetFetchTopic */ 0, 5, b't', b'o', b'p', b'i',
+            b'c' /* topic_name */, /* partitions: [OffsetFetchPartition] */ 0, 0, 0, 1,
+            /* OffsetFetchPartition */ 0, 0, 0, 1 /* partition */,
         ];
 
         let mut buf = BytesMut::with_capacity(128);
@@ -193,29 +185,27 @@ mod tests {
     fn test_parse_offset_fetch_response() {
         let response = OffsetFetchResponse {
             header: ResponseHeader { correlation_id: 123 },
-            topics: vec![OffsetFetchTopicStatus {
-                topic_name: "topic".to_owned(),
-                partitions: vec![OffsetFetchPartitionStatus {
-                    partition_id: 1,
-                    offset: 2,
-                    metadata: Some("metadata".to_owned()),
-                    error_code: 3,
-                }],
-            }],
+            topics: vec![
+                OffsetFetchTopicStatus {
+                    topic_name: "topic".to_owned(),
+                    partitions: vec![
+                        OffsetFetchPartitionStatus {
+                            partition_id: 1,
+                            offset: 2,
+                            metadata: Some("metadata".to_owned()),
+                            error_code: 3,
+                        },
+                    ],
+                },
+            ],
         };
 
         let data = vec![
-            // ResponseHeader
-            0, 0, 0, 123,   // correlation_id
-            // topics: [OffsetCommitTopicStatus]
-            0, 0, 0, 1,
-                0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
-                // partitions: [OffsetCommitPartitionStatus]
-                0, 0, 0, 1,
-                    0, 0, 0, 1,                                             // partition
-                    0, 0, 0, 0, 0, 0, 0, 2,                                 // offset
-                    0, 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a',   // metadata
-                    0, 3,                                                   // error_code
+            /* ResponseHeader */ 0, 0, 0, 123 /* correlation_id */,
+            /* topics: [OffsetCommitTopicStatus] */ 0, 0, 0, 1, 0, 5, b't', b'o', b'p', b'i',
+            b'c' /* topic_name */, /* partitions: [OffsetCommitPartitionStatus] */ 0, 0, 0, 1, 0, 0, 0,
+            1 /* partition */, 0, 0, 0, 0, 0, 0, 0, 2 /* offset */, 0, 8, b'm', b'e', b't', b'a', b'd', b'a',
+            b't', b'a' /* metadata */, 0, 3 /* error_code */,
         ];
 
         let res = parse_offset_fetch_response(&data[..]);

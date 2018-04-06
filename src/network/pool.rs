@@ -1,30 +1,32 @@
-use std::io;
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::rc::Rc;
 use std::cell::{Cell, RefCell};
-use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
 use std::collections::vec_deque::VecDeque;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::io;
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use futures::{Async, Future, Poll};
 use futures::unsync::oneshot;
+use futures::{Async, Future, Poll};
 
 use network::{KeepAlive, Status};
 
 #[derive(Clone, Debug)]
 pub struct Pool<K, T>
-    where K: Clone + Hash + Eq,
-          T: Clone
+where
+    K: Clone + Hash + Eq,
+    T: Clone,
 {
     inner: Rc<RefCell<PoolInner<K, T>>>,
 }
 
 #[derive(Debug)]
 struct PoolInner<K, T>
-    where K: Clone + Hash + Eq,
-          T: Clone
+where
+    K: Clone + Hash + Eq,
+    T: Clone,
 {
     enabled: bool,
     timeout: Option<Duration>,
@@ -33,17 +35,18 @@ struct PoolInner<K, T>
 }
 
 impl<K, T> Pool<K, T>
-    where K: Clone + Debug + Hash + Eq,
-          T: Clone
+where
+    K: Clone + Debug + Hash + Eq,
+    T: Clone,
 {
     pub fn new(timeout: Duration) -> Self {
         Pool {
             inner: Rc::new(RefCell::new(PoolInner {
-                                            enabled: true,
-                                            timeout: Some(timeout),
-                                            idle: HashMap::new(),
-                                            parked: HashMap::new(),
-                                        })),
+                enabled: true,
+                timeout: Some(timeout),
+                idle: HashMap::new(),
+                parked: HashMap::new(),
+            })),
         }
     }
 
@@ -97,11 +100,7 @@ impl<K, T> Pool<K, T>
             Some(entry) => {
                 trace!("insert parked entry for {:?}", key);
 
-                inner
-                    .idle
-                    .entry(key)
-                    .or_insert_with(Vec::new)
-                    .push(entry);
+                inner.idle.entry(key).or_insert_with(Vec::new).push(entry);
             }
             None => trace!("found parked {:?}", key),
         }
@@ -147,8 +146,9 @@ impl<K, T> Pool<K, T>
 
 #[derive(Clone, Debug)]
 pub struct Pooled<K, T>
-    where K: Clone + Hash + Eq,
-          T: Clone
+where
+    K: Clone + Hash + Eq,
+    T: Clone,
 {
     entry: Entry<T>,
     key: K,
@@ -157,7 +157,8 @@ pub struct Pooled<K, T>
 
 #[derive(Clone, Debug)]
 struct Entry<T>
-    where T: Clone
+where
+    T: Clone,
 {
     value: T,
     reused: bool,
@@ -165,8 +166,9 @@ struct Entry<T>
 }
 
 impl<K, T> Deref for Pooled<K, T>
-    where K: Clone + Hash + Eq,
-          T: Clone
+where
+    K: Clone + Hash + Eq,
+    T: Clone,
 {
     type Target = T;
     fn deref(&self) -> &T {
@@ -175,8 +177,9 @@ impl<K, T> Deref for Pooled<K, T>
 }
 
 impl<K, T> DerefMut for Pooled<K, T>
-    where K: Clone + Hash + Eq,
-          T: Clone
+where
+    K: Clone + Hash + Eq,
+    T: Clone,
 {
     fn deref_mut(&mut self) -> &mut T {
         &mut self.entry.value
@@ -184,8 +187,9 @@ impl<K, T> DerefMut for Pooled<K, T>
 }
 
 impl<K, T> KeepAlive for Pooled<K, T>
-    where K: Clone + Debug + Hash + Eq,
-          T: Clone + Debug
+where
+    K: Clone + Debug + Hash + Eq,
+    T: Clone + Debug,
 {
     fn status(&self) -> Status {
         self.entry.status.get()
@@ -221,8 +225,9 @@ impl<K, T> KeepAlive for Pooled<K, T>
 }
 
 pub struct Checkout<K, T>
-    where K: Clone + Hash + Eq,
-          T: Clone
+where
+    K: Clone + Hash + Eq,
+    T: Clone,
 {
     key: K,
     pool: Pool<K, T>,
@@ -230,8 +235,9 @@ pub struct Checkout<K, T>
 }
 
 impl<K, T> Future for Checkout<K, T>
-    where K: Clone + Debug + Hash + Eq,
-          T: Clone
+where
+    K: Clone + Debug + Hash + Eq,
+    T: Clone,
 {
     type Item = Pooled<K, T>;
     type Error = io::Error;
@@ -265,37 +271,34 @@ impl<K, T> Future for Checkout<K, T>
         trace!("checkout key={:?}, expiration={:?}", key, expiration);
 
         let mut should_remove = false;
-        let entry = self.pool
-            .inner
-            .borrow_mut()
-            .idle
-            .get_mut(key)
-            .and_then(|list| {
-                trace!("found {} idle pooled items", list.len());
+        let entry = self.pool.inner.borrow_mut().idle.get_mut(key).and_then(|list| {
+            trace!("found {} idle pooled items", list.len());
 
-                while let Some(entry) = list.pop() {
-                    match entry.status.get() {
-                        Status::Idle(idle_at) if !expiration.expires(idle_at) => {
-                            trace!("found idle for {:?}", key);
+            while let Some(entry) = list.pop() {
+                match entry.status.get() {
+                    Status::Idle(idle_at) if !expiration.expires(idle_at) => {
+                        trace!("found idle for {:?}", key);
 
-                            should_remove = list.is_empty();
-                            return Some(entry);
-                        }
-                        _ => {
-                            trace!("removing unacceptable pooled for {:?}， status={:?}",
-                                   key,
-                                   entry.status);
+                        should_remove = list.is_empty();
+                        return Some(entry);
+                    }
+                    _ => {
+                        trace!(
+                            "removing unacceptable pooled for {:?}， status={:?}",
+                            key,
+                            entry.status
+                        );
 
-                            // every other case the Entry should just be dropped
-                            // 1. Idle but expired
-                            // 2. Busy (something else somehow took it?)
-                            // 3. Disabled don't reuse of course
-                        }
+                        // every other case the Entry should just be dropped
+                        // 1. Idle but expired
+                        // 2. Busy (something else somehow took it?)
+                        // 3. Disabled don't reuse of course
                     }
                 }
-                should_remove = true;
-                None
-            });
+            }
+            should_remove = true;
+            None
+        });
 
         if should_remove {
             self.pool.inner.borrow_mut().idle.remove(key);

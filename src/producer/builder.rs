@@ -10,8 +10,8 @@ use tokio_core::reactor::Handle;
 use client::{KafkaClient, KafkaVersion};
 use compression::Compression;
 use errors::{ErrorKind, Result};
-use producer::{DefaultPartitioner, Interceptors, KafkaProducer, ProducerConfig,
-               ProducerInterceptor, ProducerInterceptors};
+use producer::{DefaultPartitioner, Interceptors, KafkaProducer, ProducerConfig, ProducerInterceptor,
+               ProducerInterceptors};
 use protocol::{RequiredAcks, ToMilliseconds};
 use serialization::{NoopSerializer, Serializer};
 
@@ -233,9 +233,8 @@ where
         I: ProducerInterceptor<Key = K::Item, Value = V::Item> + 'static,
         K::Item: Hash,
     {
-        let interceptors = self.interceptors.unwrap_or_else(|| {
-            Rc::new(RefCell::new(ProducerInterceptors::new()))
-        });
+        let interceptors = self.interceptors
+            .unwrap_or_else(|| Rc::new(RefCell::new(ProducerInterceptors::new())));
 
         interceptors.borrow_mut().push(Box::new(interceptor));
 
@@ -299,15 +298,11 @@ where
         Ok(KafkaProducer::new(
             client,
             self.config,
-            self.key_serializer.ok_or(ErrorKind::ConfigError(
-                "missed key serializer",
-            ))?,
-            self.value_serializer.ok_or(ErrorKind::ConfigError(
-                "missed value serializer",
-            ))?,
-            self.partitioner.ok_or(
-                ErrorKind::ConfigError("missed partitioner"),
-            )?,
+            self.key_serializer
+                .ok_or(ErrorKind::ConfigError("missed key serializer"))?,
+            self.value_serializer
+                .ok_or(ErrorKind::ConfigError("missed value serializer"))?,
+            self.partitioner.ok_or(ErrorKind::ConfigError("missed partitioner"))?,
             self.interceptors,
         ))
     }

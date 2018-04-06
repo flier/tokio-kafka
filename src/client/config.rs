@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use tokio_retry::strategy::{ExponentialBackoff, jitter};
-use tokio_timer::{Timer, wheel};
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
+use tokio_timer::{wheel, Timer};
 
 use client::KafkaVersion;
 
@@ -145,8 +145,7 @@ impl ClientConfig {
     pub fn timer(&self) -> Timer {
         wheel()
             .tick_duration(Duration::from_millis(DEFAULT_TIMER_TICK_MILLS))
-            .num_slots((self.request_timeout / DEFAULT_TIMER_TICK_MILLS)
-                .next_power_of_two() as usize)
+            .num_slots((self.request_timeout / DEFAULT_TIMER_TICK_MILLS).next_power_of_two() as usize)
             .build()
     }
 

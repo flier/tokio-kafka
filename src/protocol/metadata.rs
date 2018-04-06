@@ -5,9 +5,8 @@ use bytes::{ByteOrder, BytesMut};
 use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
-use protocol::{ARRAY_LEN_SIZE, ApiVersion, Encodable, ErrorCode, NodeId, ParseTag, PartitionId,
-               Record, RequestHeader, ResponseHeader, STR_LEN_SIZE, WriteExt,
-               parse_response_header, parse_string};
+use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, NodeId, ParseTag, PartitionId,
+               Record, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE, STR_LEN_SIZE};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest<'a> {
@@ -17,13 +16,9 @@ pub struct MetadataRequest<'a> {
 
 impl<'a> Record for MetadataRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.header.size(api_version) +
-            self.topic_names.iter().fold(
-                ARRAY_LEN_SIZE,
-                |size, topic_name| {
-                    size + STR_LEN_SIZE + topic_name.len()
-                },
-            )
+        self.header.size(api_version) + self.topic_names.iter().fold(ARRAY_LEN_SIZE, |size, topic_name| {
+            size + STR_LEN_SIZE + topic_name.len()
+        })
     }
 }
 
@@ -31,12 +26,9 @@ impl<'a> Encodable for MetadataRequest<'a> {
     fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
         self.header.encode::<T>(dst)?;
 
-        dst.put_array::<T, _, _>(
-            &self.topic_names,
-            |buf, topic_name| {
-                buf.put_str::<T, _>(Some(topic_name.as_ref()))
-            },
-        )?;
+        dst.put_array::<T, _, _>(&self.topic_names, |buf, topic_name| {
+            buf.put_str::<T, _>(Some(topic_name.as_ref()))
+        })?;
 
         Ok(())
     }
@@ -78,13 +70,13 @@ impl MetadataResponse {
     }
 }
 
-named!(parse_metadata_response<MetadataResponse>,
-    parse_tag!(ParseTag::MetadataResponse,
+named!(
+    parse_metadata_response<MetadataResponse>,
+    parse_tag!(
+        ParseTag::MetadataResponse,
         do_parse!(
-            header: parse_response_header
-        >> brokers: length_count!(be_i32, parse_broker_metadata)
-        >> topics: length_count!(be_i32, parse_topic_metadata)
-        >> (MetadataResponse {
+            header: parse_response_header >> brokers: length_count!(be_i32, parse_broker_metadata)
+                >> topics: length_count!(be_i32, parse_topic_metadata) >> (MetadataResponse {
                 header: header,
                 brokers: brokers,
                 topics: topics,
@@ -93,13 +85,12 @@ named!(parse_metadata_response<MetadataResponse>,
     )
 );
 
-named!(parse_broker_metadata<BrokerMetadata>,
-    parse_tag!(ParseTag::BrokerMetadata,
+named!(
+    parse_broker_metadata<BrokerMetadata>,
+    parse_tag!(
+        ParseTag::BrokerMetadata,
         do_parse!(
-            node_id: be_i32
-         >> host: parse_string
-         >> port: be_i32
-         >> (BrokerMetadata {
+            node_id: be_i32 >> host: parse_string >> port: be_i32 >> (BrokerMetadata {
                 node_id: node_id,
                 host: host,
                 port: port,
@@ -108,13 +99,13 @@ named!(parse_broker_metadata<BrokerMetadata>,
     )
 );
 
-named!(parse_topic_metadata<TopicMetadata>,
-    parse_tag!(ParseTag::TopicMetadata,
+named!(
+    parse_topic_metadata<TopicMetadata>,
+    parse_tag!(
+        ParseTag::TopicMetadata,
         do_parse!(
-            error_code: be_i16
-         >> topic_name: parse_string
-         >> partitions: length_count!(be_i32, parse_partition_metadata)
-         >> (TopicMetadata {
+            error_code: be_i16 >> topic_name: parse_string
+                >> partitions: length_count!(be_i32, parse_partition_metadata) >> (TopicMetadata {
                 error_code: error_code,
                 topic_name: topic_name,
                 partitions: partitions,
@@ -123,15 +114,13 @@ named!(parse_topic_metadata<TopicMetadata>,
     )
 );
 
-named!(parse_partition_metadata<PartitionMetadata>,
-    parse_tag!(ParseTag::PartitionMetadata,
+named!(
+    parse_partition_metadata<PartitionMetadata>,
+    parse_tag!(
+        ParseTag::PartitionMetadata,
         do_parse!(
-            error_code: be_i16
-         >> partition_id: be_i32
-         >> leader: be_i32
-         >> replicas: length_count!(be_i32, be_i32)
-         >> isr: length_count!(be_i32, be_i32)
-         >> (PartitionMetadata {
+            error_code: be_i16 >> partition_id: be_i32 >> leader: be_i32 >> replicas: length_count!(be_i32, be_i32)
+                >> isr: length_count!(be_i32, be_i32) >> (PartitionMetadata {
                 error_code: error_code,
                 partition_id: partition_id,
                 leader: leader,
@@ -233,7 +222,9 @@ mod tests {
 
     #[test]
     fn test_parse_metadata_response() {
-        assert_eq!(parse_metadata_response(TEST_RESPONSE_DATA.as_slice()),
-        IResult::Done(&[][..], TEST_RESPONSE.clone()));
+        assert_eq!(
+            parse_metadata_response(TEST_RESPONSE_DATA.as_slice()),
+            IResult::Done(&[][..], TEST_RESPONSE.clone())
+        );
     }
 }

@@ -12,10 +12,10 @@ use typemap::{Key, TypeMap};
 
 use tokio_core::reactor::Handle;
 
-use client::{Broker, BrokerRef, Client, Cluster, ConsumerGroup, ConsumerGroupAssignment,
-             ConsumerGroupProtocol, FetchRecords, Generation, GetMetadata, GroupCoordinator,
-             Heartbeat, JoinGroup, LeaveGroup, ListOffsets, LoadMetadata, Metadata, OffsetCommit,
-             OffsetFetch, PartitionData, ProduceRecords, SyncGroup, ToStaticBoxFuture};
+use client::{Broker, BrokerRef, Client, Cluster, ConsumerGroup, ConsumerGroupAssignment, ConsumerGroupProtocol,
+             FetchRecords, Generation, GetMetadata, GroupCoordinator, Heartbeat, JoinGroup, LeaveGroup, ListOffsets,
+             LoadMetadata, Metadata, OffsetCommit, OffsetFetch, PartitionData, ProduceRecords, SyncGroup,
+             ToStaticBoxFuture};
 use consumer::Assignment;
 use errors::{ErrorKind, Result};
 use network::{OffsetAndMetadata, TopicPartition};
@@ -81,10 +81,7 @@ impl<'a> MockClient<'a> {
     }
 
     pub fn with_group_member_as_follower(mut self, member_id: Cow<'a, str>) -> Self {
-        self.member_assignments.insert(
-            member_id,
-            Assignment::default(),
-        );
+        self.member_assignments.insert(member_id, Assignment::default());
         self
     }
 
@@ -107,9 +104,7 @@ where
     Self: 'static,
 {
     fn handle(&self) -> &Handle {
-        &self.handle.as_ref().expect(
-            "should attach event loop with `with_core`",
-        )
+        &self.handle.as_ref().expect("should attach event loop with `with_core`")
     }
 
     fn metadata(&self) -> GetMetadata {
@@ -168,10 +163,7 @@ where
     }
 
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator {
-        if let Some(callback) = self.future_responses
-            .borrow_mut()
-            .remove::<GroupCoordinator>()
-        {
+        if let Some(callback) = self.future_responses.borrow_mut().remove::<GroupCoordinator>() {
             callback(String::from(group_id)).static_boxed()
         } else {
             let metadata = self.metadata.clone();
@@ -179,9 +171,7 @@ where
             self.group_coordinators
                 .get(&group_id)
                 .cloned()
-                .ok_or_else(|| {
-                    ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable.into()).into()
-                })
+                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable.into()).into())
                 .static_boxed()
         }
     }
@@ -197,24 +187,18 @@ where
         group_protocols: Vec<ConsumerGroupProtocol<'a>>,
     ) -> JoinGroup {
         if self.metadata.find_broker(coordinator).is_none() {
-            Err(
-                ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable).into(),
-            )
+            Err(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable).into())
         } else if let Some(consumer_group) = self.consumer_groups.get(&group_id) {
-            if group_protocols.iter().all(|protocol| {
-                protocol.protocol_name != consumer_group.protocol
-            })
+            if group_protocols
+                .iter()
+                .all(|protocol| protocol.protocol_name != consumer_group.protocol)
             {
-                Err(
-                    ErrorKind::KafkaError(KafkaCode::InconsistentGroupProtocol).into(),
-                )
+                Err(ErrorKind::KafkaError(KafkaCode::InconsistentGroupProtocol).into())
             } else {
                 Ok(consumer_group.clone())
             }
         } else {
-            Err(
-                ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup).into(),
-            )
+            Err(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup).into())
         }.static_boxed()
     }
 
@@ -236,9 +220,7 @@ where
         let member_id: Cow<'a, str> = generation.member_id.clone().into();
 
         if self.metadata.find_broker(coordinator).is_none() {
-            Err(
-                ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable).into(),
-            )
+            Err(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable).into())
         } else if let Some(consumer_group) = self.consumer_groups.get(&group_id) {
             if consumer_group.generation_id != generation.generation_id {
                 Err(ErrorKind::KafkaError(KafkaCode::IllegalGeneration).into())
@@ -248,9 +230,7 @@ where
                 Err(ErrorKind::KafkaError(KafkaCode::UnknownMemberId).into())
             }
         } else {
-            Err(
-                ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup).into(),
-            )
+            Err(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup).into())
         }.static_boxed()
     }
 }

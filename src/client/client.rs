@@ -15,22 +15,21 @@ use bytes::Bytes;
 
 use rand::{self, Rng};
 
-use futures::{Async, IntoFuture, Poll};
 use futures::future::{self, Future};
 use futures::unsync::oneshot;
+use futures::{Async, IntoFuture, Poll};
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_middleware::{Log as LogMiddleware, Timeout as TimeoutMiddleware};
 use tokio_service::Service;
 use tokio_timer::Timer;
 
-use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware,
-             KafkaService, Metadata, Metrics};
+use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware, KafkaService, Metadata,
+             Metrics};
 use errors::{Error, ErrorKind, Result};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
-use protocol::{ApiKeys, ApiVersion, CorrelationId, DEFAULT_RESPONSE_MAX_BYTES, ErrorCode,
-               FetchOffset, FetchPartition, FetchTopic, FetchTopicData, GenerationId,
-               JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset,
-               PartitionId, RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions};
+use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
+               GenerationId, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset, PartitionId,
+               RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions, DEFAULT_RESPONSE_MAX_BYTES};
 
 /// A trait for communicating with the Kafka cluster.
 pub trait Client<'a>: 'static {
@@ -328,11 +327,7 @@ where
             None
         };
         let service = InFlightMiddleware::new(LogMiddleware::new(TimeoutMiddleware::new(
-            KafkaService::new(
-                handle.clone(),
-                config.max_connection_idle(),
-                metrics.clone(),
-            ),
+            KafkaService::new(handle.clone(), config.max_connection_idle(), metrics.clone()),
             config.timer(),
             config.request_timeout(),
         )));
@@ -417,9 +412,7 @@ where
     ) -> ProduceRecords {
         let inner = self.inner.clone();
         self.metadata()
-            .and_then(move |metadata| {
-                inner.produce_records(metadata, required_acks, timeout, tp, records)
-            })
+            .and_then(move |metadata| inner.produce_records(metadata, required_acks, timeout, tp, records))
             .static_boxed()
     }
 
@@ -437,14 +430,8 @@ where
                     .topics_by_broker(metadata, partitions)
                     .into_future()
                     .and_then(move |topics| {
-                        inner.fetch_records(
-                            fetch_max_wait,
-                            fetch_min_bytes,
-                            fetch_max_bytes,
-                            topics,
-                        )
+                        inner.fetch_records(fetch_max_wait, fetch_min_bytes, fetch_max_bytes, topics)
                     })
-
             })
             .static_boxed()
     }
@@ -525,9 +512,7 @@ where
             .and_then(move |metadata| {
                 metadata
                     .find_broker(coordinator)
-                    .map(move |coordinator| {
-                        inner.offset_fetch(coordinator, generation.group_id.into(), partitions)
-                    })
+                    .map(move |coordinator| inner.offset_fetch(coordinator, generation.group_id.into(), partitions))
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
             })
             .static_boxed()
@@ -597,11 +582,7 @@ where
                 metadata
                     .find_broker(coordinator)
                     .map(move |coordinator| {
-                        inner.leave_group(
-                            coordinator,
-                            generation.group_id.into(),
-                            generation.member_id.into(),
-                        )
+                        inner.leave_group(coordinator, generation.group_id.into(), generation.member_id.into())
                     })
                     .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
             })
@@ -757,10 +738,12 @@ where
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::ApiVersions(res) = res {
-                Ok(UsableApiVersions::new(res.api_versions))
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::ApiVersions(res) = res {
+                    Ok(UsableApiVersions::new(res.api_versions))
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
             .static_boxed()
     }
@@ -773,9 +756,8 @@ where
 
             for broker in metadata.brokers() {
                 let broker_ref = broker.as_ref();
-                let response = self.fetch_api_versions(broker).map(move |api_versions| {
-                    (broker_ref, api_versions)
-                });
+                let response = self.fetch_api_versions(broker)
+                    .map(move |api_versions| (broker_ref, api_versions));
 
                 responses.push(response);
             }
@@ -783,9 +765,7 @@ where
             responses
         };
 
-        future::join_all(responses)
-            .map(HashMap::from_iter)
-            .static_boxed()
+        future::join_all(responses).map(HashMap::from_iter).static_boxed()
     }
 
     fn produce_records(
@@ -796,16 +776,15 @@ where
         tp: TopicPartition<'a>,
         records: Vec<Cow<'a, MessageSet>>,
     ) -> ProduceRecords {
-        let (api_version, addr) =
-            metadata.leader_for(&tp).map_or_else(
-                || (0, *self.config.hosts.iter().next().unwrap()),
-                |broker| {
-                    (
-                        broker.api_version(ApiKeys::Produce).unwrap_or_default(),
-                        broker.addr().to_socket_addrs().unwrap().next().unwrap(),
-                    )
-                },
-            );
+        let (api_version, addr) = metadata.leader_for(&tp).map_or_else(
+            || (0, *self.config.hosts.iter().next().unwrap()),
+            |broker| {
+                (
+                    broker.api_version(ApiKeys::Produce).unwrap_or_default(),
+                    broker.addr().to_socket_addrs().unwrap().next().unwrap(),
+                )
+            },
+        );
 
         let request = KafkaRequest::produce_records(
             api_version,
@@ -819,10 +798,12 @@ where
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::Produce(res) = res {
-                Ok(res.topics)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::Produce(res) = res {
+                    Ok(res.topics)
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
             .map(|topics| {
                 topics
@@ -833,12 +814,10 @@ where
                             topic
                                 .partitions
                                 .into_iter()
-                                .map(|partition| {
-                                    ProducedRecords {
-                                        partition_id: partition.partition_id,
-                                        error_code: partition.error_code.into(),
-                                        base_offset: partition.offset,
-                                    }
+                                .map(|partition| ProducedRecords {
+                                    partition_id: partition.partition_id,
+                                    error_code: partition.error_code.into(),
+                                    base_offset: partition.offset,
                                 })
                                 .collect(),
                         )
@@ -856,12 +835,14 @@ where
         let mut topics = HashMap::new();
 
         for (tp, value) in partitions {
-            let broker = metadata.leader_for(&tp).ok_or_else(|| {
-                ErrorKind::KafkaError(KafkaCode::NotLeaderForPartition)
-            })?;
-            let addr = broker.addr().to_socket_addrs()?.next().ok_or_else(|| {
-                ErrorKind::KafkaError(KafkaCode::LeaderNotAvailable)
-            })?;
+            let broker = metadata
+                .leader_for(&tp)
+                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::NotLeaderForPartition))?;
+            let addr = broker
+                .addr()
+                .to_socket_addrs()?
+                .next()
+                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::LeaderNotAvailable))?;
             let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
 
             topics
@@ -888,22 +869,16 @@ where
             for ((addr, api_version), offsets_by_topic) in topics {
                 let fetch_topics = offsets_by_topic
                     .iter()
-                    .map(|(topic_name, partitions)| {
-                        FetchTopic {
-                            topic_name: topic_name.to_owned(),
-                            partitions: partitions
-                                .iter()
-                                .map(|&(partition_id, ref fetch_data)| {
-                                    FetchPartition {
-                                        partition_id: partition_id,
-                                        fetch_offset: fetch_data.offset,
-                                        max_bytes: fetch_data.max_bytes.unwrap_or(
-                                            DEFAULT_RESPONSE_MAX_BYTES,
-                                        ),
-                                    }
-                                })
-                                .collect(),
-                        }
+                    .map(|(topic_name, partitions)| FetchTopic {
+                        topic_name: topic_name.to_owned(),
+                        partitions: partitions
+                            .iter()
+                            .map(|&(partition_id, ref fetch_data)| FetchPartition {
+                                partition_id: partition_id,
+                                fetch_offset: fetch_data.offset,
+                                max_bytes: fetch_data.max_bytes.unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
+                            })
+                            .collect(),
                     })
                     .collect();
 
@@ -918,14 +893,14 @@ where
                 );
                 let request = self.service
                     .call((addr, request))
-                    .and_then(|res| if let KafkaResponse::Fetch(res) = res {
-                        Ok(res.topics)
-                    } else {
-                        bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    .and_then(|res| {
+                        if let KafkaResponse::Fetch(res) = res {
+                            Ok(res.topics)
+                        } else {
+                            bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                        }
                     })
-                    .map(|topics| {
-                        Self::extract_fetched_records(offsets_by_topic, topics)
-                    });
+                    .map(|topics| Self::extract_fetched_records(offsets_by_topic, topics));
 
                 requests.push(request);
             }
@@ -935,12 +910,12 @@ where
 
         future::join_all(requests)
             .map(|responses| {
-                responses.into_iter().fold(HashMap::new(), |mut records,
-                 response| {
+                responses.into_iter().fold(HashMap::new(), |mut records, response| {
                     for (topic_name, mut partitions) in response {
-                        records.entry(topic_name).or_insert_with(Vec::new).append(
-                            &mut partitions,
-                        );
+                        records
+                            .entry(topic_name)
+                            .or_insert_with(Vec::new)
+                            .append(&mut partitions);
                     }
 
                     records
@@ -985,14 +960,12 @@ where
                         .flat_map(move |data| {
                             let tp = topic_partition!(topic_name.clone(), data.partition_id);
 
-                            offsets_by_topic_partition.get(&tp).map(move |&fetch| {
-                                FetchedRecords {
-                                    partition_id: data.partition_id,
-                                    error_code: data.error_code.into(),
-                                    fetch_offset: fetch.offset,
-                                    high_watermark: data.high_watermark,
-                                    messages: data.message_set.messages,
-                                }
+                            offsets_by_topic_partition.get(&tp).map(move |&fetch| FetchedRecords {
+                                partition_id: data.partition_id,
+                                error_code: data.error_code.into(),
+                                fetch_offset: fetch.offset,
+                                high_watermark: data.high_watermark,
+                                messages: data.message_set.messages,
                             })
                         })
                         .collect()
@@ -1010,18 +983,16 @@ where
             let mut requests = Vec::new();
 
             for ((addr, api_version), topics) in topics {
-                let request = KafkaRequest::list_offsets(
-                    api_version,
-                    self.next_correlation_id(),
-                    self.client_id(),
-                    topics,
-                );
+                let request =
+                    KafkaRequest::list_offsets(api_version, self.next_correlation_id(), self.client_id(), topics);
                 let request = self.service
                     .call((addr, request))
-                    .and_then(|res| if let KafkaResponse::ListOffsets(res) = res {
-                        Ok(res.topics)
-                    } else {
-                        bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    .and_then(|res| {
+                        if let KafkaResponse::ListOffsets(res) = res {
+                            Ok(res.topics)
+                        } else {
+                            bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                        }
                     })
                     .map(|topics| {
                         topics
@@ -1030,13 +1001,11 @@ where
                                 let partitions = topic
                                     .partitions
                                     .into_iter()
-                                    .map(|partition| {
-                                        ListedOffset {
-                                            partition_id: partition.partition_id,
-                                            error_code: partition.error_code.into(),
-                                            offsets: partition.offsets,
-                                            timestamp: partition.timestamp,
-                                        }
+                                    .map(|partition| ListedOffset {
+                                        partition_id: partition.partition_id,
+                                        error_code: partition.error_code.into(),
+                                        offsets: partition.offsets,
+                                        timestamp: partition.timestamp,
                                     })
                                     .collect();
 
@@ -1053,12 +1022,12 @@ where
 
         future::join_all(requests)
             .map(|responses| {
-                responses.into_iter().fold(HashMap::new(), |mut offsets,
-                 response| {
+                responses.into_iter().fold(HashMap::new(), |mut offsets, response| {
                     for (topic_name, mut partitions) in response {
-                        offsets.entry(topic_name).or_insert_with(Vec::new).append(
-                            &mut partitions,
-                        )
+                        offsets
+                            .entry(topic_name)
+                            .or_insert_with(Vec::new)
+                            .append(&mut partitions)
                     }
                     offsets
                 })
@@ -1077,16 +1046,9 @@ where
     ) -> OffsetCommit {
         debug!("fetch offset to the `{}` group: {:?}", group_id, offsets);
 
-        let addr = coordinator
-            .addr()
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap(); // TODO
+        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
 
-        let api_version = coordinator
-            .api_version(ApiKeys::OffsetCommit)
-            .unwrap_or_default();
+        let api_version = coordinator.api_version(ApiKeys::OffsetCommit).unwrap_or_default();
 
         let request = KafkaRequest::offset_commit(
             api_version,
@@ -1101,10 +1063,12 @@ where
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::OffsetCommit(res) = res {
-                Ok(res.topics)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::OffsetCommit(res) = res {
+                    Ok(res.topics)
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
             .map(|topics| {
                 topics
@@ -1113,11 +1077,9 @@ where
                         let partitions = status
                             .partitions
                             .into_iter()
-                            .map(|partition| {
-                                CommittedOffset {
-                                    partition_id: partition.partition_id,
-                                    error_code: partition.error_code.into(),
-                                }
+                            .map(|partition| CommittedOffset {
+                                partition_id: partition.partition_id,
+                                error_code: partition.error_code.into(),
                             })
                             .collect();
 
@@ -1134,22 +1096,11 @@ where
         group_id: Cow<'a, str>,
         partitions: Vec<TopicPartition<'a>>,
     ) -> OffsetFetch {
-        debug!(
-            "fetch offset of the `{}` group : {:?}",
-            group_id,
-            partitions
-        );
+        debug!("fetch offset of the `{}` group : {:?}", group_id, partitions);
 
-        let addr = coordinator
-            .addr()
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap(); // TODO
+        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
 
-        let api_version = coordinator
-            .api_version(ApiKeys::OffsetFetch)
-            .unwrap_or_default();
+        let api_version = coordinator.api_version(ApiKeys::OffsetFetch).unwrap_or_default();
 
         let request = KafkaRequest::offset_fetch(
             api_version,
@@ -1161,10 +1112,12 @@ where
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::OffsetFetch(res) = res {
-                Ok(res.topics)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::OffsetFetch(res) = res {
+                    Ok(res.topics)
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
             .map(|topics| {
                 topics
@@ -1173,13 +1126,11 @@ where
                         let partitions = status
                             .partitions
                             .into_iter()
-                            .map(|partition| {
-                                FetchedOffset {
-                                    partition_id: partition.partition_id,
-                                    offset: partition.offset,
-                                    metadata: partition.metadata,
-                                    error_code: partition.error_code.into(),
-                                }
+                            .map(|partition| FetchedOffset {
+                                partition_id: partition.partition_id,
+                                offset: partition.offset,
+                                metadata: partition.metadata,
+                                error_code: partition.error_code.into(),
                             })
                             .collect();
 
@@ -1190,11 +1141,7 @@ where
             .static_boxed()
     }
 
-    fn group_coordinator(
-        &self,
-        metadata: Rc<Metadata>,
-        group_id: Cow<'a, str>,
-    ) -> GroupCoordinator {
+    fn group_coordinator(&self, metadata: Rc<Metadata>, group_id: Cow<'a, str>) -> GroupCoordinator {
         debug!("disover group coordinator of group `{}`", group_id);
 
         let addr = {
@@ -1215,19 +1162,23 @@ where
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::GroupCoordinator(res) = res {
-                Ok(res)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::GroupCoordinator(res) = res {
+                    Ok(res)
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
-            .and_then(|res| if res.error_code == KafkaCode::None as ErrorCode {
-                Ok(Broker::new(
-                    res.coordinator_id,
-                    &res.coordinator_host,
-                    res.coordinator_port as u16,
-                ))
-            } else {
-                bail!(ErrorKind::KafkaError(res.error_code.into()))
+            .and_then(|res| {
+                if res.error_code == KafkaCode::None as ErrorCode {
+                    Ok(Broker::new(
+                        res.coordinator_id,
+                        &res.coordinator_host,
+                        res.coordinator_port as u16,
+                    ))
+                } else {
+                    bail!(ErrorKind::KafkaError(res.error_code.into()))
+                }
             })
             .static_boxed()
     }
@@ -1248,16 +1199,9 @@ where
             debug!("member `{}` rejoin the `{}` group", member_id, group_id);
         }
 
-        let addr = coordinator
-            .addr()
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap(); // TODO
+        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
 
-        let api_version = coordinator
-            .api_version(ApiKeys::JoinGroup)
-            .unwrap_or_default();
+        let api_version = coordinator.api_version(ApiKeys::JoinGroup).unwrap_or_default();
 
         let joined_group_id: String = (*group_id).to_owned();
 
@@ -1275,24 +1219,26 @@ where
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::JoinGroup(res) = res {
-                Ok(res)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::JoinGroup(res) = res {
+                    Ok(res)
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
-            .and_then(move |res| if res.error_code ==
-                KafkaCode::None as ErrorCode
-            {
-                Ok(ConsumerGroup {
-                    group_id: joined_group_id,
-                    generation_id: res.generation_id,
-                    protocol: res.protocol,
-                    leader_id: res.leader_id,
-                    member_id: res.member_id,
-                    members: res.members,
-                })
-            } else {
-                bail!(ErrorKind::KafkaError(res.error_code.into()))
+            .and_then(move |res| {
+                if res.error_code == KafkaCode::None as ErrorCode {
+                    Ok(ConsumerGroup {
+                        group_id: joined_group_id,
+                        generation_id: res.generation_id,
+                        protocol: res.protocol,
+                        leader_id: res.leader_id,
+                        member_id: res.member_id,
+                        members: res.members,
+                    })
+                } else {
+                    bail!(ErrorKind::KafkaError(res.error_code.into()))
+                }
             })
             .static_boxed()
     }
@@ -1304,18 +1250,9 @@ where
         group_generation_id: GenerationId,
         member_id: Cow<'a, str>,
     ) -> Heartbeat {
-        debug!(
-            "member `{}` send heartbeat to the `{}` group",
-            member_id,
-            group_id
-        );
+        debug!("member `{}` send heartbeat to the `{}` group", member_id, group_id);
 
-        let addr = coordinator
-            .addr()
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap(); // TODO
+        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
 
         let request = KafkaRequest::heartbeat(
             self.next_correlation_id(),
@@ -1327,54 +1264,47 @@ where
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::Heartbeat(res) = res {
-                Ok(res.error_code)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::Heartbeat(res) = res {
+                    Ok(res.error_code)
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
-            .and_then(|error_code| if error_code == KafkaCode::None as ErrorCode {
-                Ok(())
-            } else {
-                bail!(ErrorKind::KafkaError(error_code.into()))
+            .and_then(|error_code| {
+                if error_code == KafkaCode::None as ErrorCode {
+                    Ok(())
+                } else {
+                    bail!(ErrorKind::KafkaError(error_code.into()))
+                }
             })
             .static_boxed()
     }
 
-    fn leave_group(
-        &self,
-        coordinator: &Broker,
-        group_id: Cow<'a, str>,
-        member_id: Cow<'a, str>,
-    ) -> LeaveGroup {
+    fn leave_group(&self, coordinator: &Broker, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup {
         debug!("member `{}` leave the `{}` group", member_id, group_id);
 
-        let addr = coordinator
-            .addr()
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap(); // TODO
+        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
 
         let leaved_group_id: String = (*group_id).to_owned();
 
-        let request = KafkaRequest::leave_group(
-            self.next_correlation_id(),
-            self.client_id(),
-            group_id,
-            member_id,
-        );
+        let request = KafkaRequest::leave_group(self.next_correlation_id(), self.client_id(), group_id, member_id);
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::LeaveGroup(res) = res {
-                Ok(res.error_code)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::LeaveGroup(res) = res {
+                    Ok(res.error_code)
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
-            .and_then(|error_code| if error_code == KafkaCode::None as ErrorCode {
-                Ok(leaved_group_id)
-            } else {
-                bail!(ErrorKind::KafkaError(error_code.into()))
+            .and_then(|error_code| {
+                if error_code == KafkaCode::None as ErrorCode {
+                    Ok(leaved_group_id)
+                } else {
+                    bail!(ErrorKind::KafkaError(error_code.into()))
+                }
             })
             .static_boxed()
     }
@@ -1389,17 +1319,10 @@ where
     ) -> SyncGroup {
         debug!(
             "sync the `{}` group as generation {} as member `{}`",
-            group_id,
-            group_generation_id,
-            member_id
+            group_id, group_generation_id, member_id
         );
 
-        let addr = coordinator
-            .addr()
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap(); // TODO
+        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
 
         let request = KafkaRequest::sync_group(
             self.next_correlation_id(),
@@ -1412,15 +1335,19 @@ where
 
         self.service
             .call((addr, request))
-            .and_then(|res| if let KafkaResponse::SyncGroup(res) = res {
-                Ok(res)
-            } else {
-                bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+            .and_then(|res| {
+                if let KafkaResponse::SyncGroup(res) = res {
+                    Ok(res)
+                } else {
+                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                }
             })
-            .and_then(|res| if res.error_code == KafkaCode::None as ErrorCode {
-                Ok(res.member_assignment)
-            } else {
-                bail!(ErrorKind::KafkaError(res.error_code.into()))
+            .and_then(|res| {
+                if res.error_code == KafkaCode::None as ErrorCode {
+                    Ok(res.member_assignment)
+                } else {
+                    bail!(ErrorKind::KafkaError(res.error_code.into()))
+                }
             })
             .static_boxed()
     }
@@ -1430,10 +1357,7 @@ pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
 pub type LoadApiVersions = StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>;
 
-type TopicsByBroker<'a, T> = HashMap<
-    (SocketAddr, ApiVersion),
-    HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>,
->;
+type TopicsByBroker<'a, T> = HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>>;
 
 impl State {
     pub fn next_correlation_id(&mut self) -> CorrelationId {
@@ -1461,10 +1385,7 @@ impl State {
     }
 
     pub fn update_metadata(&mut self, metadata: Rc<Metadata>) {
-        let status = mem::replace(
-            &mut self.metadata_status,
-            MetadataStatus::Loaded(metadata.clone()),
-        );
+        let status = mem::replace(&mut self.metadata_status, MetadataStatus::Loaded(metadata.clone()));
 
         if let MetadataStatus::Loading(senders) = status {
             for sender in senders.into_inner() {
@@ -1514,52 +1435,40 @@ where
             let state;
 
             match self.state {
-                Loading::Metadata(ref mut future) => {
-                    match future.poll() {
-                        Ok(Async::Ready(metadata)) => {
-                            let inner = self.inner.clone();
+                Loading::Metadata(ref mut future) => match future.poll() {
+                    Ok(Async::Ready(metadata)) => {
+                        let inner = self.inner.clone();
 
-                            if inner.config.api_version_request {
-                                state = Loading::ApiVersions(
-                                    metadata.clone(),
-                                    inner.load_api_versions(metadata),
-                                );
-                            } else {
-                                let fallback_api_versions =
-                                    inner.config.broker_version_fallback.api_versions();
+                        if inner.config.api_version_request {
+                            state = Loading::ApiVersions(metadata.clone(), inner.load_api_versions(metadata));
+                        } else {
+                            let fallback_api_versions = inner.config.broker_version_fallback.api_versions();
 
-                                let metadata = Rc::new(metadata.with_fallback_api_versions(
-                                    fallback_api_versions,
-                                ));
+                            let metadata = Rc::new(metadata.with_fallback_api_versions(fallback_api_versions));
 
-                                trace!(
-                                    "use fallback API versions from {:?}, {:?}",
-                                    inner.config.broker_version_fallback,
-                                    fallback_api_versions
-                                );
-
-                                state = Loading::Finished(metadata);
-                            }
-                        }
-                        Ok(Async::NotReady) => return Ok(Async::NotReady),
-                        Err(err) => return Err(err),
-                    }
-                }
-                Loading::ApiVersions(ref metadata, ref mut future) => {
-                    match future.poll() {
-                        Ok(Async::Ready(api_versions)) => {
-                            let metadata = Rc::new(metadata.with_api_versions(api_versions));
+                            trace!(
+                                "use fallback API versions from {:?}, {:?}",
+                                inner.config.broker_version_fallback,
+                                fallback_api_versions
+                            );
 
                             state = Loading::Finished(metadata);
                         }
-                        Ok(Async::NotReady) => return Ok(Async::NotReady),
-                        Err(err) => return Err(err),
                     }
-                }
+                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                    Err(err) => return Err(err),
+                },
+                Loading::ApiVersions(ref metadata, ref mut future) => match future.poll() {
+                    Ok(Async::Ready(api_versions)) => {
+                        let metadata = Rc::new(metadata.with_api_versions(api_versions));
+
+                        state = Loading::Finished(metadata);
+                    }
+                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                    Err(err) => return Err(err),
+                },
                 Loading::Finished(ref metadata) => {
-                    (*self.inner.state).borrow_mut().update_metadata(
-                        metadata.clone(),
-                    );
+                    (*self.inner.state).borrow_mut().update_metadata(metadata.clone());
 
                     return Ok(Async::Ready(metadata.clone()));
                 }

@@ -19,12 +19,7 @@ where
     type Item = T;
     type Error = Error;
 
-    fn serialize_to<B: BufMut>(
-        &self,
-        _topic_name: &str,
-        data: Self::Item,
-        buf: &mut B,
-    ) -> Result<()> {
+    fn serialize_to<B: BufMut>(&self, _topic_name: &str, data: Self::Item, buf: &mut B) -> Result<()> {
         buf.put_slice(data.as_ref().as_bytes());
         Ok(())
     }
@@ -40,12 +35,7 @@ impl Deserializer for StringDeserializer<String> {
     type Item = String;
     type Error = Error;
 
-    fn deserialize_to<B: Buf>(
-        &self,
-        _topic_name: &str,
-        buf: &mut B,
-        data: &mut Self::Item,
-    ) -> Result<()> {
+    fn deserialize_to<B: Buf>(&self, _topic_name: &str, buf: &mut B, data: &mut Self::Item) -> Result<()> {
         let len = buf.remaining();
         *data = str::from_utf8(buf.bytes())?.to_owned();
         buf.advance(len);
@@ -67,16 +57,11 @@ mod tests {
         let mut buf = Vec::new();
         let data = vec![230, 181, 139, 232, 175, 149];
 
-        serializer
-            .serialize_to("topic", "测试", &mut buf)
-            .unwrap();
+        serializer.serialize_to("topic", "测试", &mut buf).unwrap();
 
         assert_eq!(&buf, &data);
 
-        assert_eq!(
-            serializer.serialize("topic", "测试").unwrap(),
-            Bytes::from(data)
-        );
+        assert_eq!(serializer.serialize("topic", "测试").unwrap(), Bytes::from(data));
     }
 
     #[test]
@@ -86,18 +71,13 @@ mod tests {
         let mut cur = Cursor::new(data.clone());
         let mut s = String::new();
 
-        deserializer
-            .deserialize_to("topic", &mut cur, &mut s)
-            .unwrap();
+        deserializer.deserialize_to("topic", &mut cur, &mut s).unwrap();
 
         assert_eq!(cur.position(), 6);
         assert_eq!(s, "测试");
 
         cur.set_position(0);
 
-        assert_eq!(
-            deserializer.deserialize("topic", &mut cur).unwrap(),
-            "测试"
-        );
+        assert_eq!(deserializer.deserialize("topic", &mut cur).unwrap(), "测试");
     }
 }
