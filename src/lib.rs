@@ -34,7 +34,6 @@ extern crate futures_cpupool;
 extern crate native_tls;
 extern crate tokio_core;
 extern crate tokio_io;
-extern crate tokio_middleware;
 extern crate tokio_proto;
 extern crate tokio_retry;
 extern crate tokio_service;
