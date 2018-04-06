@@ -32,8 +32,6 @@ impl<'a> Encoder for KafkaCodec<'a> {
     fn encode(&mut self, request: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let off = dst.len();
 
-        dst.put_i32::<BigEndian>(0);
-
         let &RequestHeader {
             api_key,
             api_version,
@@ -41,7 +39,9 @@ impl<'a> Encoder for KafkaCodec<'a> {
             ..
         } = request.header();
 
-        dst.reserve(request.size(api_version));
+        dst.reserve(mem::size_of::<i32>() + request.size(api_version));
+
+        dst.put_i32::<BigEndian>(0);
 
         request.encode::<BigEndian>(dst).map_err(|err| {
             io::Error::new(
