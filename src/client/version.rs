@@ -110,7 +110,7 @@ impl<'de> Deserialize<'de> for KafkaVersion {
             }
         }
 
-        deserializer.deserialize_i32(KafkaVersionVistor)
+        deserializer.deserialize_str(KafkaVersionVistor)
     }
 }
 
