@@ -12,8 +12,8 @@ use crc::crc32;
 
 use compression::Compression;
 use errors::{ErrorKind, Result};
-use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, Timestamp, WriteExt, ARRAY_LEN_SIZE,
-               BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
+use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, Timestamp, WriteExt, BYTES_LEN_SIZE,
+               OFFSET_SIZE, TIMESTAMP_SIZE};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
@@ -52,10 +52,7 @@ impl Deref for MessageSet {
 
 impl Record for MessageSet {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.messages.iter().fold(
-            0, // The size, in bytes, of the message set that follows.
-            |size, message| size + message.size(api_version),
-        )
+        self.messages.iter().map(|message| message.size(api_version)).sum()
     }
 }
 
