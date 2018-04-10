@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio_core::reactor::Handle;
 
 use client::{KafkaClient, KafkaVersion};
-use consumer::{AssignmentStrategy, ConsumerConfig, KafkaConsumer};
+use consumer::{AssignmentStrategy, OffsetResetStrategy, ConsumerConfig, KafkaConsumer};
 use errors::{ErrorKind, Result};
 use protocol::ToMilliseconds;
 use serialization::{Deserializer, NoopDeserializer};
@@ -128,6 +128,13 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
     /// Sets the unique string that identifies the consumer group this consumer belongs to.
     pub fn with_group_id(mut self, group_id: String) -> Self {
         self.config.group_id = group_id;
+        self
+    }
+
+    /// What to do when there is no initial offset in Kafka or
+    /// if the current offset does not exist any more on the server
+    pub fn with_auto_offset_reset(mut self, strategy: OffsetResetStrategy) -> Self {
+        self.config.auto_offset_reset = strategy;
         self
     }
 
