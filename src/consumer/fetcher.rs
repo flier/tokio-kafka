@@ -136,6 +136,7 @@ where
         I: IntoIterator<Item = TopicPartition<'a>>,
     {
         let subscriptions = self.subscriptions.clone();
+        let default_reset_strategy = self.subscriptions.borrow().default_reset_strategy();
 
         let fetch_partitions = partitions
             .into_iter()
@@ -180,7 +181,7 @@ where
                                         if state.position != Some(record.fetch_offset) {
                                             debug!("discarding stale fetch response for {} since its offset {} does not match the expected offset {:?}", tp, record.fetch_offset, state.position);
                                         } else {
-                                            state.need_offset_reset(subscriptions.borrow().default_reset_strategy());
+                                            state.need_offset_reset(default_reset_strategy);
                                         }
                                     }
                                     _ => bail!(ErrorKind::KafkaError(record.error_code)),
