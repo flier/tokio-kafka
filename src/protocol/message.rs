@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 
-use nom::{be_i32, be_i64, be_i8};
+use nom::{be_i32, be_i64, be_i8, IResult};
 
 use time;
 
@@ -208,13 +208,35 @@ named_args!(pub parse_message_set(api_version: ApiVersion)<MessageSet>,
         do_parse!(
             messages: many0!(apply!(parse_message, api_version))
          >> (MessageSet {
-                messages,
+                messages: messages.into_iter().flat_map(|i| i).collect(),
             })
         )
     )
 );
 
-named_args!(parse_message(_api_version: ApiVersion)<Message>,
+fn decompress_message(message: Message) -> Result<Vec<Message>> {
+    if message.compression == Compression::None || message.value == None {
+        return Ok(vec![message]);
+    }
+    let value = message.value.unwrap();
+    let decompressed = message.compression.decompress(&value)?;
+    let decompressed = decompressed.unwrap();
+    let version = if message.timestamp.is_some() {
+        1
+    } else {
+        0
+    };
+    match parse_message_set(&decompressed, version) {
+        IResult::Done(_, message_set) => Ok(message_set.messages),
+        _ => unimplemented!()
+    }
+}
+
+named_args!(parse_message(api_version: ApiVersion)<Vec<Message>>,
+    map_res!(apply!(parse_message_outer, api_version), decompress_message)
+);
+
+named_args!(parse_message_outer(_api_version: ApiVersion)<Message>,
     parse_tag!(ParseTag::Message,
         do_parse!(
             offset: be_i64

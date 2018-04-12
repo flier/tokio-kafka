@@ -88,4 +88,18 @@ impl Compression {
             }
         }
     }
+
+    pub fn decompress(&self, src: &[u8]) -> Result<Option<Vec<u8>>> {
+        let mut result = Vec::new();
+        match *self {
+            Compression::None => Ok(None),
+
+            #[cfg(feature = "snappy")]
+            Compression::Snappy => {
+                snappy::uncompress_framed_to(src, &mut result)?;
+                Ok(Some(result))
+            }
+            _ => unimplemented!()
+        }
+    }
 }

@@ -34,10 +34,6 @@ fn uncompress_to(src: &[u8], dst: &mut Vec<u8>) -> Result<()> {
         .map_err(|err| ErrorKind::SnappyError(err).into())
 }
 
-// --------------------------------------------------------------------
-
-const MAGIC: &[u8] = &[0x82, b'S', b'N', b'A', b'P', b'P', b'Y', 0];
-
 // ~ reads a i32 valud and "advances" the given slice by four bytes;
 // assumes "slice" is a mutable reference to a &[u8].
 macro_rules! next_i32 {
@@ -52,6 +48,22 @@ macro_rules! next_i32 {
         }
     }};
 }
+
+pub fn uncompress_framed_to(src: &[u8], dst: &mut Vec<u8>) -> Result<()> {
+    let stream = validate_stream(src)?;
+    let mut i = 0;
+    while i < stream.len() {
+        let n = BigEndian::read_i32(&stream[i..i+4]) as usize;
+        i += 4;
+        uncompress_to(&stream[i..i + n], dst)?;
+        i += n;
+    }
+    Ok(())
+}
+
+// --------------------------------------------------------------------
+
+const MAGIC: &[u8] = &[0x82, b'S', b'N', b'A', b'P', b'P', b'Y', 0];
 
 /// Validates the expected header at the beginning of the
 /// stream. Further, checks the version and compatibility of the
