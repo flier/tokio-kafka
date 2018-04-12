@@ -9,8 +9,10 @@ extern crate futures;
 extern crate tokio_core;
 extern crate tokio_kafka;
 
+#[cfg(features = "integration_test")]
 mod common;
 
+#[cfg(features = "integration_test")]
 mod tests {
     use futures::Future;
 
