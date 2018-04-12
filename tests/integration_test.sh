@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 TEST_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-DOCKER_DIR=${TEST_DIR}/docker
+DOCKER_DIR=$TEST_DIR/docker
 
 case "$OSTYPE" in
   linux*)
@@ -16,20 +16,53 @@ case "$OSTYPE" in
     ;;
 esac
 
-pushd ${DOCKER_DIR}/v0.8
+function test {
+    echo Testing Kafka $1 @ $version
 
-envfile=.env
+    pushd $DOCKER_DIR/$1
 
-rm $envfile
+    envfile=.env
 
-echo "###  DOCKER-COMPOSE ENVIRONMENT VARIABLES AS OF $(date +"%Y-%m-%d @ %H-%M-%S")" >> $envfile
-echo "IP_ADDRESS=${IP_ADDRESS}" >> $envfile
+    echo "###  DOCKER-COMPOSE ENVIRONMENT VARIABLES AS OF $(date +"%Y-%m-%d @ %H-%M-%S")" > $envfile
+    echo "IP_ADDRESS=$IP_ADDRESS" >> $envfile
 
-cat $envfile
+    cat $envfile
 
-docker-compose kill
-docker-compose up -d
+    docker-compose kill
+    docker-compose build
+    docker-compose up -d
 
-RUST_LOG=tokio KAFKA_BROKERS=${IP_ADDRESS}:9092 cargo test --features "integration_test"
+    until docker-compose exec kafka /opt/kafka/bin/kafka-topics.sh --list --zookeeper zookeeper:2181 | grep bar; do
+        echo "Kafka is unavailable - sleeping"
+        sleep 1
+    done
 
-popd
+    RUST_LOG=tokio KAFKA_BROKERS=$IP_ADDRESS:9092 cargo test --features "integration_test"
+
+    docker-compose down
+
+    popd
+}
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+  arg="$1"
+  case $arg in
+    v0.8|v0.9|v0.10|v1.0|v1.1)
+      test $arg
+      shift # past argument
+    ;;
+    all)
+      for version in $DOCKER_DIR/v*/; do
+        test $(basename $version)
+      done
+      shift # past argument
+    ;;
+    *)    # unknown option
+      POSITIONAL+=("$1") # save it in an array for later
+      shift # past argument
+    ;;
+  esac
+done
+set -- "${POSITIONAL[@]}"
