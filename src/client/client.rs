@@ -15,6 +15,7 @@ use bytes::Bytes;
 
 use rand::{self, Rng};
 
+use futures;
 use futures::future::{self, Future};
 use futures::unsync::oneshot;
 use futures::{Async, IntoFuture, Poll};
@@ -385,7 +386,25 @@ where
     }
 }
 
-pub type GetMetadata = StaticBoxFuture<Rc<Metadata>>;
+pub enum GetMetadata {
+    Loaded(Rc<Metadata>),
+    Loading(oneshot::Receiver<Rc<Metadata>>),
+}
+
+impl Future for GetMetadata {
+    type Item = Rc<Metadata>;
+    type Error = Error;
+
+    fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
+        use futures::Async;
+
+        match *self {
+            GetMetadata::Loaded(ref meta) => Ok(Async::Ready(meta.clone())),
+            GetMetadata::Loading(ref mut inner) =>
+                 inner.poll().map_err(|_| ErrorKind::Canceled("load metadata canceled").into())
+        }
+    }
+}
 
 impl<'a> Client<'a> for KafkaClient<'a>
 where
@@ -1366,16 +1385,16 @@ impl State {
     }
 
     pub fn metadata(&self) -> GetMetadata {
-        let (sender, receiver) = oneshot::channel();
-
         match self.metadata_status {
-            MetadataStatus::Loading(ref senders) => senders.borrow_mut().push(sender),
-            MetadataStatus::Loaded(ref metadata) => drop(sender.send(metadata.clone())),
+            MetadataStatus::Loading(ref senders) => {
+                let (sender, receiver) = oneshot::channel();
+                senders.borrow_mut().push(sender);
+                GetMetadata::Loading(receiver)
+            },
+            MetadataStatus::Loaded(ref metadata) => {
+                GetMetadata::Loaded(metadata.clone())
+            }
         }
-
-        receiver
-            .map_err(|_| ErrorKind::Canceled("load metadata canceled").into())
-            .static_boxed()
     }
 
     pub fn refresh_metadata(&mut self) {
