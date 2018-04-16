@@ -108,7 +108,7 @@ where
     }
 
     fn metadata(&self) -> GetMetadata {
-        Ok(self.metadata.clone()).static_boxed()
+        GetMetadata::Loaded(self.metadata.clone())
     }
 
     fn retry_strategy(&self) -> Vec<Duration> {
