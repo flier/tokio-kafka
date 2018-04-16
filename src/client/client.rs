@@ -51,7 +51,8 @@ pub trait Client<'a>: 'static {
         records: Vec<Cow<'a, MessageSet>>,
     ) -> ProduceRecords;
 
-    /// Fetch records of partitions for all nodes for which we have assigned partitions.
+    /// Fetch records of partitions for all nodes for which we have assigned
+    /// partitions.
     fn fetch_records(
         &self,
         fetch_max_wait: Duration,
@@ -68,7 +69,8 @@ pub trait Client<'a>: 'static {
     /// the metadata information.
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
 
-    /// Commit the specified offsets for the specified list of topics and partitions to Kafka.
+    /// Commit the specified offsets for the specified list of topics and
+    /// partitions to Kafka.
     fn offset_commit(
         &self,
         coordinator: BrokerRef,
@@ -77,7 +79,8 @@ pub trait Client<'a>: 'static {
         offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
     ) -> OffsetCommit;
 
-    /// Fetch the current committed offsets from the coordinator for a set of partitions.
+    /// Fetch the current committed offsets from the coordinator for a set of
+    /// partitions.
     fn offset_fetch(
         &self,
         coordinator: BrokerRef,
@@ -119,7 +122,7 @@ pub trait Client<'a>: 'static {
 pub type ProduceRecords = StaticBoxFuture<HashMap<String, Vec<ProducedRecords>>>;
 
 /// Produced records of partition.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProducedRecords {
     /// The partition id
     pub partition_id: PartitionId,
@@ -132,7 +135,7 @@ pub struct ProducedRecords {
 /// The future of fetch records of partitions.
 pub type FetchRecords = StaticBoxFuture<HashMap<String, Vec<FetchedRecords>>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FetchedRecords {
     /// The partition id
     pub partition_id: PartitionId,
@@ -142,7 +145,8 @@ pub struct FetchedRecords {
     pub fetch_offset: Offset,
     /// The offset at the end of the log for this partition.
     pub high_watermark: Offset,
-    /// The message data fetched from this partition, in the format described above.
+    /// The message data fetched from this partition, in the format described
+    /// above.
     pub messages: Vec<Message>,
 }
 
@@ -150,7 +154,7 @@ pub struct FetchedRecords {
 pub type ListOffsets = StaticBoxFuture<HashMap<String, Vec<ListedOffset>>>;
 
 /// The partition and offset
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ListedOffset {
     /// The partition id
     pub partition_id: PartitionId,
@@ -169,7 +173,7 @@ impl ListedOffset {
 }
 
 /// The fetch partition data
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PartitionData {
     /// Message offset.
     pub offset: Offset,
@@ -179,7 +183,7 @@ pub struct PartitionData {
 
 pub type OffsetCommit = StaticBoxFuture<HashMap<String, Vec<CommittedOffset>>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CommittedOffset {
     /// The partition id
     pub partition_id: PartitionId,
@@ -189,7 +193,7 @@ pub struct CommittedOffset {
 
 pub type OffsetFetch = StaticBoxFuture<HashMap<String, Vec<FetchedOffset>>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FetchedOffset {
     /// The partition id
     pub partition_id: PartitionId,
@@ -400,8 +404,9 @@ impl Future for GetMetadata {
 
         match *self {
             GetMetadata::Loaded(ref meta) => Ok(Async::Ready(meta.clone())),
-            GetMetadata::Loading(ref mut inner) =>
-                 inner.poll().map_err(|_| ErrorKind::Canceled("load metadata canceled").into())
+            GetMetadata::Loading(ref mut inner) => inner
+                .poll()
+                .map_err(|_| ErrorKind::Canceled("load metadata canceled").into()),
         }
     }
 }
@@ -1017,7 +1022,7 @@ where
                         topics
                             .into_iter()
                             .map(|topic| {
-                                let partitions = topic
+                                let mut partitions = topic
                                     .partitions
                                     .into_iter()
                                     .map(|partition| ListedOffset {
@@ -1026,7 +1031,9 @@ where
                                         offsets: partition.offsets,
                                         timestamp: partition.timestamp,
                                     })
-                                    .collect();
+                                    .collect::<Vec<_>>();
+
+                                partitions.sort_by_key(|partition| partition.partition_id);
 
                                 (topic.topic_name.clone(), partitions)
                             })
@@ -1390,10 +1397,8 @@ impl State {
                 let (sender, receiver) = oneshot::channel();
                 senders.borrow_mut().push(sender);
                 GetMetadata::Loading(receiver)
-            },
-            MetadataStatus::Loaded(ref metadata) => {
-                GetMetadata::Loaded(metadata.clone())
             }
+            MetadataStatus::Loaded(ref metadata) => GetMetadata::Loaded(metadata.clone()),
         }
     }
 
