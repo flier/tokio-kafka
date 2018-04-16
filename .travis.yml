@@ -23,4 +23,4 @@ script:
   - (test $TRAVIS_RUST_VERSION != "nightly" || cargo build --features clippy)
   - (test $TRAVIS_RUST_VERSION == "nightly" || cargo build)
   - cargo test --verbose
-  - ./tests/integration_test.sh all
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ./tests/integration_test.sh all ; fi
