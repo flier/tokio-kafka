@@ -1,4 +1,6 @@
-sudo: false
+sudo: required
+services:
+  - docker
 language: rust
 rust:
   - stable
@@ -15,9 +17,10 @@ after_failure:
   - tree -h
 env:
   global:
-    - RUST_BACKTRACE=1
+    - RUST_BACKTRACE=full
     - RUST_LOG=tokio_kafka=trace
 script:
   - (test $TRAVIS_RUST_VERSION != "nightly" || cargo build --features clippy)
   - (test $TRAVIS_RUST_VERSION == "nightly" || cargo build)
   - cargo test --verbose
+  - ./tests/integration_test.sh all

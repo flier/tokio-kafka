@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]
 do
   arg="$1"
   case $arg in
-    v0.8|v0.9|v0.10|v1.0|v1.1)
+    v0.8|v0.9|v0.10|0.11|v1.0|v1.1)
       test $arg
       shift # past argument
     ;;
