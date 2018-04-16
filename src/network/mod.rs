@@ -35,16 +35,6 @@ impl<'a> fmt::Display for TopicPartition<'a> {
     }
 }
 
-#[macro_export]
-macro_rules! topic_partition {
-    ($topic_name:expr, $partition_id:expr) => {
-        $crate::network::TopicPartition {
-            topic_name: $topic_name.into(),
-            partition_id: $partition_id,
-        }
-    };
-}
-
 /// A container class for offset and metadata
 ///
 /// The Kafka offset commit API allows users to provide additional metadata (in the form of a
@@ -68,22 +58,6 @@ impl OffsetAndMetadata {
     }
 }
 
-#[macro_export]
-macro_rules! offset_and_metadata {
-    ($offset:expr) => {
-        $crate::network::OffsetAndMetadata {
-            offset: $offset,
-            metadata: None,
-        }
-    };
-    ($offset:expr, $metadata:expr) => {
-        $crate::network::OffsetAndMetadata {
-            offset: $offset,
-            metadata: Some($metadata.into()),
-        }
-    };
-}
-
 /// A container class for offset and timestamp
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OffsetAndTimestamp {
@@ -104,20 +78,4 @@ impl OffsetAndTimestamp {
     pub fn with_timestamp(offset: Offset, timestamp: Option<Timestamp>) -> Self {
         OffsetAndTimestamp { offset, timestamp }
     }
-}
-
-#[macro_export]
-macro_rules! offset_and_timestamp {
-    ($offset:expr) => {
-        $crate::network::OffsetAndTimestamp {
-            offset: $offset,
-            timestamp: None,
-        }
-    };
-    ($offset:expr, $timestamp:expr) => {
-        $crate::network::OffsetAndTimestamp {
-            offset: $offset,
-            timestamp: Some($timestamp),
-        }
-    };
 }

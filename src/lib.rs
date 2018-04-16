@@ -56,11 +56,12 @@ extern crate typemap;
 
 #[macro_use]
 mod errors;
+#[macro_use]
+mod macros;
 mod compression;
 #[macro_use]
 mod protocol;
 mod serialization;
-#[macro_use]
 mod network;
 mod client;
 mod consumer;
@@ -71,7 +72,7 @@ pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster
                  ToStaticBoxFuture, TopicRecord, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
                  DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS};
 pub use compression::Compression;
-pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer, SeekTo, Subscribed, OffsetResetStrategy};
+pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer, OffsetResetStrategy, SeekTo, Subscribed};
 pub use errors::{Error, ErrorKind, Result};
 pub use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
 pub use producer::{DefaultPartitioner, GetTopic, KafkaProducer, Partitioner, Producer, ProducerBuilder,
@@ -86,13 +87,3 @@ pub use serialization::{BytesDeserializer, BytesSerializer, Deserializer, NoopDe
 pub use serialization::{JsonDeserializer, JsonSerializer};
 #[cfg(feature = "encoding")]
 pub use serialization::{StrEncodingDeserializer, StrEncodingSerializer};
-
-#[macro_export]
-macro_rules! topic_partition {
-    ($topic_name:expr, $partition_id:expr) => {
-        $crate::TopicPartition {
-            topic_name: $topic_name.into(),
-            partition_id: $partition_id,
-        }
-    };
-}
