@@ -26,13 +26,15 @@ pub trait Coordinator<'a> {
     /// Leave the current consumer group.
     fn leave_group(&self) -> LeaveGroup;
 
-    /// Commit the specified offsets for the specified list of topics and partitions to Kafka.
+    /// Commit the specified offsets for the specified list of topics and
+    /// partitions to Kafka.
     fn commit_offsets(&self) -> CommitOffset;
 
     /// Refresh the committed offsets for provided partitions.
     fn update_offsets(&self) -> UpdateOffsets;
 
-    /// Fetch the current committed offsets from the coordinator for a set of partitions.
+    /// Fetch the current committed offsets from the coordinator for a set of
+    /// partitions.
     fn fetch_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> FetchOffsets;
 }
 
@@ -228,10 +230,11 @@ where
 
         let assignment = assignor.assign(metadata, subscriptions);
 
-        // user-customized assignor may have created some topics that are not in the subscription
-        // list and assign their partitions to the members; in this case we would like to update the
-        // leader's own metadata with the newly added topics so that it will not trigger a
-        // subsequent rebalance when these topics gets updated from metadata refresh.
+        // user-customized assignor may have created some topics that are not in the
+        // subscription list and assign their partitions to the members; in
+        // this case we would like to update the leader's own metadata with the
+        // newly added topics so that it will not trigger a subsequent
+        // rebalance when these topics gets updated from metadata refresh.
 
         let mut assigned_topics = HashSet::new();
 
@@ -310,7 +313,6 @@ where
         );
 
         let client = self.client.clone();
-        let handle = self.client.handle().clone();
         let state = self.state.clone();
 
         let heartbeat = self.timer
@@ -329,7 +331,7 @@ where
                     let send_heartbeat = {
                         let generation = generation.clone();
 
-                        Retry::spawn(handle.clone(), client.retry_strategy(), move || {
+                        Retry::spawn(client.retry_strategy(), move || {
                             client.heartbeat(coordinator, generation.clone())
                         })
                     };
@@ -462,11 +464,10 @@ where
                 debug!(
                     "coordinator of group `{}` @ {}",
                     group_id,
-                    metadata
-                        .find_broker(coordinator)
-                        .map_or(format!("broker#{}", coordinator.index()), |broker| {
-                            format!("{}:{}", broker.host(), broker.port())
-                        })
+                    metadata.find_broker(coordinator).map_or(
+                        format!("broker#{}", coordinator.index()),
+                        |broker| format!("{}:{}", broker.host(), broker.port())
+                    )
                 );
 
                 inner

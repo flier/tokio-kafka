@@ -258,7 +258,6 @@ where
     fn flush_batches(&self, force: bool) -> Flush {
         let client = self.client.clone();
         let interceptor = self.interceptors.clone();
-        let handle = self.client.handle().clone();
         let acks = self.config.acks;
         let ack_timeout = self.config.ack_timeout();
         let retry_strategy = self.config.retry_strategy();
@@ -269,7 +268,7 @@ where
                 let sender = Sender::new(client.clone(), interceptor.clone(), acks, ack_timeout, tp, batch);
 
                 match sender {
-                    Ok(sender) => Retry::spawn(handle.clone(), retry_strategy.clone(), move || sender.send_batch())
+                    Ok(sender) => Retry::spawn(retry_strategy.clone(), move || sender.send_batch())
                         .from_err()
                         .static_boxed(),
                     Err(err) => {
