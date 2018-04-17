@@ -33,16 +33,31 @@ function test {
     docker-compose build
     docker-compose up -d
 
-    until docker-compose exec kafka /opt/kafka/bin/kafka-topics.sh --list --zookeeper zookeeper:2181 | grep bar; do
-        echo "Kafka is unavailable - sleeping"
-        sleep 1
-    done
+    setup_tests
 
     RUST_LOG=tokio KAFKA_BROKERS=$IP_ADDRESS:9092 cargo test --features "integration_test"
 
     docker-compose down
 
     popd
+}
+
+function setup_tests {
+    local KAFKA_HOME=/opt/kafka
+    local KAFKA_TOPICS="$KAFKA_HOME/bin/kafka-topics.sh --zookeeper zookeeper:2181"
+    local KAFKA_CONSOLE_PRODUCER="$KAFKA_HOME/bin/kafka-console-producer.sh --broker-list localhost:9092"
+
+    until docker-compose exec kafka $KAFKA_TOPICS --list  | grep bar; do
+        echo "Kafka is unavailable - sleeping"
+        sleep 1
+    done
+
+    for i in `seq 0 9`; do
+        echo $i | docker-compose exec -T kafka $KAFKA_CONSOLE_PRODUCER --topic foo;
+        echo $i | docker-compose exec -T kafka $KAFKA_CONSOLE_PRODUCER --topic bar;
+    done
+
+    docker-compose exec kafka $KAFKA_TOPICS --describe
 }
 
 POSITIONAL=()

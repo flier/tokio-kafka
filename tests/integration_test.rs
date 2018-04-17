@@ -21,6 +21,11 @@ mod tests {
 
     use common;
 
+    const TOPIC_FOO_PARTITIONS: usize = 1;
+    const TOPIC_FOO_MESSAGE_COUNT: i64 = 10;
+    const TOPIC_BAR_PARTITIONS: usize = 4;
+    const TOPIC_BAR_MESSAGE_COUNT: i64 = 10;
+
     #[test]
     fn metadata() {
         common::run(|client| {
@@ -34,8 +39,8 @@ mod tests {
                     assert!(topics.contains_key("foo"));
                     assert!(topics.contains_key("bar"));
 
-                    assert_eq!(topics["foo"].len(), 1);
-                    assert_eq!(topics["bar"].len(), 4);
+                    assert_eq!(topics["foo"].len(), TOPIC_FOO_PARTITIONS);
+                    assert_eq!(topics["bar"].len(), TOPIC_BAR_PARTITIONS);
 
                     topics
                         .into_iter()
@@ -59,21 +64,21 @@ mod tests {
                             ListedOffset {
                                 partition_id: 0,
                                 error_code: KafkaCode::None,
-                                offsets: vec![0],
+                                offsets: vec![TOPIC_FOO_MESSAGE_COUNT, 0],
                                 timestamp: None,
                             },
                         ]
                     );
+
+                    let offsets = &responses["bar"];
+
+                    assert_eq!(offsets.len(), TOPIC_BAR_PARTITIONS);
                     assert_eq!(
-                        responses["bar"],
-                        (0..4)
-                            .map(|partition_id| ListedOffset {
-                                partition_id,
-                                error_code: KafkaCode::None,
-                                offsets: vec![0],
-                                timestamp: None,
-                            })
-                            .collect::<Vec<_>>()
+                        offsets
+                            .iter()
+                            .map(|offset| offset.offsets.iter().cloned().max().unwrap_or_default())
+                            .sum::<i64>(),
+                        TOPIC_BAR_MESSAGE_COUNT
                     );
                 })
             })
