@@ -28,9 +28,10 @@ pub trait Subscribed<'a> {
 
     /// Commit offsets returned on the last record for all the subscribed list of topics and
     /// partitions.
-    fn commit(&mut self) -> Commit;
+    fn commit(&self) -> Commit;
 
-    /// Overrides the fetch offsets that the consumer will use on the next record
+    /// Overrides the fetch offsets that the consumer will use on the next
+    /// record
     fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()>;
 
     /// Seek to the first offset for each of the given partitions.
@@ -48,7 +49,8 @@ pub trait Subscribed<'a> {
     /// This offset will be used as the position for the consumer in the event of a failure.
     fn committed(&self, partition: TopicPartition<'a>) -> Committed;
 
-    /// Get the set of partitions that were previously paused by a call to `pause`
+    /// Get the set of partitions that were previously paused by a call to
+    /// `pause`
     fn paused(&self) -> Vec<TopicPartition<'a>>;
 
     /// Suspend fetching from the requested partitions.
@@ -82,16 +84,13 @@ pub type BeginningOffsets<'a> = RetrieveOffsets<'a, Offset>;
 
 pub type EndOffsets<'a> = RetrieveOffsets<'a, Offset>;
 
+#[derive(Clone)]
 pub struct SubscribedTopics<'a, K, V>
 where
     K: Deserializer,
     V: Deserializer,
 {
-    consumer: KafkaConsumer<'a, K, V>,
-    subscriptions: Rc<RefCell<Subscriptions<'a>>>,
-    coordinator: ConsumerCoordinator<'a, KafkaClient<'a>>,
-    fetcher: Fetcher<'a>,
-    state: State<'a, K::Item, V::Item>,
+    inner: Rc<RefCell<Inner<'a, K, V>>>,
 }
 
 impl<'a, K, V> SubscribedTopics<'a, K, V>
@@ -109,13 +108,42 @@ where
         let state = State::Joining(coordinator.join_group());
 
         Ok(SubscribedTopics {
-            consumer,
-            subscriptions,
-            coordinator,
-            fetcher,
-            state,
+            inner: Rc::new(RefCell::new(Inner {
+                consumer,
+                subscriptions,
+                coordinator,
+                fetcher,
+                state,
+            })),
         })
     }
+}
+
+impl<'a, K, V> Stream for SubscribedTopics<'a, K, V>
+where
+    K: Deserializer + Clone,
+    K::Item: Hash,
+    V: Deserializer + Clone,
+    Self: 'static,
+{
+    type Item = ConsumerRecord<'a, K::Item, V::Item>;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.inner.borrow_mut().poll()
+    }
+}
+
+struct Inner<'a, K, V>
+where
+    K: Deserializer,
+    V: Deserializer,
+{
+    consumer: KafkaConsumer<'a, K, V>,
+    subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+    coordinator: ConsumerCoordinator<'a, KafkaClient<'a>>,
+    fetcher: Fetcher<'a>,
+    state: State<'a, K::Item, V::Item>,
 }
 
 enum State<'a, K, V> {
@@ -125,7 +153,7 @@ enum State<'a, K, V> {
     Fetched(Box<Iterator<Item = ConsumerRecord<'a, K, V>>>),
 }
 
-impl<'a, K, V> Stream for SubscribedTopics<'a, K, V>
+impl<'a, K, V> Stream for Inner<'a, K, V>
 where
     K: Deserializer + Clone,
     K::Item: Hash,
@@ -237,10 +265,9 @@ where
     }
 }
 
-impl<'a, K, V> Subscribed<'a> for SubscribedTopics<'a, K, V>
+impl<'a, K, V> Inner<'a, K, V>
 where
     K: Deserializer,
-    K::Item: Hash,
     V: Deserializer,
     Self: 'static,
 {
@@ -252,30 +279,8 @@ where
         self.subscriptions.borrow().subscription()
     }
 
-    fn unsubscribe(self) -> Unsubscribe {
-        self.coordinator.leave_group()
-    }
-
-    fn commit(&mut self) -> Commit {
-        self.coordinator.commit_offsets()
-    }
-
     fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
         self.subscriptions.borrow_mut().seek(partition, pos)
-    }
-
-    fn seek_to_beginning(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
-        for partition in partitions {
-            self.seek(partition, SeekTo::Beginning)?;
-        }
-        Ok(())
-    }
-
-    fn seek_to_end(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
-        for partition in partitions {
-            self.seek(partition, SeekTo::End)?;
-        }
-        Ok(())
     }
 
     fn position(&self, partition: &TopicPartition<'a>) -> Result<Option<Offset>> {
@@ -286,28 +291,6 @@ where
                 ErrorKind::IllegalArgument(format!("No current assignment for partition {}", partition)).into()
             })
             .map(|state| state.position)
-    }
-
-    fn committed(&self, tp: TopicPartition<'a>) -> Committed {
-        let topic_name = String::from(tp.topic_name.to_owned());
-        let partition_id = tp.partition_id;
-
-        self.coordinator
-            .fetch_offsets(vec![tp])
-            .and_then(move |offsets| {
-                offsets
-                    .get(&topic_name)
-                    .and_then(|partitions| {
-                        partitions
-                            .iter()
-                            .find(|partition| partition.partition_id == partition_id)
-                            .map(move |fetched| {
-                                OffsetAndMetadata::with_metadata(fetched.offset, fetched.metadata.clone())
-                            })
-                    })
-                    .ok_or_else(|| ErrorKind::NoOffsetForPartition(topic_name, partition_id).into())
-            })
-            .static_boxed()
     }
 
     fn paused(&self) -> Vec<TopicPartition<'a>> {
@@ -327,9 +310,91 @@ where
         }
         Ok(())
     }
+}
+
+impl<'a, K, V> Subscribed<'a> for SubscribedTopics<'a, K, V>
+where
+    K: Deserializer,
+    K::Item: Hash,
+    V: Deserializer,
+    Self: 'static,
+{
+    fn assigment(&self) -> Vec<TopicPartition<'a>> {
+        self.inner.borrow().assigment()
+    }
+
+    fn subscription(&self) -> Vec<String> {
+        self.inner.borrow().subscription()
+    }
+
+    fn unsubscribe(self) -> Unsubscribe {
+        self.inner.borrow().coordinator.leave_group()
+    }
+
+    fn commit(&self) -> Commit {
+        self.inner.borrow().coordinator.commit_offsets()
+    }
+
+    fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
+        self.inner.borrow().seek(partition, pos)
+    }
+
+    fn seek_to_beginning(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+        for partition in partitions {
+            self.seek(partition, SeekTo::Beginning)?;
+        }
+        Ok(())
+    }
+
+    fn seek_to_end(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+        for partition in partitions {
+            self.seek(partition, SeekTo::End)?;
+        }
+        Ok(())
+    }
+
+    fn position(&self, partition: &TopicPartition<'a>) -> Result<Option<Offset>> {
+        self.inner.borrow().position(partition)
+    }
+
+    fn committed(&self, tp: TopicPartition<'a>) -> Committed {
+        let topic_name = String::from(tp.topic_name.to_owned());
+        let partition_id = tp.partition_id;
+
+        self.inner
+            .borrow()
+            .coordinator
+            .fetch_offsets(vec![tp])
+            .and_then(move |offsets| {
+                offsets
+                    .get(&topic_name)
+                    .and_then(|partitions| {
+                        partitions
+                            .iter()
+                            .find(|partition| partition.partition_id == partition_id)
+                            .map(move |fetched| {
+                                OffsetAndMetadata::with_metadata(fetched.offset, fetched.metadata.clone())
+                            })
+                    })
+                    .ok_or_else(|| ErrorKind::NoOffsetForPartition(topic_name, partition_id).into())
+            })
+            .static_boxed()
+    }
+
+    fn paused(&self) -> Vec<TopicPartition<'a>> {
+        self.inner.borrow().paused()
+    }
+
+    fn pause(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+        self.inner.borrow().pause(partitions)
+    }
+
+    fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+        self.inner.borrow().resume(partitions)
+    }
 
     fn offsets_for_times(&self, partitions: HashMap<TopicPartition<'a>, Timestamp>) -> OffsetsForTimes<'a> {
-        self.fetcher.retrieve_offsets(
+        self.inner.borrow().fetcher.retrieve_offsets(
             partitions
                 .into_iter()
                 .map(|(tp, ts)| (tp, FetchOffset::ByTime(ts)))
@@ -338,12 +403,16 @@ where
     }
 
     fn beginning_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> BeginningOffsets<'a> {
-        self.fetcher
+        self.inner
+            .borrow()
+            .fetcher
             .retrieve_offsets(partitions.into_iter().map(|tp| (tp, FetchOffset::Earliest)).collect())
     }
 
     fn end_offsets(&self, partitions: Vec<TopicPartition<'a>>) -> EndOffsets<'a> {
-        self.fetcher
+        self.inner
+            .borrow()
+            .fetcher
             .retrieve_offsets(partitions.into_iter().map(|tp| (tp, FetchOffset::Latest)).collect())
     }
 }

@@ -683,6 +683,8 @@ where
     pub fn least_loaded_broker(&self, metadata: &Metadata) -> Result<(SocketAddr, BrokerRef)> {
         let mut brokers = metadata.brokers().to_vec();
 
+        trace!("choose least broker from: {:?}", brokers);
+
         rand::thread_rng().shuffle(&mut brokers);
 
         let mut in_flight_requests = usize::MAX;

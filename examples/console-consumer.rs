@@ -24,7 +24,7 @@ use tokio_core::reactor::Core;
 
 use tokio_kafka::{Consumer, KafkaConsumer, SeekTo, StringDeserializer, Subscribed};
 
-const DEFAULT_BROKER: &str = "127.0.0.1:9092";
+const DEFAULT_BROKER: &str = "localhost:9092";
 const DEFAULT_CLIENT_ID: &str = "consumer-1";
 const DEFAULT_TOPIC: &str = "my-topic";
 
@@ -56,7 +56,7 @@ impl Config {
         let mut opts = Options::new();
 
         opts.optflag("h", "help", "print this help menu");
-        opts.reqopt(
+        opts.optopt(
             "b",
             "bootstrap-server",
             "Bootstrap broker(s) (host[:port], comma separated)",
@@ -64,7 +64,7 @@ impl Config {
         );
         opts.optopt("", "client-id", "Specify the client id.", "ID");
         opts.optopt("g", "group-id", "Specify the consumer group.", "NAME");
-        opts.reqopt("t", "topics", "The topic id to consume on (comma separated).", "NAMES");
+        opts.optopt("t", "topics", "The topic id to consume on (comma separated).", "NAMES");
         opts.optopt("o", "offset", "The offset id to consume from (a non-negative number), or 'earliest' which means from beginning, or 'latest' which means from end (default: latest).", "OFFSET");
         opts.optflag("", "from-beginning", "If the consumer does not already have an established offset to consume from, start with the earliest message present in the log rather than the latest message.");
         opts.optflag("", "no-commit", "Do not commit group offsets.");
@@ -146,16 +146,19 @@ fn run(config: Config) -> Result<()> {
             Ok(topics)
         })
         .and_then(|topics| {
-            topics.for_each(|record| {
-                println!(
-                    "{} {} {}",
-                    record.timestamp.map(|ts| ts.to_string()).unwrap_or_default(),
-                    record.key.unwrap_or_default(),
-                    record.value.unwrap_or_default()
-                );
+            topics
+                .clone()
+                .for_each(|record| {
+                    println!(
+                        "{} {} {}",
+                        record.timestamp.map(|ts| ts.to_string()).unwrap_or_default(),
+                        record.key.unwrap_or_default(),
+                        record.value.unwrap_or_default()
+                    );
 
-                Ok(())
-            })
+                    Ok(())
+                })
+                .and_then(move |_| topics.commit())
         })
         .map(|_| ())
         .from_err();
