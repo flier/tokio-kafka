@@ -461,7 +461,7 @@ where
         self.metadata()
             .and_then(move |metadata| {
                 inner
-                    .topics_by_broker(&metadata, partitions)
+                    .topics_by_broker(ApiKeys::Fetch, &metadata, partitions)
                     .into_future()
                     .and_then(move |topics| {
                         inner.fetch_records(fetch_max_wait, fetch_min_bytes, fetch_max_bytes, topics)
@@ -475,7 +475,7 @@ where
         self.metadata()
             .and_then(move |metadata| {
                 inner
-                    .topics_by_broker(&metadata, partitions)
+                    .topics_by_broker(ApiKeys::ListOffsets, &metadata, partitions)
                     .into_future()
                     .and_then(move |topics| inner.list_offsets(topics))
             })
@@ -874,6 +874,7 @@ where
 
     fn topics_by_broker<T>(
         &self,
+        api_key: ApiKeys,
         metadata: &Metadata,
         partitions: Vec<(TopicPartition<'a>, T)>,
     ) -> Result<TopicsByBroker<'a, T>> {
@@ -883,7 +884,7 @@ where
             let broker = metadata
                 .leader_for(&tp)
                 .ok_or_else(|| KafkaError(KafkaCode::NotLeaderForPartition))?;
-            let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
+            let api_version = broker.api_version(api_key).unwrap_or_default();
 
             topics
                 .entry(((broker.host().to_owned(), broker.port()), api_version))
