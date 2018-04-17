@@ -8,6 +8,32 @@ use errors::Result;
 use protocol::{parse_response_header, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader,
                ResponseHeader};
 
+// api versions we support
+lazy_static! {
+    pub static ref SUPPORTED_API_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+        UsableApiVersion {
+            api_key: ApiKeys::Produce,
+            min_version: 0,
+            max_version: 1,
+        },
+        UsableApiVersion {
+            api_key: ApiKeys::Fetch,
+            min_version: 0,
+            max_version: 3,
+        },
+        UsableApiVersion {
+            api_key: ApiKeys::ListOffsets,
+            min_version: 0,
+            max_version: 1,
+        },
+        UsableApiVersion {
+            api_key: ApiKeys::JoinGroup,
+            min_version: 0,
+            max_version: 1,
+        }
+    ]);
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ApiVersionsRequest<'a> {
     pub header: RequestHeader<'a>,

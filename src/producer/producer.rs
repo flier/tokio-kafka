@@ -245,9 +245,8 @@ where
 
         let api_version = metadata
             .leader_for(&tp)
-            .and_then(|broker| broker.api_versions())
-            .and_then(|api_versions| api_versions.find(ApiKeys::Produce))
-            .map_or(0, |api_version| api_version.max_version);
+            .and_then(|broker| broker.api_version(ApiKeys::Produce))
+            .unwrap_or(0);
 
         trace!("use API version {} for {:?}", api_version, tp);
 
