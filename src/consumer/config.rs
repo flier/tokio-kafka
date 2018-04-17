@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
@@ -74,11 +73,13 @@ pub struct ConsumerConfig {
     #[serde(rename = "group.id")]
     pub group_id: String,
 
-    /// If true the consumer's offset will be periodically committed in the background.
+    /// If true the consumer's offset will be periodically committed in the
+    /// background.
     #[serde(rename = "enable.auto.commit")]
     pub enable_auto_commit: bool,
 
-    /// The frequency in milliseconds that the consumer offsets are auto-committed to Kafka.
+    /// The frequency in milliseconds that the consumer offsets are
+    /// auto-committed to Kafka.
     #[serde(rename = "auto.commit.interval.ms")]
     pub auto_commit_interval: u64,
 
@@ -207,7 +208,7 @@ impl ConsumerConfig {
     /// Construct a `ConsumerConfig` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I) -> Self
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = String>,
     {
         ConsumerConfig {
             client: ClientConfig::with_bootstrap_servers(hosts),
@@ -215,7 +216,8 @@ impl ConsumerConfig {
         }
     }
 
-    /// The frequency in milliseconds that the consumer offsets are auto-committed to Kafka.
+    /// The frequency in milliseconds that the consumer offsets are
+    /// auto-committed to Kafka.
     pub fn auto_commit_interval(&self) -> Option<Duration> {
         if self.enable_auto_commit {
             Some(Duration::from_millis(self.auto_commit_interval))
@@ -236,7 +238,8 @@ impl ConsumerConfig {
         Duration::from_millis(self.session_timeout)
     }
 
-    /// The maximum delay between invocations of poll() when using consumer group management.
+    /// The maximum delay between invocations of poll() when using consumer
+    /// group management.
     pub fn rebalance_timeout(&self) -> Duration {
         Duration::from_millis(self.rebalance_timeout)
     }

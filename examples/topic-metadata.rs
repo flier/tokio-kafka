@@ -10,7 +10,6 @@ extern crate tokio_kafka;
 use std::cmp;
 use std::collections::HashMap;
 use std::env;
-use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::Path;
 use std::process;
 use std::rc::Rc;
@@ -34,7 +33,7 @@ error_chain!{
 }
 
 struct Config {
-    brokers: Vec<SocketAddr>,
+    brokers: Vec<String>,
     api_version_request: bool,
     broker_version: Option<KafkaVersion>,
     topic_names: Option<Vec<String>>,
@@ -97,7 +96,7 @@ impl Config {
             .map(|s| s.split(',').map(|s| s.trim().to_owned()).collect());
 
         Ok(Config {
-            brokers: brokers.iter().flat_map(|s| s.to_socket_addrs().unwrap()).collect(),
+            brokers,
             api_version_request,
             broker_version,
             topic_names,
@@ -169,17 +168,19 @@ fn dump_metadata<'a>(
     earliest_offsets: &HashMap<String, Vec<ListedOffset>>,
     latest_offsets: &HashMap<String, Vec<ListedOffset>>,
 ) {
-    let host_width = 2 + metadata
-        .brokers()
-        .iter()
-        .map(|broker| broker.addr())
-        .fold(0, |width, (host, port)| {
-            cmp::max(width, format!("{}:{}", host, port).len())
-        });
-    let topic_width = 2 + metadata
-        .topic_names()
-        .iter()
-        .fold(0, |width, topic_name| cmp::max(width, topic_name.len()));
+    let host_width = 2
+        + metadata
+            .brokers()
+            .iter()
+            .map(|broker| broker.addr())
+            .fold(0, |width, (host, port)| {
+                cmp::max(width, format!("{}:{}", host, port).len())
+            });
+    let topic_width = 2
+        + metadata
+            .topic_names()
+            .iter()
+            .fold(0, |width, topic_name| cmp::max(width, topic_name.len()));
 
     if config.show_header {
         print!("{1:0$} {2:4} {3:4}", topic_width, "topic", "p-id", "l-id");

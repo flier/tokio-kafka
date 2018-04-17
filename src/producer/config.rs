@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
@@ -95,7 +94,7 @@ impl ProducerConfig {
     /// Construct a `ProducerConfig` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I) -> Self
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = String>,
     {
         ProducerConfig {
             client: ClientConfig::with_bootstrap_servers(hosts),

@@ -1,16 +1,16 @@
-use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
 use tokio_core::reactor::Handle;
 
 use client::{KafkaClient, KafkaVersion};
-use consumer::{AssignmentStrategy, OffsetResetStrategy, ConsumerConfig, KafkaConsumer};
+use consumer::{AssignmentStrategy, ConsumerConfig, KafkaConsumer, OffsetResetStrategy};
 use errors::{ErrorKind, Result};
 use protocol::ToMilliseconds;
 use serialization::{Deserializer, NoopDeserializer};
 
-/// A `KafkaConsumer` builder easing the process of setting up various configuration settings.
+/// A `KafkaConsumer` builder easing the process of setting up various
+/// configuration settings.
 pub struct ConsumerBuilder<'a, K, V> {
     config: ConsumerConfig,
     client: Option<KafkaClient<'a>>,
@@ -64,10 +64,11 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         }
     }
 
-    /// Construct a `ConsumerBuilder` from bootstrap servers of the Kafka cluster
+    /// Construct a `ConsumerBuilder` from bootstrap servers of the Kafka
+    /// cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = String>,
     {
         Self::with_config(ConsumerConfig::with_bootstrap_servers(hosts), handle)
     }
@@ -94,7 +95,8 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the maximum amount of time the client will wait for the response of a request.
+    /// Sets the maximum amount of time the client will wait for the response
+    /// of a request.
     pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
         self.config.request_timeout = request_timeout.as_millis();
         self
@@ -113,7 +115,8 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the period of time in milliseconds after which we force a refresh of metadata
+    /// Sets the period of time in milliseconds after which we force a refresh
+    /// of metadata
     pub fn with_metadata_max_age(mut self, metadata_max_age: Duration) -> Self {
         self.config.metadata_max_age = metadata_max_age.as_millis();
         self
@@ -125,7 +128,8 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the unique string that identifies the consumer group this consumer belongs to.
+    /// Sets the unique string that identifies the consumer group this consumer
+    /// belongs to.
     pub fn with_group_id(mut self, group_id: String) -> Self {
         self.config.group_id = group_id;
         self
@@ -138,7 +142,8 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets to disable the consumer's offset will be periodically committed in the background.
+    /// Sets to disable the consumer's offset will be periodically committed in
+    /// the background.
     pub fn without_auto_commit(mut self) -> Self {
         self.config.enable_auto_commit = false;
         self

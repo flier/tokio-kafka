@@ -37,6 +37,9 @@ tokio-timer = "0.1"
 tokio-retry = "0.1"
 tokio-tls = { version = "0.1", features = ["tokio-proto"] }
 native-tls = "0.1"
+abstract-ns = "0.4"
+ns-router = "0.1"
+ns-std-threaded = "0.3"
 
 flate2 = { version = "1.0", optional = true }
 snap = { version = "0.2", optional = true }

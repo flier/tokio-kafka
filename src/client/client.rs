@@ -15,18 +15,20 @@ use bytes::Bytes;
 
 use rand::{self, Rng};
 
-use futures;
-use futures::future::{self, Future};
 use futures::unsync::oneshot;
-use futures::{Async, IntoFuture, Poll};
+use futures::{future, Async, Future, IntoFuture, Poll};
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_service::Service;
 use tokio_timer::Timer;
+use ns_router::{AutoName, Config as RouterConfig, Router, SubscribeExt};
+use ns_std_threaded::ThreadedResolver;
+use abstract_ns::HostResolve;
 
 use client::middleware::Timeout as TimeoutMiddleware;
-use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, InFlightMiddleware, KafkaService, Metadata,
-             Metrics};
-use errors::{Error, ErrorKind, Result};
+use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, FutureResponse, InFlightMiddleware,
+             KafkaService, Metadata, Metrics, DEFAULT_PORT};
+use errors::{Error, Result};
+use errors::ErrorKind::{self, *};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
                GenerationId, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset, PartitionId,
@@ -288,8 +290,9 @@ pub struct KafkaClient<'a> {
 struct Inner<'a> {
     config: ClientConfig,
     handle: Handle,
-    service: InFlightMiddleware<TimeoutMiddleware<KafkaService<'a>>>,
+    service: Rc<InFlightMiddleware<TimeoutMiddleware<KafkaService<'a>>>>,
     timer: Rc<Timer>,
+    router: Router,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
 }
@@ -331,18 +334,29 @@ where
         } else {
             None
         };
-        let service = InFlightMiddleware::new(TimeoutMiddleware::new(
+        let service = Rc::new(InFlightMiddleware::new(TimeoutMiddleware::new(
             KafkaService::new(handle.clone(), config.max_connection_idle(), metrics.clone()),
             config.timer(),
             config.request_timeout(),
-        ));
+        )));
 
         let timer = Rc::new(config.timer());
+        let router = Router::from_config(
+            &RouterConfig::new()
+                .set_fallthrough(
+                    ThreadedResolver::new()
+                        .null_service_resolver()
+                        .interval_subscriber(Duration::new(1, 0), &handle),
+                )
+                .done(),
+            &handle,
+        );
         let inner = Rc::new(Inner {
             config,
             handle,
             service,
             timer,
+            router,
             metrics,
             state: Rc::new(RefCell::new(State::default())),
         });
@@ -362,7 +376,7 @@ where
     /// Construct a `ClientBuilder` from  bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ClientBuilder<'a>
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = String>,
     {
         ClientBuilder::with_bootstrap_servers(hosts, handle)
     }
@@ -399,14 +413,10 @@ impl Future for GetMetadata {
     type Item = Rc<Metadata>;
     type Error = Error;
 
-    fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
-        use futures::Async;
-
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match *self {
             GetMetadata::Loaded(ref meta) => Ok(Async::Ready(meta.clone())),
-            GetMetadata::Loading(ref mut inner) => inner
-                .poll()
-                .map_err(|_| ErrorKind::Canceled("load metadata canceled").into()),
+            GetMetadata::Loading(ref mut inner) => inner.poll().map_err(|_| Canceled("load metadata canceled").into()),
         }
     }
 }
@@ -520,7 +530,7 @@ where
                             offsets,
                         )
                     })
-                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+                    .unwrap_or_else(|| BrokerNotFound(coordinator).into())
             })
             .static_boxed()
     }
@@ -537,7 +547,7 @@ where
                 metadata
                     .find_broker(coordinator)
                     .map(move |coordinator| inner.offset_fetch(coordinator, generation.group_id.into(), partitions))
-                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+                    .unwrap_or_else(|| BrokerNotFound(coordinator).into())
             })
             .static_boxed()
     }
@@ -575,7 +585,7 @@ where
                             group_protocols,
                         )
                     })
-                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+                    .unwrap_or_else(|| BrokerNotFound(coordinator).into())
             })
             .static_boxed()
     }
@@ -594,7 +604,7 @@ where
                             generation.member_id.into(),
                         )
                     })
-                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+                    .unwrap_or_else(|| BrokerNotFound(coordinator).into())
             })
             .static_boxed()
     }
@@ -608,7 +618,7 @@ where
                     .map(move |coordinator| {
                         inner.leave_group(coordinator, generation.group_id.into(), generation.member_id.into())
                     })
-                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+                    .unwrap_or_else(|| BrokerNotFound(coordinator).into())
             })
             .static_boxed()
     }
@@ -633,7 +643,7 @@ where
                             group_assignment,
                         )
                     })
-                    .unwrap_or_else(|| ErrorKind::BrokerNotFound(coordinator).into())
+                    .unwrap_or_else(|| BrokerNotFound(coordinator).into())
             })
             .static_boxed()
     }
@@ -653,6 +663,19 @@ where
 
     pub fn metadata(&self) -> GetMetadata {
         (*self.state).borrow().metadata()
+    }
+
+    fn send_request<'n, N>(&self, host: N, req: KafkaRequest<'a>) -> FutureResponse
+    where
+        N: Into<AutoName<'n>>,
+    {
+        let service = self.service.clone();
+        self.router
+            .resolve_auto(host, DEFAULT_PORT)
+            .from_err()
+            .map(|addrs| addrs.pick_one().unwrap())
+            .and_then(move |addr| service.call((addr, req)))
+            .static_boxed()
     }
 
     /// Choose the node with the fewest outstanding requests which is at least eligible for
@@ -713,7 +736,7 @@ where
             .ok_or_else(|| {
                 warn!("not found any broker");
 
-                ErrorKind::KafkaError(KafkaCode::BrokerNotAvailable).into()
+                KafkaError(KafkaCode::BrokerNotAvailable).into()
             })
     }
 
@@ -723,22 +746,24 @@ where
     {
         debug!("fetch metadata for toipcs: {:?}", topic_names);
 
+        let topic_names = topic_names.iter().map(|s| s.as_ref().to_owned()).collect::<Vec<_>>();
+
         let responses = {
             let mut responses = Vec::new();
 
-            for addr in &self.config.hosts {
+            for host in &self.config.hosts {
                 let request = KafkaRequest::fetch_metadata(
                     0, // api_version
                     self.next_correlation_id(),
                     self.client_id(),
-                    topic_names,
+                    &topic_names,
                 );
 
-                let response = self.service.call((*addr, request)).and_then(|res| {
+                let response = self.send_request(host.as_str(), request).and_then(|res| {
                     if let KafkaResponse::Metadata(res) = res {
                         Ok(Rc::new(Metadata::from(res)))
                     } else {
-                        bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                        bail!(UnexpectedResponse(res.api_key()))
                     }
                 });
 
@@ -756,17 +781,14 @@ where
     fn fetch_api_versions(&self, broker: &Broker) -> FetchApiVersions {
         debug!("fetch API versions for broker: {:?}", broker);
 
-        let addr = broker.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
-
         let request = KafkaRequest::api_versions(self.next_correlation_id(), self.client_id());
 
-        self.service
-            .call((addr, request))
+        self.send_request(AutoName::HostPort(broker.host(), broker.port()), request)
             .and_then(|res| {
                 if let KafkaResponse::ApiVersions(res) = res {
                     Ok(UsableApiVersions::new(res.api_versions))
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .static_boxed()
@@ -801,11 +823,11 @@ where
         records: Vec<Cow<'a, MessageSet>>,
     ) -> ProduceRecords {
         let (api_version, addr) = metadata.leader_for(tp).map_or_else(
-            || (0, *self.config.hosts.iter().next().unwrap()),
+            || (0, AutoName::Auto(self.config.hosts.first().unwrap())),
             |broker| {
                 (
                     broker.api_version(ApiKeys::Produce).unwrap_or_default(),
-                    broker.addr().to_socket_addrs().unwrap().next().unwrap(),
+                    AutoName::HostPort(broker.host(), broker.port()),
                 )
             },
         );
@@ -820,13 +842,12 @@ where
             records,
         );
 
-        self.service
-            .call((addr, request))
+        self.send_request(addr, request)
             .and_then(|res| {
                 if let KafkaResponse::Produce(res) = res {
                     Ok(res.topics)
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .map(|topics| {
@@ -861,16 +882,11 @@ where
         for (tp, value) in partitions {
             let broker = metadata
                 .leader_for(&tp)
-                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::NotLeaderForPartition))?;
-            let addr = broker
-                .addr()
-                .to_socket_addrs()?
-                .next()
-                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::LeaderNotAvailable))?;
+                .ok_or_else(|| KafkaError(KafkaCode::NotLeaderForPartition))?;
             let api_version = broker.api_version(ApiKeys::ListOffsets).unwrap_or_default();
 
             topics
-                .entry((addr, api_version))
+                .entry(((broker.host().to_owned(), broker.port()), api_version))
                 .or_insert_with(HashMap::new)
                 .entry(tp.topic_name)
                 .or_insert_with(Vec::new)
@@ -890,7 +906,7 @@ where
         let requests = {
             let mut requests = Vec::new();
 
-            for ((addr, api_version), offsets_by_topic) in topics {
+            for (((host, port), api_version), offsets_by_topic) in topics {
                 let fetch_topics = offsets_by_topic
                     .iter()
                     .map(|(topic_name, partitions)| FetchTopic {
@@ -915,13 +931,12 @@ where
                     fetch_max_bytes as i32,
                     fetch_topics,
                 );
-                let request = self.service
-                    .call((addr, request))
+                let request = self.send_request(AutoName::HostPort(&host, port), request)
                     .and_then(|res| {
                         if let KafkaResponse::Fetch(res) = res {
                             Ok(res.topics)
                         } else {
-                            bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                            bail!(UnexpectedResponse(res.api_key()))
                         }
                     })
                     .map(|topics| Self::extract_fetched_records(offsets_by_topic, topics));
@@ -1006,16 +1021,15 @@ where
         let requests = {
             let mut requests = Vec::new();
 
-            for ((addr, api_version), topics) in topics {
+            for (((host, port), api_version), topics) in topics {
                 let request =
                     KafkaRequest::list_offsets(api_version, self.next_correlation_id(), self.client_id(), topics);
-                let request = self.service
-                    .call((addr, request))
+                let request = self.send_request(AutoName::HostPort(&host, port), request)
                     .and_then(|res| {
                         if let KafkaResponse::ListOffsets(res) = res {
                             Ok(res.topics)
                         } else {
-                            bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                            bail!(UnexpectedResponse(res.api_key()))
                         }
                     })
                     .map(|topics| {
@@ -1072,7 +1086,7 @@ where
     ) -> OffsetCommit {
         debug!("fetch offset to the `{}` group: {:?}", group_id, offsets);
 
-        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
+        let addr = AutoName::HostPort(coordinator.host(), coordinator.port());
 
         let api_version = coordinator.api_version(ApiKeys::OffsetCommit).unwrap_or_default();
 
@@ -1087,13 +1101,12 @@ where
             offsets,
         );
 
-        self.service
-            .call((addr, request))
+        self.send_request(addr, request)
             .and_then(|res| {
                 if let KafkaResponse::OffsetCommit(res) = res {
                     Ok(res.topics)
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .map(|topics| {
@@ -1124,7 +1137,7 @@ where
     ) -> OffsetFetch {
         debug!("fetch offset of the `{}` group : {:?}", group_id, partitions);
 
-        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
+        let addr = AutoName::HostPort(coordinator.host(), coordinator.port());
 
         let api_version = coordinator.api_version(ApiKeys::OffsetFetch).unwrap_or_default();
 
@@ -1136,13 +1149,12 @@ where
             partitions,
         );
 
-        self.service
-            .call((addr, request))
+        self.send_request(addr, request)
             .and_then(|res| {
                 if let KafkaResponse::OffsetFetch(res) = res {
                     Ok(res.topics)
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .map(|topics| {
@@ -1192,7 +1204,7 @@ where
                 if let KafkaResponse::GroupCoordinator(res) = res {
                     Ok(res)
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .and_then(|res| {
@@ -1203,7 +1215,7 @@ where
                         res.coordinator_port as u16,
                     ))
                 } else {
-                    bail!(ErrorKind::KafkaError(res.error_code.into()))
+                    bail!(KafkaError(res.error_code.into()))
                 }
             })
             .static_boxed()
@@ -1225,7 +1237,7 @@ where
             debug!("member `{}` rejoin the `{}` group", member_id, group_id);
         }
 
-        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
+        let addr = AutoName::HostPort(coordinator.host(), coordinator.port());
 
         let api_version = coordinator.api_version(ApiKeys::JoinGroup).unwrap_or_default();
 
@@ -1243,13 +1255,12 @@ where
             group_protocols,
         );
 
-        self.service
-            .call((addr, request))
+        self.send_request(addr, request)
             .and_then(|res| {
                 if let KafkaResponse::JoinGroup(res) = res {
                     Ok(res)
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .and_then(move |res| {
@@ -1263,7 +1274,7 @@ where
                         members: res.members,
                     })
                 } else {
-                    bail!(ErrorKind::KafkaError(res.error_code.into()))
+                    bail!(KafkaError(res.error_code.into()))
                 }
             })
             .static_boxed()
@@ -1278,7 +1289,7 @@ where
     ) -> Heartbeat {
         debug!("member `{}` send heartbeat to the `{}` group", member_id, group_id);
 
-        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
+        let addr = AutoName::HostPort(coordinator.host(), coordinator.port());
 
         let request = KafkaRequest::heartbeat(
             self.next_correlation_id(),
@@ -1288,20 +1299,19 @@ where
             member_id,
         );
 
-        self.service
-            .call((addr, request))
+        self.send_request(addr, request)
             .and_then(|res| {
                 if let KafkaResponse::Heartbeat(res) = res {
                     Ok(res.error_code)
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .and_then(|error_code| {
                 if error_code == KafkaCode::None as ErrorCode {
                     Ok(())
                 } else {
-                    bail!(ErrorKind::KafkaError(error_code.into()))
+                    bail!(KafkaError(error_code.into()))
                 }
             })
             .static_boxed()
@@ -1310,26 +1320,25 @@ where
     fn leave_group(&self, coordinator: &Broker, group_id: Cow<'a, str>, member_id: Cow<'a, str>) -> LeaveGroup {
         debug!("member `{}` leave the `{}` group", member_id, group_id);
 
-        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
+        let addr = AutoName::HostPort(coordinator.host(), coordinator.port());
 
         let leaved_group_id: String = (*group_id).to_owned();
 
         let request = KafkaRequest::leave_group(self.next_correlation_id(), self.client_id(), group_id, member_id);
 
-        self.service
-            .call((addr, request))
+        self.send_request(addr, request)
             .and_then(|res| {
                 if let KafkaResponse::LeaveGroup(res) = res {
                     Ok(res.error_code)
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .and_then(|error_code| {
                 if error_code == KafkaCode::None as ErrorCode {
                     Ok(leaved_group_id)
                 } else {
-                    bail!(ErrorKind::KafkaError(error_code.into()))
+                    bail!(KafkaError(error_code.into()))
                 }
             })
             .static_boxed()
@@ -1348,7 +1357,7 @@ where
             group_id, group_generation_id, member_id
         );
 
-        let addr = coordinator.addr().to_socket_addrs().unwrap().next().unwrap(); // TODO
+        let addr = AutoName::HostPort(coordinator.host(), coordinator.port());
 
         let request = KafkaRequest::sync_group(
             self.next_correlation_id(),
@@ -1359,20 +1368,19 @@ where
             group_assignment.unwrap_or_default(),
         );
 
-        self.service
-            .call((addr, request))
+        self.send_request(addr, request)
             .and_then(|res| {
                 if let KafkaResponse::SyncGroup(res) = res {
                     Ok(res)
                 } else {
-                    bail!(ErrorKind::UnexpectedResponse(res.api_key()))
+                    bail!(UnexpectedResponse(res.api_key()))
                 }
             })
             .and_then(|res| {
                 if res.error_code == KafkaCode::None as ErrorCode {
                     Ok(res.member_assignment)
                 } else {
-                    bail!(ErrorKind::KafkaError(res.error_code.into()))
+                    bail!(KafkaError(res.error_code.into()))
                 }
             })
             .static_boxed()
@@ -1383,7 +1391,7 @@ pub type FetchMetadata = StaticBoxFuture<Rc<Metadata>>;
 pub type FetchApiVersions = StaticBoxFuture<UsableApiVersions>;
 pub type LoadApiVersions = StaticBoxFuture<HashMap<BrokerRef, UsableApiVersions>>;
 
-type TopicsByBroker<'a, T> = HashMap<(SocketAddr, ApiVersion), HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>>;
+type TopicsByBroker<'a, T> = HashMap<((String, u16), ApiVersion), HashMap<Cow<'a, str>, Vec<(PartitionId, T)>>>;
 
 impl State {
     pub fn next_correlation_id(&mut self) -> CorrelationId {

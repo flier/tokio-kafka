@@ -1,5 +1,4 @@
 use std::env;
-use std::net::{self, SocketAddr};
 
 use failure::Error;
 use pretty_env_logger;
@@ -8,20 +7,18 @@ use futures::Future;
 use tokio_core::reactor::Core;
 use tokio_kafka::{ClientConfig, KafkaClient};
 
-const DEFAULT_BROKER: &str = "127.0.0.1:9092";
+const DEFAULT_BROKER: &str = "localhost:9092";
 
 pub struct IntegrationTest {
-    brokers: Vec<SocketAddr>,
+    brokers: Vec<String>,
     client_id: Option<String>,
 }
 
 impl IntegrationTest {
     pub fn new() -> Result<Self, Error> {
         let brokers = match env::var("KAFKA_BROKERS") {
-            Ok(s) => s.split(",")
-                .map(|s| s.parse().map_err(|err: net::AddrParseError| err.into()))
-                .collect::<Result<Vec<_>, Error>>()?,
-            Err(env::VarError::NotPresent) => vec![DEFAULT_BROKER.parse()?],
+            Ok(s) => s.split(",").map(|s| s.to_owned()).collect(),
+            Err(env::VarError::NotPresent) => vec![DEFAULT_BROKER.to_owned()],
             Err(err) => bail!(err),
         };
         let client_id = match env::var("KAFKA_CLIENT") {

@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::hash::Hash;
-use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::time::Duration;
@@ -15,7 +14,8 @@ use producer::{DefaultPartitioner, Interceptors, KafkaProducer, ProducerConfig, 
 use protocol::{RequiredAcks, ToMilliseconds};
 use serialization::{NoopSerializer, Serializer};
 
-/// A `KafkaProducer` builder easing the process of setting up various configuration settings.
+/// A `KafkaProducer` builder easing the process of setting up various
+/// configuration settings.
 pub struct ProducerBuilder<'a, K, V, P = DefaultPartitioner>
 where
     K: Serializer,
@@ -107,10 +107,11 @@ where
         }
     }
 
-    /// Construct a `ProducerBuilder` from bootstrap servers of the Kafka cluster
+    /// Construct a `ProducerBuilder` from bootstrap servers of the Kafka
+    /// cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = String>,
     {
         Self::with_config(ProducerConfig::with_bootstrap_servers(hosts), handle)
     }
@@ -143,7 +144,8 @@ where
         self
     }
 
-    /// Sets the maximum amount of time the client will wait for the response of a request.
+    /// Sets the maximum amount of time the client will wait for the response
+    /// of a request.
     pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
         self.config.request_timeout = request_timeout.as_millis();
         self
@@ -162,7 +164,8 @@ where
         self
     }
 
-    /// Sets the period of time in milliseconds after which we force a refresh of metadata
+    /// Sets the period of time in milliseconds after which we force a refresh
+    /// of metadata
     pub fn with_metadata_max_age(mut self, metadata_max_age: Duration) -> Self {
         self.config.metadata_max_age = metadata_max_age.as_millis();
         self
@@ -220,7 +223,8 @@ where
         self
     }
 
-    /// Sets the partitioner which choosing a partition for a message to be sent to Kafka.
+    /// Sets the partitioner which choosing a partition for a message to be
+    /// sent to Kafka.
     pub fn with_partitioner(mut self, partitioner: P) -> Self {
         self.partitioner = Some(partitioner);
         self

@@ -1,10 +1,11 @@
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_timer::{wheel, Timer};
 
 use client::KafkaVersion;
+
+pub const DEFAULT_PORT: u16 = 9092;
 
 /// The default milliseconds after which we close the idle connections.
 ///
@@ -42,7 +43,7 @@ pub struct ClientConfig {
     /// A list of host/port pairs to use for establishing the initial connection to the Kafka
     /// cluster.
     #[serde(rename = "bootstrap.servers")]
-    pub hosts: Vec<SocketAddr>,
+    pub hosts: Vec<String>,
 
     /// An id string to pass to the server when making requests.
     ///
@@ -51,11 +52,13 @@ pub struct ClientConfig {
     #[serde(rename = "client.id")]
     pub client_id: Option<String>,
 
-    /// Close idle connections after the number of milliseconds specified by this config.
+    /// Close idle connections after the number of milliseconds specified by
+    /// this config.
     #[serde(rename = "connection.max.idle.ms")]
     pub max_connection_idle: u64,
 
-    /// The maximum amount of time the client will wait for the response of a request.
+    /// The maximum amount of time the client will wait for the response of a
+    /// request.
     #[serde(rename = "request.timeout.ms")]
     pub request_timeout: u64,
 
@@ -116,7 +119,7 @@ impl ClientConfig {
     /// Construct a `ClientConfig` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I) -> Self
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = String>,
     {
         ClientConfig {
             hosts: hosts.into_iter().collect(),
@@ -124,12 +127,14 @@ impl ClientConfig {
         }
     }
 
-    /// Close idle connections after the number of milliseconds specified by this config.
+    /// Close idle connections after the number of milliseconds specified by
+    /// this config.
     pub fn max_connection_idle(&self) -> Duration {
         Duration::from_millis(self.max_connection_idle)
     }
 
-    /// The maximum amount of time the client will wait for the response of a request.
+    /// The maximum amount of time the client will wait for the response of a
+    /// request.
     pub fn request_timeout(&self) -> Duration {
         Duration::from_millis(self.request_timeout)
     }

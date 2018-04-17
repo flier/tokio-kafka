@@ -16,7 +16,6 @@ extern crate tokio_kafka;
 use std::env;
 use std::fs;
 use std::io;
-use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::process;
 use std::str;
@@ -240,11 +239,9 @@ fn produce<'a, I>(config: Config, mut core: Core, io: I) -> Result<()>
 where
     I: AsyncRead,
 {
-    let hosts = config.brokers.iter().flat_map(|s| s.to_socket_addrs().unwrap());
-
     let handle = core.handle();
 
-    let mut builder = KafkaProducer::with_bootstrap_servers(hosts, handle.clone())
+    let mut builder = KafkaProducer::with_bootstrap_servers(config.brokers, handle.clone())
         .with_client_id(config.client_id)
         .with_max_connection_idle(config.idle_timeout)
         .with_required_acks(config.required_acks)

@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
@@ -9,7 +8,8 @@ use client::{ClientConfig, KafkaClient, KafkaVersion};
 use errors::{ErrorKind, Result};
 use protocol::ToMilliseconds;
 
-/// A `KafkaClient` builder easing the process of setting up various configuration settings.
+/// A `KafkaClient` builder easing the process of setting up various
+/// configuration settings.
 #[derive(Default)]
 pub struct ClientBuilder<'a> {
     config: ClientConfig,
@@ -44,7 +44,7 @@ impl<'a> ClientBuilder<'a> {
     /// Construct a `ClientBuilder` from bootstrap servers of the Kafka cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> Self
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = String>,
     {
         Self::with_config(ClientConfig::with_bootstrap_servers(hosts), handle)
     }
@@ -66,7 +66,8 @@ impl<'a> ClientBuilder<'a> {
         self
     }
 
-    /// Sets the maximum amount of time the client will wait for the response of a request.
+    /// Sets the maximum amount of time the client will wait for the response
+    /// of a request.
     pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
         self.config.request_timeout = request_timeout.as_millis();
         self
@@ -85,7 +86,8 @@ impl<'a> ClientBuilder<'a> {
         self
     }
 
-    /// Sets the period of time in milliseconds after which we force a refresh of metadata
+    /// Sets the period of time in milliseconds after which we force a refresh
+    /// of metadata
     pub fn with_metadata_max_age(mut self, metadata_max_age: Duration) -> Self {
         self.config.metadata_max_age = metadata_max_age.as_millis();
         self

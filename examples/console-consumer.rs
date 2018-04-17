@@ -13,7 +13,6 @@ extern crate tokio_io;
 extern crate tokio_kafka;
 
 use std::env;
-use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::process;
 
@@ -126,11 +125,9 @@ fn main() {
 fn run(config: Config) -> Result<()> {
     let mut core = Core::new()?;
 
-    let hosts = config.brokers.iter().flat_map(|s| s.to_socket_addrs().unwrap());
-
     let handle = core.handle();
 
-    let builder = KafkaConsumer::with_bootstrap_servers(hosts, handle)
+    let builder = KafkaConsumer::with_bootstrap_servers(config.brokers, handle)
         .with_client_id(config.client_id)
         .with_group_id(config.group_id)
         .with_key_deserializer(StringDeserializer::default())

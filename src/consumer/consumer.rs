@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::hash::Hash;
-use std::net::SocketAddr;
 use std::rc::Rc;
 
 use futures::{Future, Stream};
@@ -22,7 +21,8 @@ pub trait Consumer<'a> {
     /// The type of `Stream` to receive records from topics
     type Topics: Stream<Item = ConsumerRecord<'a, Self::Key, Self::Value>, Error = Error>;
 
-    /// Subscribe to the given list of topics to get dynamically assigned partitions.
+    /// Subscribe to the given list of topics to get dynamically assigned
+    /// partitions.
     fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
     where
         S: AsRef<str> + Hash + Eq;
@@ -80,10 +80,11 @@ impl<'a, K, V> KafkaConsumer<'a, K, V> {
         ConsumerBuilder::with_config(config, handle)
     }
 
-    /// Construct a `ConsumerBuilder` from bootstrap servers of the Kafka cluster
+    /// Construct a `ConsumerBuilder` from bootstrap servers of the Kafka
+    /// cluster
     pub fn with_bootstrap_servers<I>(hosts: I, handle: Handle) -> ConsumerBuilder<'a, K, V>
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = String>,
     {
         ConsumerBuilder::with_bootstrap_servers(hosts, handle)
     }

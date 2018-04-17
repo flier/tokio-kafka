@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use futures::Future;
 
-use client::{Client, KafkaClient, StaticBoxFuture};
+use client::{Client, KafkaClient, ToStaticBoxFuture, StaticBoxFuture};
 use errors::Result;
 use network::TopicPartition;
 use producer::{Interceptors, ProducerBatch, Thunk};
@@ -61,8 +61,7 @@ where
         let thunks = self.thunks.clone();
         let interceptors = self.interceptors.clone();
 
-        let send_batch = (*self.client)
-            .borrow()
+        self.client
             .produce_records(
                 acks,
                 ack_timeout,
@@ -91,8 +90,6 @@ where
                             }
                         });
                 });
-            });
-
-        SendBatch::new(send_batch)
+            }).static_boxed()
     }
 }

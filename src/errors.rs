@@ -17,6 +17,7 @@ error_chain!{
         SnappyError(::snap::Error) #[cfg(feature = "snappy")];
         JsonError(::serde_json::Error) #[cfg(feature = "json")];
         TimerError(::tokio_timer::TimerError);
+        ResolveError(::abstract_ns::Error);
     }
 
     errors {
@@ -153,10 +154,10 @@ impl<E: StdError> From<::tokio_retry::Error<E>> for Error {
 }
 
 macro_rules! hexdump {
-    ($buf:expr) => {
+    ($buf: expr) => {
         hexdump!($buf, 0)
     };
-    ($buf:expr, $off:expr) => {
+    ($buf: expr, $off: expr) => {
         ::hexplay::HexViewBuilder::new($buf)
             .codepage(::hexplay::CODEPAGE_ASCII)
             .address_offset($off)

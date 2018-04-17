@@ -1,4 +1,4 @@
-#![recursion_limit = "128"]
+#![recursion_limit = "256"]
 #![cfg_attr(feature = "clippy", feature(plugin))]
 #![cfg_attr(feature = "clippy", plugin(clippy(conf_file = "../.clippy.toml")))]
 #![cfg_attr(feature = "clippy", allow(module_inception, block_in_if_condition_stmt))]
@@ -28,6 +28,9 @@ extern crate serde_derive;
 extern crate serde_json;
 #[macro_use]
 extern crate prometheus;
+extern crate abstract_ns;
+extern crate ns_router;
+extern crate ns_std_threaded;
 
 extern crate futures;
 extern crate futures_cpupool;
@@ -70,7 +73,8 @@ mod producer;
 pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster, KafkaClient, KafkaVersion,
                  ListOffsets, ListedOffset, LoadMetadata, Metadata, PartitionRecord, ProduceRecords,
                  ToStaticBoxFuture, TopicRecord, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
-                 DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS};
+                 DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_PORT, DEFAULT_REQUEST_TIMEOUT_MILLS,
+                 DEFAULT_RETRY_BACKOFF_MILLIS};
 pub use compression::Compression;
 pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer, OffsetResetStrategy, SeekTo, Subscribed};
 pub use errors::{Error, ErrorKind, Result};
