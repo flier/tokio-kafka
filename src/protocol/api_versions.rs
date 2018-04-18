@@ -233,6 +233,39 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_api_versions() {
+        let api_versions = vec![
+            ("0.8.0", ApiVersions::KAFKA_0_8_0),
+            ("0.8.0.0", ApiVersions::KAFKA_0_8_0),
+            ("0.8.2", ApiVersions::KAFKA_0_8_2),
+            ("0.9.0", ApiVersions::KAFKA_0_9_0),
+            ("0.10.0-IV0", ApiVersions::KAFKA_0_10_0_IV0),
+            ("0.10.0-IV1", ApiVersions::KAFKA_0_10_0_IV1),
+            ("0.10.0", ApiVersions::KAFKA_0_10_0_IV1),
+            ("0.10.1-IV0", ApiVersions::KAFKA_0_10_1_IV0),
+            ("0.10.1-IV1", ApiVersions::KAFKA_0_10_1_IV1),
+            ("0.10.1-IV2", ApiVersions::KAFKA_0_10_1_IV2),
+            ("0.10.1", ApiVersions::KAFKA_0_10_1_IV2),
+            ("0.10.2-IV0", ApiVersions::KAFKA_0_10_2_IV0),
+            ("0.10.2", ApiVersions::KAFKA_0_10_2_IV0),
+            ("0.11.0-IV0", ApiVersions::KAFKA_0_11_0_IV0),
+            ("0.11.0-IV1", ApiVersions::KAFKA_0_11_0_IV1),
+            ("0.11.0-IV2", ApiVersions::KAFKA_0_11_0_IV2),
+            ("0.11.0", ApiVersions::KAFKA_0_11_0_IV2),
+            ("1.0-IV0", ApiVersions::KAFKA_1_0_IV0),
+            ("1.0", ApiVersions::KAFKA_1_0_IV0),
+            ("1.1-IV0", ApiVersions::KAFKA_1_1_IV0),
+            ("1.1", ApiVersions::KAFKA_1_1_IV0),
+        ];
+
+        for (s, version) in api_versions {
+            let res: Result<ApiVersions> = s.parse();
+
+            assert_eq!(res.unwrap(), version, "parse API version: {}", s);
+        }
+    }
+
+    #[test]
     fn test_encode_api_versions_request() {
         let req = ApiVersionsRequest {
             header: RequestHeader {
