@@ -1,12 +1,99 @@
 use std::ops::Deref;
+use std::str::FromStr;
+use std::mem;
 
 use bytes::{ByteOrder, BytesMut};
 
 use nom::{IResult, be_i16, be_i32};
 
-use errors::Result;
-use protocol::{parse_response_header, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RequestHeader,
-               ResponseHeader};
+use errors::{Error, Result};
+use protocol::{parse_response_header, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RecordFormat,
+               RequestHeader, ResponseHeader};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(i16)]
+pub enum ApiVersions {
+    KAFKA_0_8_0,
+    KAFKA_0_8_1,
+    KAFKA_0_8_2,
+    KAFKA_0_9_0,
+    /// 0.10.0-IV0 is introduced for KIP-31/32 which changes the message format.
+    KAFKA_0_10_0_IV0,
+    /// 0.10.0-IV1 is introduced for KIP-36(rack awareness) and KIP-43(SASL
+    /// handshake).
+    KAFKA_0_10_0_IV1,
+    /// introduced for JoinGroup protocol change in KIP-62
+    KAFKA_0_10_1_IV0,
+    /// 0.10.1-IV1 is introduced for KIP-74(fetch response size limit).
+    KAFKA_0_10_1_IV1,
+    /// introduced ListOffsetRequest v1 in KIP-79
+    KAFKA_0_10_1_IV2,
+    /// introduced UpdateMetadataRequest v3 in KIP-103
+    KAFKA_0_10_2_IV0,
+    /// KIP-98 (idempotent and transactional producer support)
+    KAFKA_0_11_0_IV0,
+    /// introduced DeleteRecordsRequest v0 and FetchRequest v4 in KIP-107
+    KAFKA_0_11_0_IV1,
+    /// Introduced leader epoch fetches to the replica fetcher via KIP-101
+    KAFKA_0_11_0_IV2,
+    /// Introduced LeaderAndIsrRequest V1, UpdateMetadataRequest V4 and
+    /// FetchRequest V6 via KIP-112
+    KAFKA_1_0_IV0,
+    /// Introduced DeleteGroupsRequest V0 via KIP-229, plus KIP-227 incremental fetch requests,
+    /// and KafkaStorageException for fetch requests.
+    KAFKA_1_1_IV0,
+}
+
+impl ApiVersions {
+    pub fn min_version(record_fmt: RecordFormat) -> Self {
+        match record_fmt {
+            RecordFormat::V0 => ApiVersions::KAFKA_0_8_0,
+            RecordFormat::V1 => ApiVersions::KAFKA_0_10_0_IV1,
+            RecordFormat::V2 => ApiVersions::KAFKA_0_11_0_IV2,
+        }
+    }
+}
+
+impl From<ApiVersion> for ApiVersions {
+    fn from(version: ApiVersion) -> Self {
+        unsafe { mem::transmute(version) }
+    }
+}
+
+impl FromStr for ApiVersions {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        parse_api_versions(s.as_bytes()).to_result().map_err(|err| err.into())
+    }
+}
+
+named!(
+    parse_api_versions<ApiVersions>,
+    alt_complete!(
+        tag!("0.8.0")       => { |_| ApiVersions::KAFKA_0_8_0 } |
+        tag!("0.8.1")       => { |_| ApiVersions::KAFKA_0_8_1 } |
+        tag!("0.8.2")       => { |_| ApiVersions::KAFKA_0_8_2 } |
+        tag!("0.9.0")       => { |_| ApiVersions::KAFKA_0_9_0 } |
+        tag!("0.10.0-IV0")  => { |_| ApiVersions::KAFKA_0_10_0_IV0 } |
+        tag!("0.10.0-IV1")  => { |_| ApiVersions::KAFKA_0_10_0_IV1 } |
+        tag!("0.10.0")      => { |_| ApiVersions::KAFKA_0_10_0_IV1 } |
+        tag!("0.10.1-IV0")  => { |_| ApiVersions::KAFKA_0_10_1_IV0 } |
+        tag!("0.10.1-IV1")  => { |_| ApiVersions::KAFKA_0_10_1_IV1 } |
+        tag!("0.10.1-IV2")  => { |_| ApiVersions::KAFKA_0_10_1_IV2 } |
+        tag!("0.10.1")      => { |_| ApiVersions::KAFKA_0_10_1_IV2 } |
+        tag!("0.10.2-IV0")  => { |_| ApiVersions::KAFKA_0_10_2_IV0 } |
+        tag!("0.10.2")      => { |_| ApiVersions::KAFKA_0_10_2_IV0 } |
+        tag!("0.11.0-IV0")  => { |_| ApiVersions::KAFKA_0_11_0_IV0 } |
+        tag!("0.11.0-IV1")  => { |_| ApiVersions::KAFKA_0_11_0_IV1 } |
+        tag!("0.11.0-IV2")  => { |_| ApiVersions::KAFKA_0_11_0_IV2 } |
+        tag!("0.11.0")      => { |_| ApiVersions::KAFKA_0_11_0_IV2 } |
+        tag!("1.0-IV0")     => { |_| ApiVersions::KAFKA_1_0_IV0 } |
+        tag!("1.0")         => { |_| ApiVersions::KAFKA_1_0_IV0 } |
+        tag!("1.1-IV0")     => { |_| ApiVersions::KAFKA_1_1_IV0 } |
+        tag!("1.1")         => { |_| ApiVersions::KAFKA_1_1_IV0 }
+    )
+);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ApiVersionsRequest<'a> {

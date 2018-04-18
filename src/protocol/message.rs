@@ -26,6 +26,13 @@ const RECORD_HEADER_SIZE: usize = OFFSET_SIZE + MSG_SIZE + CRC_SIZE + MAGIC_SIZE
 
 const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RecordFormat {
+    V0,
+    V1,
+    V2,
+}
+
 /// Message sets
 ///
 /// One structure common to both the produce and fetch requests is the message set format.

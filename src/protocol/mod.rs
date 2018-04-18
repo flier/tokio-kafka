@@ -39,7 +39,8 @@ pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordi
 pub use self::header::{parse_response_header, RequestHeader, ResponseHeader};
 pub use self::list_offset::{FetchOffset, ListOffsetRequest, ListOffsetResponse, ListPartitionOffset, ListTopicOffset,
                             EARLIEST_TIMESTAMP, LATEST_TIMESTAMP};
-pub use self::message::{parse_message_set, Message, MessageSet, MessageSetBuilder, MessageSetEncoder, MessageTimestamp};
+pub use self::message::{parse_message_set, Message, MessageSet, MessageSetBuilder, MessageSetEncoder,
+                        MessageTimestamp, RecordFormat};
 pub use self::metadata::{BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata, TopicMetadata};
 pub use self::offset_commit::{OffsetCommitPartition, OffsetCommitRequest, OffsetCommitResponse, OffsetCommitTopic};
 pub use self::offset_fetch::{OffsetFetchPartition, OffsetFetchRequest, OffsetFetchResponse, OffsetFetchTopic};
@@ -48,7 +49,8 @@ pub use self::parse::{display_parse_error, parse_bytes, parse_opt_bytes, parse_o
 pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
 
-/// Normal client consumers should always specify this as -1 as they have no node id.
+/// Normal client consumers should always specify this as -1 as they have no
+/// node id.
 pub const CONSUMER_REPLICA_ID: ReplicaId = -1;
 /// The value -2 is accepted to allow a non-broker to issue fetch requests as if it were a replica
 /// broker for debugging purposes.
@@ -94,7 +96,8 @@ pub type RequiredAck = i16;
 /// The generation of the group.
 pub type GenerationId = i32;
 
-/// Possible choices on acknowledgement requirements when producing/sending messages to Kafka.
+/// Possible choices on acknowledgement requirements when producing/sending
+/// messages to Kafka.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[repr(i16)]
