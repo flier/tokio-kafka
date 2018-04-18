@@ -596,7 +596,7 @@ where
 
         self.ensure_active_group()
             .and_then(move |(coordinator, generation)| {
-                client.offset_commit(coordinator, generation, retention_time, consumed)
+                client.offset_commit(Some(coordinator), Some(generation), retention_time, consumed)
             })
             .static_boxed()
     }

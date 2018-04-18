@@ -143,22 +143,23 @@ where
         unimplemented!()
     }
 
-    fn offset_commit(
+    fn offset_commit<I>(
         &self,
-        coordinator: BrokerRef,
-        generation: Generation,
+        coordinator: Option<BrokerRef>,
+        generation: Option<Generation>,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
-    ) -> OffsetCommit {
+        offsets: I,
+    ) -> OffsetCommit
+    where
+        I: IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>,
+    {
         unimplemented!()
     }
 
-    fn offset_fetch(
-        &self,
-        coordinator: BrokerRef,
-        generation: Generation,
-        partitions: Vec<TopicPartition<'a>>,
-    ) -> OffsetFetch {
+    fn offset_fetch<I>(&self, coordinator: BrokerRef, generation: Generation, partitions: I) -> OffsetFetch
+    where
+        I: IntoIterator<Item = TopicPartition<'a>>,
+    {
         unimplemented!()
     }
 

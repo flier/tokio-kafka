@@ -5,9 +5,9 @@ use std::hash::Hash;
 use std::rc::Rc;
 
 use bytes::IntoBuf;
-use futures::{Async, Future, Poll, Stream};
+use futures::{future, Async, Future, Poll, Stream};
 
-use client::{FetchRecords, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
+use client::{Client, FetchRecords, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup, KafkaConsumer,
                LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions, UpdatePositions};
 use errors::{Error, ErrorKind, Result};
@@ -24,7 +24,7 @@ pub trait Subscribed<'a> {
     fn subscription(&self) -> Vec<String>;
 
     /// Unsubscribe from topics currently subscribed with `Consumer::subscribe`
-    fn unsubscribe(self) -> Unsubscribe;
+    fn unsubscribe(&self) -> Unsubscribe;
 
     /// Commit offsets returned on the last record for all the subscribed list of topics and
     /// partitions.
@@ -102,10 +102,14 @@ where
     pub fn new(
         consumer: KafkaConsumer<'a, K, V>,
         subscriptions: Rc<RefCell<Subscriptions<'a>>>,
-        coordinator: ConsumerCoordinator<'a, KafkaClient<'a>>,
+        coordinator: Option<ConsumerCoordinator<'a, KafkaClient<'a>>>,
         fetcher: Fetcher<'a>,
     ) -> Result<SubscribedTopics<'a, K, V>> {
-        let state = State::Joining(coordinator.join_group());
+        let state = if let Some(ref coordinator) = coordinator {
+            State::Joining(coordinator.join_group())
+        } else {
+            State::Updating(fetcher.update_positions(subscriptions.borrow().assigned_partitions()))
+        };
 
         Ok(SubscribedTopics {
             inner: Rc::new(RefCell::new(Inner {
@@ -141,7 +145,7 @@ where
 {
     consumer: KafkaConsumer<'a, K, V>,
     subscriptions: Rc<RefCell<Subscriptions<'a>>>,
-    coordinator: ConsumerCoordinator<'a, KafkaClient<'a>>,
+    coordinator: Option<ConsumerCoordinator<'a, KafkaClient<'a>>>,
     fetcher: Fetcher<'a>,
     state: State<'a, K::Item, V::Item>,
 }
@@ -279,6 +283,23 @@ where
         self.subscriptions.borrow().subscription()
     }
 
+    fn unsubscribe(&self) -> Unsubscribe {
+        if let Some(ref coordinator) = self.coordinator {
+            coordinator.leave_group()
+        } else {
+            future::ok(()).static_boxed()
+        }
+    }
+
+    fn commit(&self) -> Commit {
+        if let Some(ref coordinator) = self.coordinator {
+            coordinator.commit_offsets()
+        } else {
+            self.consumer
+                .offset_commit(None, None, None, self.subscriptions.borrow().consumed_partitions())
+        }
+    }
+
     fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
         self.subscriptions.borrow_mut().seek(partition, pos)
     }
@@ -291,6 +312,47 @@ where
                 ErrorKind::IllegalArgument(format!("No current assignment for partition {}", partition)).into()
             })
             .map(|state| state.position)
+    }
+
+    fn committed(&self, tp: TopicPartition<'a>) -> Committed {
+        let topic_name = String::from(tp.topic_name.to_owned());
+        let partition_id = tp.partition_id;
+
+        if let Some(ref coordinator) = self.coordinator {
+            coordinator
+                .fetch_offsets(vec![tp])
+                .and_then(move |mut offsets| {
+                    offsets
+                        .remove(&topic_name)
+                        .and_then(|partitions| {
+                            partitions
+                                .into_iter()
+                                .find(|partition| partition.partition_id == partition_id)
+                                .map(move |fetched| {
+                                    OffsetAndMetadata::with_metadata(fetched.offset, fetched.metadata.clone())
+                                })
+                        })
+                        .ok_or_else(|| ErrorKind::NoOffsetForPartition(topic_name, partition_id).into())
+                })
+                .static_boxed()
+        } else {
+            self.consumer
+                .list_offsets(vec![(tp, FetchOffset::Latest)])
+                .and_then(move |mut offsets| {
+                    offsets
+                        .remove(&topic_name)
+                        .and_then(|partitions| {
+                            partitions
+                                .into_iter()
+                                .find(|partition| partition.partition_id == partition_id)
+                                .and_then(move |fetched| {
+                                    fetched.offsets.first().map(|&offset| OffsetAndMetadata::new(offset))
+                                })
+                        })
+                        .ok_or_else(|| ErrorKind::NoOffsetForPartition(topic_name, partition_id).into())
+                })
+                .static_boxed()
+        }
     }
 
     fn paused(&self) -> Vec<TopicPartition<'a>> {
@@ -327,12 +389,12 @@ where
         self.inner.borrow().subscription()
     }
 
-    fn unsubscribe(self) -> Unsubscribe {
-        self.inner.borrow().coordinator.leave_group()
+    fn unsubscribe(&self) -> Unsubscribe {
+        self.inner.borrow().unsubscribe()
     }
 
     fn commit(&self) -> Commit {
-        self.inner.borrow().coordinator.commit_offsets()
+        self.inner.borrow().commit()
     }
 
     fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
@@ -358,27 +420,7 @@ where
     }
 
     fn committed(&self, tp: TopicPartition<'a>) -> Committed {
-        let topic_name = String::from(tp.topic_name.to_owned());
-        let partition_id = tp.partition_id;
-
-        self.inner
-            .borrow()
-            .coordinator
-            .fetch_offsets(vec![tp])
-            .and_then(move |offsets| {
-                offsets
-                    .get(&topic_name)
-                    .and_then(|partitions| {
-                        partitions
-                            .iter()
-                            .find(|partition| partition.partition_id == partition_id)
-                            .map(move |fetched| {
-                                OffsetAndMetadata::with_metadata(fetched.offset, fetched.metadata.clone())
-                            })
-                    })
-                    .ok_or_else(|| ErrorKind::NoOffsetForPartition(topic_name, partition_id).into())
-            })
-            .static_boxed()
+        self.inner.borrow().committed(tp)
     }
 
     fn paused(&self) -> Vec<TopicPartition<'a>> {

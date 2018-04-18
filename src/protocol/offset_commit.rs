@@ -17,11 +17,11 @@ const RETENTION_TIME: usize = 8;
 pub struct OffsetCommitRequest<'a> {
     pub header: RequestHeader<'a>,
     /// The group id.
-    pub group_id: Cow<'a, str>,
+    pub group_id: Option<Cow<'a, str>>,
     /// The generation of the group.
-    pub group_generation_id: i32,
+    pub group_generation_id: Option<i32>,
     /// The member id assigned by the group coordinator.
-    pub member_id: Cow<'a, str>,
+    pub member_id: Option<Cow<'a, str>>,
     /// Time period in ms to retain the offset.
     pub retention_time: Option<i64>,
     /// Topic to commit.
@@ -73,11 +73,12 @@ pub struct OffsetCommitPartitionStatus {
 
 impl<'a> Record for OffsetCommitRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len() + if api_version > 0 {
-            GROUP_GENERATION_ID_SIZE + STR_LEN_SIZE + self.member_id.len()
-        } else {
-            0
-        } + if api_version > 1 { RETENTION_TIME } else { 0 }
+        self.header.size(api_version) + STR_LEN_SIZE + self.group_id.as_ref().map_or(0, |s| s.len())
+            + if api_version > 0 {
+                GROUP_GENERATION_ID_SIZE + STR_LEN_SIZE + self.member_id.as_ref().map_or(0, |s| s.len())
+            } else {
+                0
+            } + if api_version > 1 { RETENTION_TIME } else { 0 }
             + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
                 size + STR_LEN_SIZE + topic.topic_name.len()
                     + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, partition| {
@@ -94,10 +95,10 @@ impl<'a> Encodable for OffsetCommitRequest<'a> {
 
         self.header.encode::<T>(dst)?;
 
-        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
+        dst.put_str::<T, _>(self.group_id.as_ref())?;
         if api_version > 0 {
-            dst.put_i32::<T>(self.group_generation_id);
-            dst.put_str::<T, _>(Some(self.member_id.as_ref()))?;
+            dst.put_i32::<T>(self.group_generation_id.unwrap_or_default());
+            dst.put_str::<T, _>(self.member_id.as_ref())?;
         }
         if api_version > 1 {
             dst.put_i64::<T>(self.retention_time.unwrap_or(DEFAULT_RETENTION_TIME));
@@ -174,9 +175,9 @@ mod tests {
                 correlation_id: 123,
                 client_id: Some("client".into()),
             },
-            group_id: "consumer".into(),
+            group_id: Some("consumer".into()),
             group_generation_id: Default::default(),
-            member_id: "member".into(),
+            member_id: Some("member".into()),
             retention_time: None,
             topics: vec![
                 OffsetCommitTopic {
@@ -222,9 +223,9 @@ mod tests {
                 correlation_id: 123,
                 client_id: Some("client".into()),
             },
-            group_id: "consumer".into(),
-            group_generation_id: 456,
-            member_id: "member".into(),
+            group_id: Some("consumer".into()),
+            group_generation_id: Some(456),
+            member_id: Some("member".into()),
             retention_time: None,
             topics: vec![
                 OffsetCommitTopic {
@@ -272,9 +273,9 @@ mod tests {
                 correlation_id: 123,
                 client_id: Some("client".into()),
             },
-            group_id: "consumer".into(),
-            group_generation_id: 456,
-            member_id: "member".into(),
+            group_id: Some("consumer".into()),
+            group_generation_id: Some(456),
+            member_id: Some("member".into()),
             retention_time: Some(789),
             topics: vec![
                 OffsetCommitTopic {

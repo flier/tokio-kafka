@@ -71,7 +71,7 @@ pub struct ConsumerConfig {
     /// This property is required if the consumer uses either the group management functionality
     /// by using `Consumer::subscribe(topic)` or the Kafka-based offset management strategy.
     #[serde(rename = "group.id")]
-    pub group_id: String,
+    pub group_id: Option<String>,
 
     /// If true the consumer's offset will be periodically committed in the
     /// background.
@@ -187,7 +187,7 @@ impl Default for ConsumerConfig {
     fn default() -> Self {
         ConsumerConfig {
             client: ClientConfig::default(),
-            group_id: "".to_owned(),
+            group_id: None,
             enable_auto_commit: true,
             auto_commit_interval: DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS,
             heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL_MILLIS,
@@ -300,7 +300,7 @@ mod tests {
     "retries": 0,
     "retry.backoff.ms": 100
   },
-  "group.id": "",
+  "group.id": null,
   "enable.auto.commit": true,
   "auto.commit.interval.ms": 5000,
   "heartbeat.interval.ms": 3000,

@@ -84,8 +84,11 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
     }
 
     /// Sets the id string to pass to the server when making requests.
-    pub fn with_client_id(mut self, client_id: String) -> Self {
-        self.config.client_id = Some(client_id);
+    pub fn with_client_id<S>(mut self, client_id: S) -> Self
+    where
+        S: Into<String>,
+    {
+        self.config.client_id = Some(client_id.into());
         self
     }
 
@@ -130,8 +133,11 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
 
     /// Sets the unique string that identifies the consumer group this consumer
     /// belongs to.
-    pub fn with_group_id(mut self, group_id: String) -> Self {
-        self.config.group_id = group_id;
+    pub fn with_group_id<S>(mut self, group_id: S) -> Self
+    where
+        S: Into<String>,
+    {
+        self.config.group_id = Some(group_id.into());
         self
     }
 

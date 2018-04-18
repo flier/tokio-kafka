@@ -1,6 +1,7 @@
 use std::borrow::{Borrow, Cow};
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::hash::Hash;
 use std::mem;
 use std::rc::Rc;
@@ -64,13 +65,26 @@ where
     K::Item: Hash,
     V: Serializer,
 {
-    client: Rc<KafkaClient<'a>>,
+    client: KafkaClient<'a>,
     config: ProducerConfig,
     accumulator: RecordAccumulator<'a>,
     key_serializer: K,
     value_serializer: V,
     partitioner: P,
     interceptors: Interceptors<K::Item, V::Item>,
+}
+
+impl<'a, K, V, P> Deref for KafkaProducer<'a, K, V, P>
+where
+    K: Serializer,
+    K::Item: Hash,
+    V: Serializer,
+{
+    type Target = KafkaClient<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner.client
+    }
 }
 
 impl<'a, K, V, P> KafkaProducer<'a, K, V, P>
@@ -92,7 +106,7 @@ where
 
         KafkaProducer {
             inner: Rc::new(Inner {
-                client: Rc::new(client),
+                client: client,
                 config,
                 accumulator,
                 key_serializer,
@@ -115,6 +129,10 @@ where
         I: IntoIterator<Item = String>,
     {
         ProducerBuilder::with_bootstrap_servers(hosts, handle)
+    }
+
+    pub fn client(&self) -> KafkaClient<'a> {
+        self.inner.client.clone()
     }
 }
 

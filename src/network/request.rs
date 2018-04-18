@@ -170,16 +170,19 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::Metadata(request)
     }
 
-    pub fn offset_commit(
+    pub fn offset_commit<I>(
         api_version: ApiVersion,
         correlation_id: CorrelationId,
         client_id: Option<Cow<'a, str>>,
-        group_id: Cow<'a, str>,
-        group_generation_id: GenerationId,
-        member_id: Cow<'a, str>,
+        group_id: Option<Cow<'a, str>>,
+        group_generation_id: Option<GenerationId>,
+        member_id: Option<Cow<'a, str>>,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
-    ) -> KafkaRequest<'a> {
+        offsets: I,
+    ) -> KafkaRequest<'a>
+    where
+        I: IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>,
+    {
         let topics = offsets
             .into_iter()
             .fold(HashMap::new(), |mut topics, (tp, offset)| {
@@ -215,13 +218,16 @@ impl<'a> KafkaRequest<'a> {
         KafkaRequest::OffsetCommit(request)
     }
 
-    pub fn offset_fetch(
+    pub fn offset_fetch<I>(
         api_version: ApiVersion,
         correlation_id: CorrelationId,
         client_id: Option<Cow<'a, str>>,
         group_id: Cow<'a, str>,
-        partitions: Vec<TopicPartition<'a>>,
-    ) -> KafkaRequest<'a> {
+        partitions: I,
+    ) -> KafkaRequest<'a>
+    where
+        I: IntoIterator<Item = TopicPartition<'a>>,
+    {
         let topics = partitions
             .into_iter()
             .fold(HashMap::new(), |mut topics, tp| {

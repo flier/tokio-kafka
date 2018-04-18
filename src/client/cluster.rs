@@ -22,10 +22,12 @@ pub trait Cluster {
     /// exists)
     fn leader_for(&self, tp: &TopicPartition) -> Option<&Broker>;
 
-    /// Get the metadata for the specified partition (return `None` if no such partition exists)
+    /// Get the metadata for the specified partition (return `None` if no such
+    /// partition exists)
     fn find_partition(&self, tp: &TopicPartition) -> Option<&PartitionInfo>;
 
-    /// Get the list of partitions for this topic (return `None` if no such topic exists)
+    /// Get the list of partitions for this topic (return `None` if no such
+    /// topic exists)
     fn partitions_for_topic(&self, topic_name: &str) -> Option<Vec<TopicPartition>>;
 
     /// Get the list of partitions whose leader is this node
@@ -110,7 +112,7 @@ pub type BrokerIndex = i32;
 static UNKNOWN_BROKER_INDEX: BrokerIndex = ::std::i32::MAX;
 
 /// A custom identifier that used to refer to a broker.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub struct BrokerRef(BrokerIndex);
 
 impl BrokerRef {

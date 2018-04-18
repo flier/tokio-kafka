@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::hash::Hash;
 use std::rc::Rc;
+use std::ops::Deref;
 
 use futures::{Future, Stream};
 use tokio_core::reactor::Handle;
@@ -60,6 +61,14 @@ struct Inner<'a, K, V> {
     config: ConsumerConfig,
     key_deserializer: K,
     value_deserializer: V,
+}
+
+impl<'a, K, V> Deref for KafkaConsumer<'a, K, V> {
+    type Target = KafkaClient<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner.client
+    }
 }
 
 impl<'a, K, V> KafkaConsumer<'a, K, V> {
@@ -160,18 +169,20 @@ where
                         default_reset_strategy,
                     )));
 
-                    let coordinator = ConsumerCoordinator::new(
-                        inner.client.clone(),
-                        group_id,
-                        subscriptions.clone(),
-                        session_timeout,
-                        rebalance_timeout,
-                        heartbeat_interval,
-                        None,
-                        auto_commit_interval,
-                        assignors,
-                        timer,
-                    );
+                    let coordinator = group_id.map(|group_id| {
+                        ConsumerCoordinator::new(
+                            inner.client.clone(),
+                            group_id,
+                            subscriptions.clone(),
+                            session_timeout,
+                            rebalance_timeout,
+                            heartbeat_interval,
+                            None,
+                            auto_commit_interval,
+                            assignors,
+                            timer,
+                        )
+                    });
 
                     let fetcher = Fetcher::new(
                         inner.client.clone(),

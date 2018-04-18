@@ -73,22 +73,21 @@ pub trait Client<'a>: 'static {
 
     /// Commit the specified offsets for the specified list of topics and
     /// partitions to Kafka.
-    fn offset_commit(
+    fn offset_commit<I>(
         &self,
-        coordinator: BrokerRef,
-        generation: Generation,
+        coordinator: Option<BrokerRef>,
+        generation: Option<Generation>,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
-    ) -> OffsetCommit;
+        offsets: I,
+    ) -> OffsetCommit
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>;
 
     /// Fetch the current committed offsets from the coordinator for a set of
     /// partitions.
-    fn offset_fetch(
-        &self,
-        coordinator: BrokerRef,
-        generation: Generation,
-        partitions: Vec<TopicPartition<'a>>,
-    ) -> OffsetFetch;
+    fn offset_fetch<I>(&self, coordinator: BrokerRef, generation: Generation, partitions: I) -> OffsetFetch
+    where
+        I: 'static + IntoIterator<Item = TopicPartition<'a>>;
 
     /// Discover the current coordinator of the consumer group.
     fn group_coordinator(&self, group_id: Cow<'a, str>) -> GroupCoordinator;
@@ -508,39 +507,47 @@ where
         LoadMetadata::new(self.inner.clone())
     }
 
-    fn offset_commit(
+    fn offset_commit<I>(
         &self,
-        coordinator: BrokerRef,
-        generation: Generation,
+        coordinator: Option<BrokerRef>,
+        generation: Option<Generation>,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
-    ) -> OffsetCommit {
+        offsets: I,
+    ) -> OffsetCommit
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>,
+    {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
-                metadata
-                    .find_broker(coordinator)
+                let broker = if let Some(coordinator) = coordinator {
+                    metadata.find_broker(coordinator)
+                } else {
+                    metadata.brokers().first()
+                };
+
+                broker
                     .map(move |coordinator| {
                         inner.offset_commit(
                             coordinator,
-                            generation.group_id.into(),
-                            generation.generation_id,
-                            generation.member_id.into(),
+                            generation.as_ref().map(|generation| generation.group_id.clone().into()),
+                            generation.as_ref().map(|generation| generation.generation_id),
+                            generation
+                                .as_ref()
+                                .map(|generation| generation.member_id.clone().into()),
                             retention_time,
                             offsets,
                         )
                     })
-                    .unwrap_or_else(|| BrokerNotFound(coordinator).into())
+                    .unwrap_or_else(|| BrokerNotFound(coordinator.unwrap_or_default()).into())
             })
             .static_boxed()
     }
 
-    fn offset_fetch(
-        &self,
-        coordinator: BrokerRef,
-        generation: Generation,
-        partitions: Vec<TopicPartition<'a>>,
-    ) -> OffsetFetch {
+    fn offset_fetch<I>(&self, coordinator: BrokerRef, generation: Generation, partitions: I) -> OffsetFetch
+    where
+        I: 'static + IntoIterator<Item = TopicPartition<'a>>,
+    {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
@@ -1078,16 +1085,19 @@ where
             .static_boxed()
     }
 
-    fn offset_commit(
+    fn offset_commit<I>(
         &self,
         coordinator: &Broker,
-        group_id: Cow<'a, str>,
-        group_generation_id: GenerationId,
-        member_id: Cow<'a, str>,
+        group_id: Option<Cow<'a, str>>,
+        group_generation_id: Option<GenerationId>,
+        member_id: Option<Cow<'a, str>>,
         retention_time: Option<Duration>,
-        offsets: Vec<(TopicPartition<'a>, OffsetAndMetadata)>,
-    ) -> OffsetCommit {
-        debug!("fetch offset to the `{}` group: {:?}", group_id, offsets);
+        offsets: I,
+    ) -> OffsetCommit
+    where
+        I: IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>,
+    {
+        debug!("commit offsets to the `{:?}` group", group_id);
 
         let addr = AutoName::HostPort(coordinator.host(), coordinator.port());
 
@@ -1132,13 +1142,11 @@ where
             .static_boxed()
     }
 
-    fn offset_fetch(
-        &self,
-        coordinator: &Broker,
-        group_id: Cow<'a, str>,
-        partitions: Vec<TopicPartition<'a>>,
-    ) -> OffsetFetch {
-        debug!("fetch offset of the `{}` group : {:?}", group_id, partitions);
+    fn offset_fetch<I>(&self, coordinator: &Broker, group_id: Cow<'a, str>, partitions: I) -> OffsetFetch
+    where
+        I: IntoIterator<Item = TopicPartition<'a>>,
+    {
+        debug!("fetch offset of the `{:?}` group", group_id);
 
         let addr = AutoName::HostPort(coordinator.host(), coordinator.port());
 

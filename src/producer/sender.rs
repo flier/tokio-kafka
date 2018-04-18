@@ -6,14 +6,14 @@ use std::time::Duration;
 
 use futures::Future;
 
-use client::{Client, KafkaClient, ToStaticBoxFuture, StaticBoxFuture};
+use client::{Client, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
 use errors::Result;
 use network::TopicPartition;
 use producer::{Interceptors, ProducerBatch, Thunk};
 use protocol::{MessageSet, RequiredAcks};
 
 pub struct Sender<'a, K, V> {
-    client: Rc<KafkaClient<'a>>,
+    client: KafkaClient<'a>,
     interceptors: Interceptors<K, V>,
     acks: RequiredAcks,
     ack_timeout: Duration,
@@ -30,7 +30,7 @@ where
     Self: 'static,
 {
     pub fn new(
-        client: Rc<KafkaClient<'a>>,
+        client: KafkaClient<'a>,
         interceptors: Interceptors<K, V>,
         acks: RequiredAcks,
         ack_timeout: Duration,
@@ -90,6 +90,7 @@ where
                             }
                         });
                 });
-            }).static_boxed()
+            })
+            .static_boxed()
     }
 }
