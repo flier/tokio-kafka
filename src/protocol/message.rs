@@ -214,7 +214,7 @@ named_args!(pub parse_message_set(api_version: ApiVersion)<MessageSet>,
     )
 );
 
-named_args!(parse_message(api_version: ApiVersion)<Message>,
+named_args!(parse_message(_api_version: ApiVersion)<Message>,
     parse_tag!(ParseTag::Message,
         do_parse!(
             offset: be_i64
@@ -230,12 +230,13 @@ named_args!(parse_message(api_version: ApiVersion)<Message>,
 
                 crc == checksum as u32
             }))
-         >> _magic: verify!(be_i8, |v: i8| ApiVersion::from(v) == api_version)
+         >> magic: be_i8
          >> attrs: be_i8
-         >> timestamp: cond!(api_version > 0, be_i64)
+         >> timestamp: cond!(magic > 0, be_i64)
          >> key: parse_opt_bytes
          >> value: parse_opt_bytes
-         >> (Message {
+         >> ({
+            Message {
                 offset,
                 timestamp: timestamp.map(|ts| if (attrs & TIMESTAMP_TYPE_MASK) == 0 {
                     MessageTimestamp::CreateTime(ts)
@@ -245,7 +246,7 @@ named_args!(parse_message(api_version: ApiVersion)<Message>,
                 compression: Compression::from(attrs & COMPRESSION_CODEC_MASK),
                 key,
                 value,
-            })
+            }})
         )
     )
 );

@@ -26,7 +26,7 @@ mod produce;
 mod schema;
 
 pub use self::api_key::{ApiKey, ApiKeys};
-pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion, UsableApiVersions};
+pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion, UsableApiVersions, SUPPORTED_API_VERSIONS};
 pub use self::code::{ErrorCode, KafkaCode};
 pub use self::encode::{Encodable, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE,
                        REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
