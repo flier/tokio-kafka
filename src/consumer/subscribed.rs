@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::cmp;
+use std::time::Duration;
 use std::rc::Rc;
 
 use bytes::IntoBuf;
@@ -189,7 +191,7 @@ enum State<'a, K, V> {
     Updating(UpdatePositions),
     Fetching(FetchRecords),
     Retry(Sleep),
-    Fetched(Box<Iterator<Item = ConsumerRecord<'a, K, V>>>),
+    Fetched(Box<Iterator<Item = ConsumerRecord<'a, K, V>>>, Duration),
 }
 
 impl<'a, K, V> Stream for Inner<'a, K, V>
@@ -240,54 +242,57 @@ where
                     }
                 },
                 State::Fetching(ref mut fetching) => match fetching.poll() {
-                    Ok(Async::Ready(ref records))
+                    Ok(Async::Ready((throttle_time, ref records)))
                         if records
                             .iter()
                             .flat_map(|(_, records)| records)
                             .map(|record| record.messages.len())
                             .sum::<usize>() == 0 =>
                     {
-                        let retry_backoff = self.consumer.config().fetch_error_backoff();
+                        let retry_backoff = cmp::max(throttle_time, self.consumer.config().fetch_error_backoff());
 
                         trace!("found nothing, retry after {:?}", retry_backoff);
 
                         State::Retry(self.timer.sleep(retry_backoff))
                     }
-                    Ok(Async::Ready(records)) => {
+                    Ok(Async::Ready((throttle_time, records))) => {
                         let key_deserializer = self.consumer.key_deserializer();
                         let value_deserializer = self.consumer.value_deserializer();
 
-                        State::Fetched(Box::new(records.into_iter().flat_map(move |(topic_name, records)| {
-                            let key_deserializer = key_deserializer.clone();
-                            let value_deserializer = value_deserializer.clone();
-
-                            records.into_iter().flat_map(move |record| {
-                                let topic_name = topic_name.clone();
-                                let partition_id = record.partition_id;
-                                let offset = record.fetch_offset;
+                        State::Fetched(
+                            Box::new(records.into_iter().flat_map(move |(topic_name, records)| {
                                 let key_deserializer = key_deserializer.clone();
                                 let value_deserializer = value_deserializer.clone();
 
-                                record.messages.into_iter().map(move |message| ConsumerRecord {
-                                    topic_name: Cow::from(topic_name.clone()),
-                                    partition_id,
-                                    offset,
-                                    key: message.key.as_ref().and_then(|buf| {
-                                        key_deserializer
-                                            .clone()
-                                            .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                            .ok()
-                                    }),
-                                    value: message.value.as_ref().and_then(|buf| {
-                                        value_deserializer
-                                            .clone()
-                                            .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                            .ok()
-                                    }),
-                                    timestamp: message.timestamp.clone(),
+                                records.into_iter().flat_map(move |record| {
+                                    let topic_name = topic_name.clone();
+                                    let partition_id = record.partition_id;
+                                    let offset = record.fetch_offset;
+                                    let key_deserializer = key_deserializer.clone();
+                                    let value_deserializer = value_deserializer.clone();
+
+                                    record.messages.into_iter().map(move |message| ConsumerRecord {
+                                        topic_name: Cow::from(topic_name.clone()),
+                                        partition_id,
+                                        offset,
+                                        key: message.key.as_ref().and_then(|buf| {
+                                            key_deserializer
+                                                .clone()
+                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                                .ok()
+                                        }),
+                                        value: message.value.as_ref().and_then(|buf| {
+                                            value_deserializer
+                                                .clone()
+                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                                .ok()
+                                        }),
+                                        timestamp: message.timestamp.clone(),
+                                    })
                                 })
-                            })
-                        })))
+                            })),
+                            throttle_time,
+                        )
                     }
                     Ok(Async::NotReady) => {
                         return Ok(Async::NotReady);
@@ -311,9 +316,13 @@ where
                     }
                     Err(_) => unreachable!(),
                 },
-                State::Fetched(ref mut records) => {
+                State::Fetched(ref mut records, throttle_time) => {
                     if let Some(record) = records.next() {
                         return Ok(Async::Ready(Some(record)));
+                    } else if throttle_time > Duration::default() {
+                        trace!("request was throttled due to quota violation, {:?}", throttle_time);
+
+                        State::Retry(self.timer.sleep(throttle_time))
                     } else {
                         let partitions = self.subscriptions.borrow().fetchable_partitions();
 

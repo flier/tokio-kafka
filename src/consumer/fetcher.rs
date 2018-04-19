@@ -160,7 +160,7 @@ where
                 self.fetch_max_bytes,
                 fetch_partitions,
             )
-            .and_then(move |records| {
+            .and_then(move |(throttle_time, records)| {
                 for (topic_name, records) in &records {
                     for record in records {
                         let tp = topic_partition!(topic_name.clone(), record.partition_id);
@@ -192,7 +192,7 @@ where
                     }
                 }
 
-                Ok(records)
+                Ok((throttle_time, records))
             })
             .static_boxed()
     }

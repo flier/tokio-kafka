@@ -332,6 +332,7 @@ mod tests {
   "fetch.min.bytes": 1,
   "fetch.max.bytes": 52428800,
   "fetch.max.wait.ms": 500,
+  "fetch.error.backoff.ms": 500,
   "max.partition.fetch.bytes": 1048576
 }"#;
 

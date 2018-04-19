@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::iter::{self, FromIterator};
 use std::mem;
+use std::cmp;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -135,7 +136,7 @@ pub struct ProducedRecords {
 }
 
 /// The future of fetch records of partitions.
-pub type FetchRecords = StaticBoxFuture<HashMap<String, Vec<FetchedRecords>>>;
+pub type FetchRecords = StaticBoxFuture<(Duration, HashMap<String, Vec<FetchedRecords>>)>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchedRecords {
@@ -972,12 +973,17 @@ where
                 let request = self.send_request(AutoName::HostPort(&host, port), request)
                     .and_then(|res| {
                         if let KafkaResponse::Fetch(res) = res {
-                            Ok(res.topics)
+                            Ok((res.throttle_time, res.topics))
                         } else {
                             bail!(UnexpectedResponse(res.api_key()))
                         }
                     })
-                    .map(|topics| Self::extract_fetched_records(offsets_by_topic, topics));
+                    .map(|(throttle_time, topics)| {
+                        (
+                            Duration::from_millis(throttle_time.unwrap_or_default() as u64),
+                            Self::extract_fetched_records(offsets_by_topic, topics),
+                        )
+                    });
 
                 requests.push(request);
             }
@@ -987,16 +993,19 @@ where
 
         future::join_all(requests)
             .map(|responses| {
-                responses.into_iter().fold(HashMap::new(), |mut records, response| {
-                    for (topic_name, mut partitions) in response {
-                        records
-                            .entry(topic_name)
-                            .or_insert_with(Vec::new)
-                            .append(&mut partitions);
-                    }
+                responses.into_iter().fold(
+                    (Duration::default(), HashMap::new()),
+                    |(max_throttle_time, mut records), (throttle_time, response)| {
+                        for (topic_name, mut partitions) in response {
+                            records
+                                .entry(topic_name)
+                                .or_insert_with(Vec::new)
+                                .append(&mut partitions);
+                        }
 
-                    records
-                })
+                        (cmp::max(max_throttle_time, throttle_time), records)
+                    },
+                )
             })
             .static_boxed()
     }
