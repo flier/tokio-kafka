@@ -28,7 +28,9 @@ pub trait Coordinator<'a> {
 
     /// Commit the specified offsets for the specified list of topics and
     /// partitions to Kafka.
-    fn commit_offsets(&self) -> CommitOffset;
+    fn commit_offsets<I>(&self, offsets: I) -> CommitOffset
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>;
 
     /// Refresh the committed offsets for provided partitions.
     fn update_offsets(&self) -> UpdateOffsets;
@@ -586,17 +588,18 @@ where
         }
     }
 
-    fn commit_offsets(&self) -> CommitOffset {
+    fn commit_offsets<I>(&self, offsets: I) -> CommitOffset
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>,
+    {
         debug!("commit offsets to the `{}` group", self.inner.group_id);
 
         let client = self.inner.client.clone();
         let retention_time = self.inner.retention_time;
-        let subscriptions = self.inner.subscriptions.clone();
-        let consumed = subscriptions.borrow().consumed_partitions();
 
         self.ensure_active_group()
             .and_then(move |(coordinator, generation)| {
-                client.offset_commit(Some(coordinator), Some(generation), retention_time, consumed)
+                client.offset_commit(Some(coordinator), Some(generation), retention_time, offsets)
             })
             .static_boxed()
     }

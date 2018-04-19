@@ -30,6 +30,12 @@ pub trait Subscribed<'a> {
     /// partitions.
     fn commit(&self) -> Commit;
 
+    /// Commit the specified offsets for the specified list of topics and
+    /// partitions.
+    fn commit_offsets<I>(&self, offsets: I) -> Commit
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>;
+
     /// Overrides the fetch offsets that the consumer will use on the next
     /// record
     fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()>;
@@ -292,11 +298,17 @@ where
     }
 
     fn commit(&self) -> Commit {
+        self.commit_offsets(self.subscriptions.borrow().consumed_partitions())
+    }
+
+    fn commit_offsets<I>(&self, offsets: I) -> Commit
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>,
+    {
         if let Some(ref coordinator) = self.coordinator {
-            coordinator.commit_offsets()
+            coordinator.commit_offsets(offsets)
         } else {
-            self.consumer
-                .offset_commit(None, None, None, self.subscriptions.borrow().consumed_partitions())
+            self.consumer.offset_commit(None, None, None, offsets)
         }
     }
 
@@ -395,6 +407,13 @@ where
 
     fn commit(&self) -> Commit {
         self.inner.borrow().commit()
+    }
+
+    fn commit_offsets<I>(&self, offsets: I) -> Commit
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, OffsetAndMetadata)>,
+    {
+        self.inner.borrow().commit_offsets(offsets)
     }
 
     fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()> {
