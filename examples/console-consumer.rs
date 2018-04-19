@@ -137,7 +137,7 @@ fn run(config: Config) -> Result<()> {
     let offset = config.offset;
 
     let work = consumer
-        .subscribe(&config.topics)
+        .subscribe(config.topics)
         .and_then(move |topics| {
             for partition in topics.assigment() {
                 topics.seek(&partition, offset)?;

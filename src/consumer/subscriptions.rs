@@ -37,14 +37,14 @@ impl<'a> Subscriptions<'a> {
     pub fn with_topics<I, S>(topic_names: I, default_reset_strategy: OffsetResetStrategy) -> Self
     where
         I: IntoIterator<Item = S>,
-        S: AsRef<str> + Hash + Eq,
+        S: Into<String>,
     {
-        let topic_names: Vec<String> = topic_names.into_iter().map(|s| s.as_ref().to_owned()).collect();
+        let topic_names = HashSet::from_iter(topic_names.into_iter().map(|s| s.into()));
 
         Subscriptions {
             default_reset_strategy,
-            subscription: HashSet::from_iter(topic_names.iter().cloned()),
-            group_subscription: HashSet::from_iter(topic_names.iter().cloned()),
+            subscription: topic_names.clone(),
+            group_subscription: topic_names,
             assignment: HashMap::new(),
         }
     }
@@ -77,7 +77,8 @@ impl<'a> Subscriptions<'a> {
         Vec::from_iter(self.subscription.iter().map(|s| s.as_ref()))
     }
 
-    /// Change the assignment to the specified partitions returned from the coordinator
+    /// Change the assignment to the specified partitions returned from the
+    /// coordinator
     pub fn assign_from_subscribed(&mut self, partitions: Vec<TopicPartition<'a>>) -> Result<()> {
         if let Some(tp) = partitions
             .iter()

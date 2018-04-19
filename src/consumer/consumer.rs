@@ -24,9 +24,10 @@ pub trait Consumer<'a> {
 
     /// Subscribe to the given list of topics to get dynamically assigned
     /// partitions.
-    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
+    fn subscribe<I, S>(&mut self, topic_names: I) -> Subscribe<Self::Topics>
     where
-        S: AsRef<str> + Hash + Eq;
+        I: IntoIterator<Item = S>,
+        S: Into<String>;
 }
 
 /// A key/value pair to be received from Kafka.
@@ -34,6 +35,7 @@ pub trait Consumer<'a> {
 /// This also consists of a topic name and a partition number from which the record is being
 /// received, an offset that points to the record in a Kafka partition, and a timestamp as marked
 /// by the corresponding `ConsumerRecord`.
+#[derive(Clone, Debug)]
 pub struct ConsumerRecord<'a, K, V> {
     /// The topic this record is received from
     pub topic_name: Cow<'a, str>,
@@ -52,6 +54,7 @@ pub struct ConsumerRecord<'a, K, V> {
 pub type Subscribe<T> = StaticBoxFuture<T>;
 
 /// A Kafka consumer that consumes records from a Kafka cluster.
+#[derive(Clone)]
 pub struct KafkaConsumer<'a, K, V> {
     inner: Rc<Inner<'a, K, V>>,
 }
@@ -128,11 +131,12 @@ where
     type Value = V::Item;
     type Topics = SubscribedTopics<'a, K, V>;
 
-    fn subscribe<S>(&mut self, topic_names: &[S]) -> Subscribe<Self::Topics>
+    fn subscribe<I, S>(&mut self, topic_names: I) -> Subscribe<Self::Topics>
     where
-        S: AsRef<str> + Hash + Eq,
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
     {
-        let topic_names: Vec<String> = topic_names.iter().map(|s| s.as_ref().to_owned()).collect();
+        let topic_names: Vec<String> = topic_names.into_iter().map(|s| s.into()).collect();
         let inner = self.inner.clone();
         let default_reset_strategy = self.inner.config.auto_offset_reset;
         let group_id = self.inner.config.group_id.clone();
@@ -157,46 +161,44 @@ where
             .metadata()
             .and_then(move |metadata| {
                 let topics = metadata.topics();
-                let not_found: Vec<String> = topic_names
+
+                if let Some(not_found) = topic_names
                     .iter()
-                    .filter(|topic_name| !topics.contains_key(topic_name.as_str()))
-                    .cloned()
-                    .collect();
-
-                if not_found.is_empty() {
-                    let subscriptions = Rc::new(RefCell::new(Subscriptions::with_topics(
-                        topic_names,
-                        default_reset_strategy,
-                    )));
-
-                    let coordinator = group_id.map(|group_id| {
-                        ConsumerCoordinator::new(
-                            inner.client.clone(),
-                            group_id,
-                            subscriptions.clone(),
-                            session_timeout,
-                            rebalance_timeout,
-                            heartbeat_interval,
-                            None,
-                            auto_commit_interval,
-                            assignors,
-                            timer,
-                        )
-                    });
-
-                    let fetcher = Fetcher::new(
-                        inner.client.clone(),
-                        subscriptions.clone(),
-                        fetch_min_bytes,
-                        fetch_max_bytes,
-                        fetch_max_wait,
-                        partition_fetch_bytes,
-                    );
-
-                    SubscribedTopics::new(KafkaConsumer { inner }, subscriptions, coordinator, fetcher)
-                } else {
-                    bail!(ErrorKind::TopicNotFound(not_found.join(",")))
+                    .find(|topic_name| !topics.contains_key(topic_name.as_str()))
+                {
+                    bail!(ErrorKind::TopicNotFound(not_found.clone()))
                 }
+
+                let subscriptions = Rc::new(RefCell::new(Subscriptions::with_topics(
+                    topic_names,
+                    default_reset_strategy,
+                )));
+
+                let coordinator = group_id.map(|group_id| {
+                    ConsumerCoordinator::new(
+                        inner.client.clone(),
+                        group_id,
+                        subscriptions.clone(),
+                        session_timeout,
+                        rebalance_timeout,
+                        heartbeat_interval,
+                        None,
+                        auto_commit_interval,
+                        assignors,
+                        timer,
+                    )
+                });
+
+                let fetcher = Fetcher::new(
+                    inner.client.clone(),
+                    subscriptions.clone(),
+                    fetch_min_bytes,
+                    fetch_max_bytes,
+                    fetch_max_wait,
+                    partition_fetch_bytes,
+                );
+
+                SubscribedTopics::new(KafkaConsumer { inner }, subscriptions, coordinator, fetcher)
             })
             .static_boxed()
     }

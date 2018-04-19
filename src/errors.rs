@@ -84,9 +84,9 @@ error_chain!{
           description("LZ4 error")
           display("LZ4 error, {}", reason)
         }
-        TopicNotFound(name: String) {
+        TopicNotFound(topic_name: String) {
             description("topic not found")
-            display("topic `{}` not found", name)
+            display("topic `{}` not found", topic_name)
         }
         BrokerNotFound(broker: BrokerRef) {
             description("broker not found")
