@@ -106,7 +106,7 @@ where
 
         KafkaProducer {
             inner: Rc::new(Inner {
-                client: client,
+                client,
                 config,
                 accumulator,
                 key_serializer,
