@@ -258,36 +258,49 @@ where
                     Ok(Async::Ready((throttle_time, records))) => {
                         let key_deserializer = self.consumer.key_deserializer();
                         let value_deserializer = self.consumer.value_deserializer();
+                        let auto_commit_enabled = self.consumer.config().auto_commit_enabled;
+                        let subscriptions = self.subscriptions.clone();
 
                         State::Fetched(
                             Box::new(records.into_iter().flat_map(move |(topic_name, records)| {
                                 let key_deserializer = key_deserializer.clone();
                                 let value_deserializer = value_deserializer.clone();
+                                let subscriptions = subscriptions.clone();
 
                                 records.into_iter().flat_map(move |record| {
                                     let topic_name = topic_name.clone();
                                     let partition_id = record.partition_id;
+                                    let tp = topic_partition!(topic_name.clone(), partition_id);
+                                    let subscriptions = subscriptions.clone();
                                     let offset = record.fetch_offset;
                                     let key_deserializer = key_deserializer.clone();
                                     let value_deserializer = value_deserializer.clone();
 
-                                    record.messages.into_iter().map(move |message| ConsumerRecord {
-                                        topic_name: Cow::from(topic_name.clone()),
-                                        partition_id,
-                                        offset,
-                                        key: message.key.as_ref().and_then(|buf| {
-                                            key_deserializer
-                                                .clone()
-                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                                .ok()
-                                        }),
-                                        value: message.value.as_ref().and_then(|buf| {
-                                            value_deserializer
-                                                .clone()
-                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                                .ok()
-                                        }),
-                                        timestamp: message.timestamp.clone(),
+                                    record.messages.into_iter().map(move |message| {
+                                        if auto_commit_enabled {
+                                            if let Some(state) = subscriptions.borrow_mut().assigned_state_mut(&tp) {
+                                                state.seek(offset);
+                                            }
+                                        }
+
+                                        ConsumerRecord {
+                                            topic_name: Cow::from(topic_name.clone()),
+                                            partition_id,
+                                            offset,
+                                            key: message.key.as_ref().and_then(|buf| {
+                                                key_deserializer
+                                                    .clone()
+                                                    .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                                    .ok()
+                                            }),
+                                            value: message.value.as_ref().and_then(|buf| {
+                                                value_deserializer
+                                                    .clone()
+                                                    .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                                    .ok()
+                                            }),
+                                            timestamp: message.timestamp.clone(),
+                                        }
                                     })
                                 })
                             })),

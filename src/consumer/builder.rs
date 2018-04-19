@@ -151,7 +151,7 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
     /// Sets to disable the consumer's offset will be periodically committed in
     /// the background.
     pub fn without_auto_commit(mut self) -> Self {
-        self.config.enable_auto_commit = false;
+        self.config.auto_commit_enabled = false;
         self
     }
 

@@ -81,7 +81,7 @@ pub struct ConsumerConfig {
     /// If true the consumer's offset will be periodically committed in the
     /// background.
     #[serde(rename = "enable.auto.commit")]
-    pub enable_auto_commit: bool,
+    pub auto_commit_enabled: bool,
 
     /// The frequency in milliseconds that the consumer offsets are
     /// auto-committed to Kafka.
@@ -198,7 +198,7 @@ impl Default for ConsumerConfig {
         ConsumerConfig {
             client: ClientConfig::default(),
             group_id: None,
-            enable_auto_commit: true,
+            auto_commit_enabled: true,
             auto_commit_interval: DEFAULT_AUTO_COMMIT_INTERVAL_MILLIS,
             heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL_MILLIS,
             max_poll_records: DEFAULT_MAX_POLL_RECORDS,
@@ -230,7 +230,7 @@ impl ConsumerConfig {
     /// The frequency in milliseconds that the consumer offsets are
     /// auto-committed to Kafka.
     pub fn auto_commit_interval(&self) -> Option<Duration> {
-        if self.enable_auto_commit {
+        if self.auto_commit_enabled {
             Some(Duration::from_millis(self.auto_commit_interval))
         } else {
             None
