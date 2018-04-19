@@ -17,7 +17,6 @@ use std::rc::Rc;
 use getopts::Options;
 
 use futures::Future;
-use futures::future;
 use tokio_core::reactor::Core;
 use tokio_kafka::{Client, Cluster, FetchOffset, KafkaClient, KafkaVersion, ListedOffset, Metadata, TopicPartition};
 
@@ -144,18 +143,19 @@ fn main() {
             })
             .collect();
 
-        let requests = vec![
-            client.list_offsets(topics.iter().map(|tp| (tp.clone(), FetchOffset::Earliest)).collect()),
-            client.list_offsets(topics.iter().map(|tp| (tp.clone(), FetchOffset::Latest)).collect()),
-        ];
-
         let topic_names = topics
             .iter()
             .map(|ref tp| String::from(tp.topic_name.to_owned()))
             .collect();
 
-        future::join_all(requests)
-            .map(|responses| dump_metadata(config, metadata, topic_names, &responses[0], &responses[1]))
+        client
+            .list_offsets(
+                topics
+                    .iter()
+                    .flat_map(|tp| vec![(tp.clone(), FetchOffset::Earliest), (tp.clone(), FetchOffset::Latest)])
+                    .collect::<Vec<_>>(),
+            )
+            .map(|responses| dump_metadata(config, metadata, topic_names, responses))
     });
 
     core.run(work).unwrap();
@@ -165,8 +165,7 @@ fn dump_metadata<'a>(
     config: Config,
     metadata: Rc<Metadata>,
     topics: Vec<String>,
-    earliest_offsets: &HashMap<String, Vec<ListedOffset>>,
-    latest_offsets: &HashMap<String, Vec<ListedOffset>>,
+    offsets: HashMap<String, Vec<ListedOffset>>,
 ) {
     let host_width = 2
         + metadata
@@ -209,15 +208,12 @@ fn dump_metadata<'a>(
             println!("")
         }
 
-        if let (Some(earliest), Some(latest)) = (earliest_offsets.get(&topic_name), latest_offsets.get(&topic_name)) {
+        if let Some(offset) = offsets.get(&topic_name) {
             for partition_info in partitions.iter() {
                 if let Some(leader) = partition_info.leader {
-                    if let (Some(broker), Some(earliest_offset), Some(latest_offset)) = (
+                    if let (Some(broker), Some(offset)) = (
                         metadata.find_broker(leader),
-                        earliest
-                            .iter()
-                            .find(|offset| offset.partition_id == partition_info.partition_id),
-                        latest
+                        offset
                             .iter()
                             .find(|offset| offset.partition_id == partition_info.partition_id),
                     ) {
@@ -234,19 +230,12 @@ fn dump_metadata<'a>(
                             print!(" {1:0$}", host_width, format!("({}:{})", host, port));
                         }
 
-                        print!(
-                            " {:>12} {:>12}",
-                            earliest_offset.offset().unwrap(),
-                            latest_offset.offset().unwrap()
-                        );
+                        print!(" {:>12} {:>12}", offset.earliest().unwrap(), offset.latest().unwrap());
 
                         if config.show_size {
                             print!(
                                 " {:>12}",
-                                format!(
-                                    "({})",
-                                    latest_offset.offset().unwrap() - earliest_offset.offset().unwrap()
-                                )
+                                format!("({})", offset.latest().unwrap() - offset.earliest().unwrap())
                             );
                         }
 

@@ -135,7 +135,10 @@ where
         unimplemented!()
     }
 
-    fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets {
+    fn list_offsets<I>(&self, partitions: I) -> ListOffsets
+    where
+        I: IntoIterator<Item = (TopicPartition<'a>, FetchOffset)>,
+    {
         unimplemented!()
     }
 

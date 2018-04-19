@@ -2,8 +2,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error as StdError;
-use std::fmt::Debug;
-use std::iter::FromIterator;
+use std::iter::{self, FromIterator};
 use std::mem;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::Deref;
@@ -65,7 +64,9 @@ pub trait Client<'a>: 'static {
 
     /// Search the offsets by target times for the specified topics and return a future which
     /// will eventually contain the partition offset information.
-    fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets;
+    fn list_offsets<I>(&self, partitions: I) -> ListOffsets
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, FetchOffset)>;
 
     /// Load metadata of the Kafka cluster and return a future which will eventually contain
     /// the metadata information.
@@ -170,6 +171,14 @@ pub struct ListedOffset {
 impl ListedOffset {
     pub fn offset(&self) -> Option<Offset> {
         self.offsets.first().cloned()
+    }
+
+    pub fn earliest(&self) -> Option<Offset> {
+        self.offsets.iter().cloned().min()
+    }
+
+    pub fn latest(&self) -> Option<Offset> {
+        self.offsets.iter().cloned().max()
     }
 }
 
@@ -473,7 +482,10 @@ where
             .static_boxed()
     }
 
-    fn list_offsets(&self, partitions: Vec<(TopicPartition<'a>, FetchOffset)>) -> ListOffsets {
+    fn list_offsets<I>(&self, partitions: I) -> ListOffsets
+    where
+        I: 'static + IntoIterator<Item = (TopicPartition<'a>, FetchOffset)>,
+    {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| {
@@ -753,13 +765,22 @@ where
             })
     }
 
-    fn fetch_metadata<S>(&self, topic_names: &[S]) -> FetchMetadata
-    where
-        S: AsRef<str> + Debug,
-    {
-        debug!("fetch metadata for toipcs: {:?}", topic_names);
+    fn fetch_all_metadata(&self) -> FetchMetadata {
+        self.fetch_metadata(iter::empty::<String>())
+    }
 
-        let topic_names = topic_names.iter().map(|s| s.as_ref().to_owned()).collect::<Vec<_>>();
+    fn fetch_metadata<I, S>(&self, topic_names: I) -> FetchMetadata
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let topic_names = topic_names.into_iter().map(|s| s.into()).collect::<Vec<_>>();
+
+        if topic_names.is_empty() {
+            info!("fetch metadata for all toipcs");
+        } else {
+            info!("fetch metadata for toipcs: {:?}", topic_names);
+        }
 
         let responses = {
             let mut responses = Vec::new();
@@ -885,12 +906,15 @@ where
             .static_boxed()
     }
 
-    fn topics_by_broker<T>(
+    fn topics_by_broker<I, T>(
         &self,
         api_key: ApiKeys,
         metadata: &Metadata,
-        partitions: Vec<(TopicPartition<'a>, T)>,
-    ) -> Result<TopicsByBroker<'a, T>> {
+        partitions: I,
+    ) -> Result<TopicsByBroker<'a, T>>
+    where
+        I: IntoIterator<Item = (TopicPartition<'a>, T)>,
+    {
         let mut topics = HashMap::new();
 
         for (tp, value) in partitions {
@@ -1459,7 +1483,7 @@ where
     Self: 'static,
 {
     fn new(inner: Rc<Inner<'a>>) -> LoadMetadata<'a> {
-        let fetch_metadata = inner.fetch_metadata::<&str>(&[]);
+        let fetch_metadata = inner.fetch_all_metadata();
 
         (*inner.state).borrow_mut().refresh_metadata();
 
