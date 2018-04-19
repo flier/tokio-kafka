@@ -32,6 +32,7 @@ extern crate abstract_ns;
 extern crate ns_router;
 extern crate ns_std_threaded;
 
+#[macro_use]
 extern crate futures;
 extern crate futures_cpupool;
 extern crate native_tls;

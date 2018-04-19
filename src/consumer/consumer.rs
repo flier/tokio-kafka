@@ -193,14 +193,14 @@ where
                     )
                 });
 
-                let fetcher = Fetcher::new(
+                let fetcher = Rc::new(Fetcher::new(
                     inner.client.clone(),
                     subscriptions.clone(),
                     fetch_min_bytes,
                     fetch_max_bytes,
                     fetch_max_wait,
                     partition_fetch_bytes,
-                );
+                ));
 
                 SubscribedTopics::new(KafkaConsumer { inner }, subscriptions, coordinator, fetcher, timer)
             })
