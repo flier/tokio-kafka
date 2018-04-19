@@ -5,8 +5,6 @@ use tokio_timer::{wheel, Timer};
 
 use client::KafkaVersion;
 
-pub const DEFAULT_PORT: u16 = 9092;
-
 /// The default milliseconds after which we close the idle connections.
 ///
 /// Defaults to 5 seconds, see

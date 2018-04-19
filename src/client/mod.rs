@@ -19,7 +19,7 @@ pub use self::client::{Client, ConsumerGroup, ConsumerGroupAssignment, ConsumerG
                        PartitionData, ProduceRecords, StaticBoxFuture, SyncGroup, ToStaticBoxFuture};
 pub use self::cluster::{Broker, BrokerRef, Cluster, PartitionInfo};
 pub use self::config::{ClientConfig, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS, DEFAULT_METADATA_MAX_AGE_MILLS,
-                       DEFAULT_PORT, DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS};
+                       DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS};
 pub use self::metadata::{Metadata, TopicPartitions};
 pub use self::metrics::Metrics;
 pub use self::middleware::InFlightMiddleware;

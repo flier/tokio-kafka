@@ -73,12 +73,11 @@ mod producer;
 pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster, KafkaClient, KafkaVersion,
                  ListOffsets, ListedOffset, LoadMetadata, Metadata, PartitionRecord, ProduceRecords,
                  ToStaticBoxFuture, TopicRecord, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
-                 DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_PORT, DEFAULT_REQUEST_TIMEOUT_MILLS,
-                 DEFAULT_RETRY_BACKOFF_MILLIS};
+                 DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS};
 pub use compression::Compression;
 pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer, OffsetResetStrategy, SeekTo, Subscribed};
 pub use errors::{Error, ErrorKind, Result};
-pub use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
+pub use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition, DEFAULT_PORT};
 pub use producer::{DefaultPartitioner, GetTopic, KafkaProducer, Partitioner, Producer, ProducerBuilder,
                    ProducerConfig, ProducerInterceptor, ProducerPartition, ProducerRecord, ProducerTopic,
                    RecordMetadata, SendRecord, DEFAULT_ACK_TIMEOUT_MILLIS, DEFAULT_BATCH_SIZE, DEFAULT_LINGER_MILLIS,

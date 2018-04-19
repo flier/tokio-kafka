@@ -26,10 +26,10 @@ use abstract_ns::HostResolve;
 
 use client::middleware::Timeout as TimeoutMiddleware;
 use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, FutureResponse, InFlightMiddleware,
-             KafkaService, Metadata, Metrics, DEFAULT_PORT};
+             KafkaService, Metadata, Metrics};
 use errors::{Error, Result};
 use errors::ErrorKind::{self, *};
-use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition};
+use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition, DEFAULT_PORT};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
                GenerationId, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset, PartitionId,
                RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions, DEFAULT_RESPONSE_MAX_BYTES};
@@ -291,7 +291,7 @@ struct Inner<'a> {
     handle: Handle,
     service: Rc<InFlightMiddleware<TimeoutMiddleware<KafkaService<'a>>>>,
     timer: Rc<Timer>,
-    router: Router,
+    router: Rc<Router>,
     metrics: Option<Rc<Metrics>>,
     state: Rc<RefCell<State>>,
 }
@@ -333,14 +333,8 @@ where
         } else {
             None
         };
-        let service = Rc::new(InFlightMiddleware::new(TimeoutMiddleware::new(
-            KafkaService::new(handle.clone(), config.max_connection_idle(), metrics.clone()),
-            config.timer(),
-            config.request_timeout(),
-        )));
-
         let timer = Rc::new(config.timer());
-        let router = Router::from_config(
+        let router = Rc::new(Router::from_config(
             &RouterConfig::new()
                 .set_fallthrough(
                     ThreadedResolver::new()
@@ -349,7 +343,17 @@ where
                 )
                 .done(),
             &handle,
-        );
+        ));
+        let service = Rc::new(InFlightMiddleware::new(TimeoutMiddleware::new(
+            KafkaService::new(
+                handle.clone(),
+                router.clone(),
+                config.max_connection_idle(),
+                metrics.clone(),
+            ),
+            config.timer(),
+            config.request_timeout(),
+        )));
         let inner = Rc::new(Inner {
             config,
             handle,

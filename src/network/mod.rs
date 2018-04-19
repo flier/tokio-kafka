@@ -3,7 +3,6 @@ mod request;
 mod codec;
 mod conn;
 mod pool;
-mod resolver;
 mod response;
 mod stream;
 
@@ -11,7 +10,6 @@ pub use self::codec::KafkaCodec;
 pub use self::conn::{KafkaConnection, KeepAlive, Status};
 pub use self::pool::{Pool, Pooled};
 pub use self::request::KafkaRequest;
-pub use self::resolver::{DnsQuery, DnsResolver, Resolver};
 pub use self::response::KafkaResponse;
 pub use self::stream::{Connect, KafkaConnector, KafkaStream};
 
@@ -19,6 +17,8 @@ use std::borrow::Cow;
 use std::fmt;
 
 use protocol::{Offset, PartitionId, Timestamp};
+
+pub const DEFAULT_PORT: u16 = 9092;
 
 pub type ConnectionId = u32;
 

@@ -1,7 +1,8 @@
 use std::fmt;
 use std::io;
+use std::rc::Rc;
 use std::io::prelude::*;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 
 use futures::future::Future;
 use futures::{Async, Poll};
@@ -10,61 +11,61 @@ use tokio_core::net::{TcpStream, TcpStreamNew};
 use tokio_core::reactor::Handle;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_tls::{ConnectAsync, TlsConnectorExt, TlsStream};
+use ns_router::{AutoName, Router};
+use ns_router::future::ResolveFuture;
 
-use network::{DnsQuery, DnsResolver, Resolver};
+use network::DEFAULT_PORT;
 
 pub struct KafkaConnector {
     handle: Handle,
-    resolver: DnsResolver,
+    router: Rc<Router>,
 }
 
 impl KafkaConnector {
-    pub fn new(handle: Handle) -> Self {
-        KafkaConnector {
-            handle,
-            resolver: DnsResolver::default(),
-        }
+    pub fn new(handle: Handle, router: Rc<Router>) -> Self {
+        KafkaConnector { handle, router }
     }
 
-    pub fn tcp<S>(&self, addr: S) -> Connect
+    pub fn tcp<'n, N>(&self, addr: N) -> Connect
     where
-        S: ToSocketAddrs + fmt::Debug + Send + 'static,
+        N: Into<AutoName<'n>> + fmt::Debug,
     {
         trace!("TCP connect to {:?}", addr);
 
         Connect {
+            handle: self.handle.clone(),
             domain: None,
             connector: None,
-            handle: self.handle.clone(),
-            state: State::Resolving(self.resolver.resolve(addr)),
+            state: State::Resolving(self.router.resolve_auto(addr, DEFAULT_PORT)),
         }
     }
 
-    pub fn tls<S>(&self, addr: S, connector: TlsConnector, domain: &str) -> Connect
+    pub fn tls<'n, N, S>(&self, addr: N, connector: TlsConnector, domain: S) -> Connect
     where
-        S: ToSocketAddrs + fmt::Debug + Send + 'static,
+        N: Into<AutoName<'n>> + fmt::Debug,
+        S: Into<String>,
     {
         trace!("TLS connect to {:?}", addr);
 
         Connect {
-            domain: Some(domain.to_owned()),
-            connector: Some(connector),
             handle: self.handle.clone(),
-            state: State::Resolving(self.resolver.resolve(addr)),
+            domain: Some(domain.into()),
+            connector: Some(connector),
+            state: State::Resolving(self.router.resolve_auto(addr, DEFAULT_PORT)),
         }
     }
 }
 
 enum State {
-    Resolving(DnsQuery),
+    Resolving(ResolveFuture),
     Connecting(TcpStreamNew, SocketAddr, Vec<SocketAddr>),
     Handshaking(ConnectAsync<TcpStream>, SocketAddr),
 }
 
 pub struct Connect {
+    handle: Handle,
     domain: Option<String>,
     connector: Option<TlsConnector>,
-    handle: Handle,
     state: State,
 }
 
@@ -74,70 +75,71 @@ impl Future for Connect {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
-            let state;
-
             let domain = &self.domain;
             let connector = &self.connector;
 
-            match self.state {
-                State::Resolving(ref mut future) => match future.poll() {
-                    Ok(Async::Ready(mut addrs)) => {
+            let state = match self.state {
+                State::Resolving(ref mut resolving) => match resolving.poll() {
+                    Ok(Async::Ready(mut address)) => {
+                        let mut addrs = address
+                            .iter()
+                            .flat_map(|weighted_set| weighted_set.addresses().collect::<Vec<_>>())
+                            .collect::<Vec<_>>();
+
                         addrs.reverse();
 
                         if let Some(addr) = addrs.pop() {
                             trace!("TCP connecting to {}", addr);
 
-                            state = State::Connecting(TcpStream::connect(&addr, &self.handle), addr, addrs)
+                            State::Connecting(TcpStream::connect(&addr, &self.handle), addr, addrs)
                         } else {
-                            return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, "no more address"));
+                            bail!(io::Error::new(io::ErrorKind::AddrNotAvailable, "no more address"));
                         }
                     }
                     Ok(Async::NotReady) => return Ok(Async::NotReady),
                     Err(err) => {
-                        warn!("fail to resolve address, {}", err);
-
-                        return Err(err);
+                        bail!(io::Error::new(io::ErrorKind::AddrNotAvailable, err));
                     }
                 },
-                State::Connecting(ref mut future, addr, ref mut addrs) => match future.poll() {
+                State::Connecting(ref mut connecting, peer_addr, ref mut addrs) => match connecting.poll() {
                     Ok(Async::Ready(stream)) => {
                         if let (&Some(ref domain), &Some(ref connector)) = (domain, connector) {
-                            trace!("TCP connected to {}, start TLS handshake", addr);
+                            trace!("TCP connected to {}, start TLS handshake", peer_addr);
 
-                            state = State::Handshaking(connector.connect_async(domain, stream), addr);
+                            State::Handshaking(connector.connect_async(domain, stream), peer_addr)
                         } else {
-                            trace!("TCP connected to {}", addr);
+                            trace!("TCP connected to {}", peer_addr);
 
-                            return Ok(Async::Ready(KafkaStream::Tcp(addr, stream)));
+                            return Ok(Async::Ready(KafkaStream::Tcp(peer_addr, stream)));
                         }
                     }
                     Ok(Async::NotReady) => return Ok(Async::NotReady),
                     Err(err) => {
-                        warn!("fail to connect {}, {}", addr, err);
+                        warn!("fail to connect {}, {}", peer_addr, err);
 
                         if let Some(addr) = addrs.pop() {
                             trace!("TCP connecting to {}", addr);
 
-                            state = State::Connecting(TcpStream::connect(&addr, &self.handle), addr, addrs.clone())
+                            State::Connecting(TcpStream::connect(&addr, &self.handle), addr, addrs.clone())
                         } else {
-                            return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, err));
+                            bail!(io::Error::new(io::ErrorKind::NotConnected, err));
                         }
                     }
                 },
-                State::Handshaking(ref mut future, addr) => match future.poll() {
+                State::Handshaking(ref mut handshaking, peer_addr) => match handshaking.poll() {
                     Ok(Async::Ready(stream)) => {
-                        trace!("TLS connected to {}", addr);
+                        trace!("TLS connected to {}", peer_addr);
 
-                        return Ok(Async::Ready(KafkaStream::Tls(addr, stream)));
+                        return Ok(Async::Ready(KafkaStream::Tls(peer_addr, stream)));
                     }
                     Ok(Async::NotReady) => return Ok(Async::NotReady),
                     Err(err) => {
-                        warn!("fail to do TLS handshake to {}, {}", addr, err);
+                        warn!("fail to do TLS handshake to {}, {}", peer_addr, err);
 
-                        return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "TLS handshake failed"));
+                        bail!(io::Error::new(io::ErrorKind::ConnectionAborted, "TLS handshake failed"));
                     }
                 },
-            }
+            };
 
             self.state = state;
         }

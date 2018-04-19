@@ -17,6 +17,7 @@ use tokio_proto::streaming::pipeline::ClientProto;
 use tokio_proto::streaming::{Body, Message};
 use tokio_proto::util::client_proxy::ClientProxy;
 use tokio_service::Service;
+use ns_router::{AutoName, Router};
 
 use client::{Metrics, StaticBoxFuture, ToStaticBoxFuture};
 use errors::Error;
@@ -43,11 +44,16 @@ pub struct KafkaService<'a> {
 }
 
 impl<'a> KafkaService<'a> {
-    pub fn new(handle: Handle, max_connection_idle: Duration, metrics: Option<Rc<Metrics>>) -> Self {
+    pub fn new(
+        handle: Handle,
+        router: Rc<Router>,
+        max_connection_idle: Duration,
+        metrics: Option<Rc<Metrics>>,
+    ) -> Self {
         KafkaService {
             handle: handle.clone(),
             pool: Pool::new(max_connection_idle),
-            connector: KafkaConnector::new(handle),
+            connector: KafkaConnector::new(handle, router),
             metrics,
             state: Rc::new(RefCell::new(State::default())),
         }
@@ -76,7 +82,7 @@ where
             let connection_id = self.state.borrow_mut().next_connection_id();
             let pool = self.pool.clone();
 
-            self.connector.tcp(addr).map(move |io| {
+            self.connector.tcp(AutoName::SocketAddr(addr)).map(move |io| {
                 let (tx, rx) = oneshot::channel();
                 let client = RemoteClient {
                     connection_id,
