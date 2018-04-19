@@ -56,21 +56,26 @@ where
                 .borrow_mut()
                 .assigned_state_mut(&tp)
                 .and_then(|state| {
-                    if state.is_offset_reset_needed() {
-                        debug!("resetting offset to {:?}", state.reset_strategy);
+                    if let Some(reset_strategy) = state.reset_strategy {
+                        trace!("resetting offset of partition {} to strategy: {:?}", tp, reset_strategy);
 
                         Some(tp)
-                    } else if let Some(committed) = state.committed.as_ref().map(|committed| committed.offset) {
-                        debug!(
-                            "resetting offset for partition {} to the committed offset {}",
-                            tp, committed
+                    } else if let Some(offset) = state.committed.as_ref().map(|committed| committed.offset) {
+                        trace!(
+                            "resetting offset of partition {} to the committed offset {}",
+                            tp,
+                            offset
                         );
 
-                        state.seek(committed);
+                        state.seek(offset);
 
                         None
                     } else {
-                        debug!("resetting offset to {:?}", default_reset_strategy);
+                        trace!(
+                            "resetting offset of for partition {} to default strategy: {:?}",
+                            tp,
+                            default_reset_strategy
+                        );
 
                         state.need_offset_reset(default_reset_strategy);
 
@@ -85,23 +90,19 @@ where
     where
         I: IntoIterator<Item = TopicPartition<'a>>,
     {
-        let mut offset_resets = Vec::new();
-
-        for tp in partitions {
-            if let Some(state) = self.subscriptions.borrow().assigned_state(&tp) {
-                match state.reset_strategy {
-                    Some(OffsetResetStrategy::Earliest) => {
-                        offset_resets.push((tp, FetchOffset::Earliest));
-                    }
-                    Some(OffsetResetStrategy::Latest) => {
-                        offset_resets.push((tp, FetchOffset::Latest));
-                    }
-                    _ => {
-                        return ErrorKind::NoOffsetForPartition(tp.topic_name.into(), tp.partition_id).into();
-                    }
-                }
-            }
-        }
+        let offset_resets = partitions
+            .into_iter()
+            .flat_map(|tp| {
+                self.subscriptions
+                    .borrow()
+                    .assigned_state(&tp)
+                    .and_then(|state| match state.reset_strategy {
+                        Some(OffsetResetStrategy::Earliest) => Some((tp, FetchOffset::Earliest)),
+                        Some(OffsetResetStrategy::Latest) => Some((tp, FetchOffset::Latest)),
+                        _ => None,
+                    })
+            })
+            .collect::<Vec<_>>();
 
         let subscriptions = self.subscriptions.clone();
 

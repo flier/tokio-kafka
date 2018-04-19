@@ -54,6 +54,11 @@ pub const DEFAULT_FETCH_MAX_BYTES: usize = 50 * 1024 * 1024;
 /// [`ConsumerConfig::fetch_max_wait`](struct.ConsumerConfig.html#fetch_max_wait.v)
 pub const DEFAULT_FETCH_MAX_WAIT_MILLIS: u64 = 500;
 
+/// How long to postpone the next fetch request for a topic+partition in case of a fetch error.
+///
+/// [`ConsumerConfig::fetch_error_backoff`](struct.ConsumerConfig.html#fetch_error_backoff.v)
+pub const DEFAULT_FETCH_ERROR_BACKOFF_MILLIS: u64 = 500;
+
 /// The maximum amount of data per-partition the server will return.
 ///
 /// Defaults to 1 `MBytes`, see
@@ -159,6 +164,11 @@ pub struct ConsumerConfig {
     #[serde(rename = "fetch.max.wait.ms")]
     pub fetch_max_wait: u64,
 
+    /// How long to postpone the next fetch request for a topic+partition in
+    /// case of a fetch error.
+    #[serde(rename = "fetch.error.backoff.ms")]
+    pub fetch_error_backoff: u64,
+
     /// The maximum amount of data per-partition the server will return.
     ///
     /// If the first message in the first non-empty partition of the fetch is larger than this
@@ -199,6 +209,7 @@ impl Default for ConsumerConfig {
             fetch_min_bytes: DEFAULT_FETCH_MIN_BYTES,
             fetch_max_bytes: DEFAULT_FETCH_MAX_BYTES,
             fetch_max_wait: DEFAULT_FETCH_MAX_WAIT_MILLIS,
+            fetch_error_backoff: DEFAULT_FETCH_ERROR_BACKOFF_MILLIS,
             partition_fetch_bytes: DEFAULT_PARTITION_FETCH_BYTES,
         }
     }
@@ -249,6 +260,12 @@ impl ConsumerConfig {
     /// `fetch.min.bytes`.
     pub fn fetch_max_wait(&self) -> Duration {
         Duration::from_millis(self.fetch_max_wait)
+    }
+
+    /// How long to postpone the next fetch request for a topic+partition in
+    /// case of a fetch error.
+    pub fn fetch_error_backoff(&self) -> Duration {
+        Duration::from_millis(self.fetch_error_backoff)
     }
 }
 

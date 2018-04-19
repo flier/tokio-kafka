@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use bytes::IntoBuf;
 use futures::{future, Async, Future, Poll, Stream};
+use tokio_timer::{Sleep, Timer};
 
 use client::{Client, FetchRecords, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup, KafkaConsumer,
@@ -41,10 +42,26 @@ pub trait Subscribed<'a> {
     fn seek(&self, partition: &TopicPartition<'a>, pos: SeekTo) -> Result<()>;
 
     /// Seek to the first offset for each of the given partitions.
-    fn seek_to_beginning(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+    fn seek_to_beginning<I>(&self, partitions: I) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a TopicPartition<'a>>,
+    {
+        for partition in partitions {
+            self.seek(partition, SeekTo::Beginning)?;
+        }
+        Ok(())
+    }
 
     /// Seek to the last offset for each of the given partitions.
-    fn seek_to_end(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+    fn seek_to_end<I>(&self, partitions: I) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a TopicPartition<'a>>,
+    {
+        for partition in partitions {
+            self.seek(partition, SeekTo::End)?;
+        }
+        Ok(())
+    }
 
     /// Get the offset of the next record that will be fetched (if a record with that offset
     /// exists).
@@ -60,10 +77,14 @@ pub trait Subscribed<'a> {
     fn paused(&self) -> Vec<TopicPartition<'a>>;
 
     /// Suspend fetching from the requested partitions.
-    fn pause(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+    fn pause<I>(&self, partitions: I) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a TopicPartition<'a>>;
 
     /// Resume specified partitions which have been paused with
-    fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()>;
+    fn resume<I>(&self, partitions: I) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a TopicPartition<'a>>;
 
     /// Look up the offsets for the given partitions by timestamp.
     fn offsets_for_times(&self, partitions: HashMap<TopicPartition<'a>, Timestamp>) -> OffsetsForTimes<'a>;
@@ -110,11 +131,16 @@ where
         subscriptions: Rc<RefCell<Subscriptions<'a>>>,
         coordinator: Option<ConsumerCoordinator<'a, KafkaClient<'a>>>,
         fetcher: Fetcher<'a>,
+        timer: Rc<Timer>,
     ) -> Result<SubscribedTopics<'a, K, V>> {
         let state = if let Some(ref coordinator) = coordinator {
             State::Joining(coordinator.join_group())
         } else {
-            State::Updating(fetcher.update_positions(subscriptions.borrow().assigned_partitions()))
+            let partitions = subscriptions.borrow().assigned_partitions();
+
+            trace!("updating postion of partitions: {:?}", partitions);
+
+            State::Updating(fetcher.update_positions(partitions))
         };
 
         Ok(SubscribedTopics {
@@ -123,6 +149,7 @@ where
                 subscriptions,
                 coordinator,
                 fetcher,
+                timer,
                 state,
             })),
         })
@@ -153,6 +180,7 @@ where
     subscriptions: Rc<RefCell<Subscriptions<'a>>>,
     coordinator: Option<ConsumerCoordinator<'a, KafkaClient<'a>>>,
     fetcher: Fetcher<'a>,
+    timer: Rc<Timer>,
     state: State<'a, K::Item, V::Item>,
 }
 
@@ -160,6 +188,7 @@ enum State<'a, K, V> {
     Joining(JoinGroup),
     Updating(UpdatePositions),
     Fetching(FetchRecords),
+    Retry(Sleep),
     Fetched(Box<Iterator<Item = ConsumerRecord<'a, K, V>>>),
 }
 
@@ -175,16 +204,14 @@ where
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
-            let next_state;
-
-            match self.state {
+            let next_state = match self.state {
                 State::Joining(ref mut join_group) => match join_group.poll() {
                     Ok(Async::Ready(_)) => {
                         let partitions = self.subscriptions.borrow().assigned_partitions();
 
                         trace!("updating postion of partitions: {:?}", partitions);
 
-                        next_state = State::Updating(self.fetcher.update_positions(partitions))
+                        State::Updating(self.fetcher.update_positions(partitions))
                     }
                     Ok(Async::NotReady) => {
                         return Ok(Async::NotReady);
@@ -195,13 +222,13 @@ where
                         return Err(err);
                     }
                 },
-                State::Updating(ref mut update_positions) => match update_positions.poll() {
+                State::Updating(ref mut updating) => match updating.poll() {
                     Ok(Async::Ready(_)) => {
-                        let partitions = self.subscriptions.borrow().assigned_partitions();
+                        let partitions = self.subscriptions.borrow().fetchable_partitions();
 
                         trace!("fetching records of partitions: {:?}", partitions);
 
-                        next_state = State::Fetching(self.fetcher.fetch_records(partitions))
+                        State::Fetching(self.fetcher.fetch_records(partitions))
                     }
                     Ok(Async::NotReady) => {
                         return Ok(Async::NotReady);
@@ -212,63 +239,90 @@ where
                         return Err(err);
                     }
                 },
-                State::Fetching(ref mut fetch) => match fetch.poll() {
+                State::Fetching(ref mut fetching) => match fetching.poll() {
+                    Ok(Async::Ready(ref records))
+                        if records
+                            .iter()
+                            .flat_map(|(_, records)| records)
+                            .map(|record| record.messages.len())
+                            .sum::<usize>() == 0 =>
+                    {
+                        let retry_backoff = self.consumer.config().fetch_error_backoff();
+
+                        trace!("found nothing, retry after {:?}", retry_backoff);
+
+                        State::Retry(self.timer.sleep(retry_backoff))
+                    }
                     Ok(Async::Ready(records)) => {
                         let key_deserializer = self.consumer.key_deserializer();
                         let value_deserializer = self.consumer.value_deserializer();
 
-                        next_state =
-                            State::Fetched(Box::new(records.into_iter().flat_map(move |(topic_name, records)| {
+                        State::Fetched(Box::new(records.into_iter().flat_map(move |(topic_name, records)| {
+                            let key_deserializer = key_deserializer.clone();
+                            let value_deserializer = value_deserializer.clone();
+
+                            records.into_iter().flat_map(move |record| {
+                                let topic_name = topic_name.clone();
+                                let partition_id = record.partition_id;
+                                let offset = record.fetch_offset;
                                 let key_deserializer = key_deserializer.clone();
                                 let value_deserializer = value_deserializer.clone();
 
-                                records.into_iter().flat_map(move |record| {
-                                    let topic_name = topic_name.clone();
-                                    let partition_id = record.partition_id;
-                                    let offset = record.fetch_offset;
-                                    let key_deserializer = key_deserializer.clone();
-                                    let value_deserializer = value_deserializer.clone();
-
-                                    record.messages.into_iter().map(move |message| ConsumerRecord {
-                                        topic_name: Cow::from(topic_name.clone()),
-                                        partition_id,
-                                        offset,
-                                        key: message.key.as_ref().and_then(|buf| {
-                                            key_deserializer
-                                                .clone()
-                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                                .ok()
-                                        }),
-                                        value: message.value.as_ref().and_then(|buf| {
-                                            value_deserializer
-                                                .clone()
-                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                                .ok()
-                                        }),
-                                        timestamp: message.timestamp.clone(),
-                                    })
+                                record.messages.into_iter().map(move |message| ConsumerRecord {
+                                    topic_name: Cow::from(topic_name.clone()),
+                                    partition_id,
+                                    offset,
+                                    key: message.key.as_ref().and_then(|buf| {
+                                        key_deserializer
+                                            .clone()
+                                            .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                            .ok()
+                                    }),
+                                    value: message.value.as_ref().and_then(|buf| {
+                                        value_deserializer
+                                            .clone()
+                                            .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                            .ok()
+                                    }),
+                                    timestamp: message.timestamp.clone(),
                                 })
-                            })))
+                            })
+                        })))
                     }
                     Ok(Async::NotReady) => {
                         return Ok(Async::NotReady);
                     }
                     Err(err) => {
-                        warn!("fail to fetch the records, {}", err);
+                        trace!("fail to fetch the records, {}", err);
 
-                        return Err(err);
+                        State::Retry(self.timer.sleep(self.consumer.config().fetch_error_backoff()))
                     }
+                },
+                State::Retry(ref mut sleep) => match sleep.poll() {
+                    Ok(Async::Ready(_)) => {
+                        let partitions = self.subscriptions.borrow().fetchable_partitions();
+
+                        trace!("fetching records of partitions: {:?}", partitions);
+
+                        State::Fetching(self.fetcher.fetch_records(partitions))
+                    }
+                    Ok(Async::NotReady) => {
+                        return Ok(Async::NotReady);
+                    }
+                    Err(_) => unreachable!(),
                 },
                 State::Fetched(ref mut records) => {
                     if let Some(record) = records.next() {
                         return Ok(Async::Ready(Some(record)));
                     } else {
-                        let partitions = self.subscriptions.borrow().assigned_partitions();
+                        let partitions = self.subscriptions.borrow().fetchable_partitions();
 
-                        next_state = State::Fetching(self.fetcher.fetch_records(partitions))
+                        trace!("fetching records of partitions: {:?}", partitions);
+
+                        State::Fetching(self.fetcher.fetch_records(partitions))
                     }
                 }
-            }
+            };
 
             self.state = next_state;
         }
@@ -371,14 +425,20 @@ where
         self.subscriptions.borrow().paused_partitions()
     }
 
-    fn pause(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+    fn pause<I>(&self, partitions: I) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a TopicPartition<'a>>,
+    {
         for partition in partitions {
             self.subscriptions.borrow_mut().pause(partition)?;
         }
         Ok(())
     }
 
-    fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+    fn resume<I>(&self, partitions: I) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a TopicPartition<'a>>,
+    {
         for partition in partitions {
             self.subscriptions.borrow_mut().resume(partition)?;
         }
@@ -420,20 +480,6 @@ where
         self.inner.borrow().seek(partition, pos)
     }
 
-    fn seek_to_beginning(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
-        for partition in partitions {
-            self.seek(partition, SeekTo::Beginning)?;
-        }
-        Ok(())
-    }
-
-    fn seek_to_end(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
-        for partition in partitions {
-            self.seek(partition, SeekTo::End)?;
-        }
-        Ok(())
-    }
-
     fn position(&self, partition: &TopicPartition<'a>) -> Result<Option<Offset>> {
         self.inner.borrow().position(partition)
     }
@@ -446,11 +492,17 @@ where
         self.inner.borrow().paused()
     }
 
-    fn pause(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+    fn pause<I>(&self, partitions: I) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a TopicPartition<'a>>,
+    {
         self.inner.borrow().pause(partitions)
     }
 
-    fn resume(&self, partitions: &[TopicPartition<'a>]) -> Result<()> {
+    fn resume<I>(&self, partitions: I) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a TopicPartition<'a>>,
+    {
         self.inner.borrow().resume(partitions)
     }
 

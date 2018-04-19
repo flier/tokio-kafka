@@ -143,6 +143,14 @@ impl<'a> Subscriptions<'a> {
         self.assignment.keys().cloned().collect()
     }
 
+    pub fn fetchable_partitions(&self) -> Vec<TopicPartition<'a>> {
+        self.assignment
+            .iter()
+            .filter(|&(_, state)| state.is_fetchable())
+            .map(|(tp, _)| tp.clone())
+            .collect()
+    }
+
     pub fn subscription(&self) -> Vec<String> {
         self.subscription.iter().cloned().collect()
     }

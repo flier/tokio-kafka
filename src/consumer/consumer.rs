@@ -100,6 +100,10 @@ impl<'a, K, V> KafkaConsumer<'a, K, V> {
     {
         ConsumerBuilder::with_bootstrap_servers(hosts, handle)
     }
+
+    pub fn config(&self) -> &ConsumerConfig {
+        &self.inner.config
+    }
 }
 
 impl<'a, K, V> KafkaConsumer<'a, K, V>
@@ -185,7 +189,7 @@ where
                         None,
                         auto_commit_interval,
                         assignors,
-                        timer,
+                        timer.clone(),
                     )
                 });
 
@@ -198,7 +202,7 @@ where
                     partition_fetch_bytes,
                 );
 
-                SubscribedTopics::new(KafkaConsumer { inner }, subscriptions, coordinator, fetcher)
+                SubscribedTopics::new(KafkaConsumer { inner }, subscriptions, coordinator, fetcher, timer)
             })
             .static_boxed()
     }
