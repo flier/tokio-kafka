@@ -247,7 +247,7 @@ where
                         ConsumerRecord {
                             topic_name: Cow::from(topic_name.clone()),
                             partition_id,
-                            offset,
+                            offset: message.offset,
                             key: message.key.as_ref().and_then(|buf| {
                                 key_deserializer
                                     .clone()
