@@ -184,6 +184,7 @@ where
 
 enum State<'a, K, V> {
     Joining(JoinGroup),
+    UpdatingOffsets(StaticBoxFuture),
     Updating(UpdatePositions),
     Fetching(FetchRecords),
     Retry(Sleep),
@@ -292,6 +293,15 @@ where
                 State::Joining(ref mut join_group) => {
                     try_ready!(join_group.poll());
 
+                    if let Some(ref coordinator) = self.coordinator {
+                        State::UpdatingOffsets(coordinator.update_offsets())
+                    } else {
+                        State::updating(self.subscriptions.clone(), self.fetcher.clone())
+                    }
+                }
+                State::UpdatingOffsets(ref mut updating) => {
+                    debug!("updating offsets from coordinator");
+                    try_ready!(updating.poll());
                     State::updating(self.subscriptions.clone(), self.fetcher.clone())
                 }
                 State::Updating(ref mut updating) => {
@@ -302,7 +312,7 @@ where
                 State::Retry(ref mut sleep) => {
                     try_ready!(sleep.poll());
 
-                    State::fetching(self.subscriptions.clone(), self.fetcher.clone())
+                    State::updating(self.subscriptions.clone(), self.fetcher.clone())
                 }
                 State::Fetching(ref mut fetching) => match fetching.poll() {
                     Ok(Async::Ready((throttle_time, ref records)))
