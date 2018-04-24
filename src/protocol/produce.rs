@@ -16,20 +16,29 @@ const ACK_TIMEOUT_SIZE: usize = 4;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequest<'a> {
     pub header: RequestHeader<'a>,
+    /// This field indicates how many acknowledgements the servers should
+    /// receive before responding to the request.
     pub required_acks: RequiredAck,
+    /// This provides a maximum time in milliseconds the server can await the
+    /// receipt of the number of acknowledgements in `required_acks`.
     pub ack_timeout: i32,
+    /// The topic that data is being published to.
     pub topics: Vec<ProduceTopicData<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceTopicData<'a> {
+    /// The topic that data is being published to.
     pub topic_name: Cow<'a, str>,
+    /// The partition that data is being published to.
     pub partitions: Vec<ProducePartitionData<'a>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProducePartitionData<'a> {
+    /// The partition that data is being published to.
     pub partition_id: PartitionId,
+    /// A set of messages in the standard format.
     pub message_set: Cow<'a, MessageSet>,
 }
 
@@ -75,21 +84,32 @@ impl<'a> Encodable for ProduceRequest<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceResponse {
     pub header: ResponseHeader,
+    /// The topic this response entry corresponds to.
     pub topics: Vec<ProduceTopicStatus>,
+    /// Duration in milliseconds for which the request was throttled due to
+    /// quota violation. (Zero if the request did not violate any quota).
     pub throttle_time: Option<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceTopicStatus {
+    /// The topic this response entry corresponds to.
     pub topic_name: String,
+    /// The partition this response entry corresponds to.
     pub partitions: Vec<ProducePartitionStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProducePartitionStatus {
+    /// The partition this response entry corresponds to.
     pub partition_id: PartitionId,
+    /// The error from this partition, if any.
     pub error_code: ErrorCode,
+    /// The offset assigned to the first message in the message set appended to
+    /// this partition.
     pub offset: Offset,
+    /// Unit is milliseconds since beginning of the epoch (midnight Jan 1, 1970
+    /// (UTC)).
     pub timestamp: Option<Timestamp>,
 }
 
