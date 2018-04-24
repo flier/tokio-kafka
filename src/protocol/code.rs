@@ -57,21 +57,14 @@ pub enum KafkaCode {
     OffsetMetadataTooLarge = 12,
     /// The server disconnected before a response was received.
     NetworkException = 13,
-    /// The broker returns this error code for an offset fetch request
-    /// if it is still loading offsets (after a leader change for that
-    /// offsets topic partition), or in response to group membership
-    /// requests (such as heartbeats) when group metadata is being
-    /// loaded by the coordinator.
-    GroupLoadInProgress = 14,
-    /// The broker returns this error code for group coordinator
-    /// requests, offset commits, and most group management requests
-    /// if the offsets topic has not yet been created, or if the group
-    /// coordinator is not active.
-    GroupCoordinatorNotAvailable = 15,
+    /// The coordinator is loading and hence can't process requests.
+    CoordinatorLoadInProgress = 14,
+    /// The coordinator is not available.
+    CoordinatorNotAvailable = 15,
     /// The broker returns this error code if it receives an offset
     /// fetch or commit request for a group that it is not a
     /// coordinator for.
-    NotCoordinatorForGroup = 16,
+    NotCoordinator = 16,
     /// For a request which attempts to access an invalid topic
     /// (e.g. one which has an illegal name), or if an attempt is made
     /// to write to an internal topic (such as the consumer offsets
@@ -159,7 +152,8 @@ pub enum KafkaCode {
     /// The producer attempted to use a producer id which is not currently assigned to its
     /// transactional id
     InvalidProducerIdMapper = 49,
-    /// The transaction timeout is larger than the maximum value allowed by the broker
+    /// The transaction timeout is larger than the maximum value allowed by the
+    /// broker
     InvalidTransactionTimeout = 50,
     /// The producer attempted to update a transaction while another concurrent operation on the
     /// same transaction was ongoing
@@ -169,15 +163,72 @@ pub enum KafkaCode {
     TransactionCoordinatorFenced = 52,
     /// Transactional Id authorization failed
     TransactionalIdAuthorizationFailed = 53,
-    /// Producer is not authorized to use producer Ids, which is required to write idempotent data.
-    ProducerIdAuthorizationFailed = 54,
     /// Security features are disabled.
-    SecurityDisabled = 55,
-    /// Broker authorization failed
-    BrokerAuthorizationFailed = 56,
+    SecurityDisabled = 54,
+    /// The broker did not attempt to execute this operation. This may happen
+    /// for batched RPCs where some operations in the batch failed, causing the
+    /// broker to respond without trying the rest.
+    OperationNotAttempted = 55,
+    /// Disk error when trying to access log file on the disk.
+    KafkaStorageError = 56,
+    /// The user-specified log directory is not found in the broker config.
+    LogDirNotFound = 57,
+    /// SASL Authentication failed.
+    SaslAuthenticationFailed = 58,
+    /// This exception is raised by the broker if it could not locate the producer metadata associated with the
+    /// producerId in question. This could happen if, for instance, the producer's records were deleted because their
+    /// retention time had elapsed. Once the last records of the producerId are removed, the producer's metadata is
+    /// removed from the broker, and future appends by the producer will return this exception.
+    UnknownProducerId = 59,
+    /// A partition reassignment is in progress
+    ReassignmentInProgress = 60,
+    /// Delegation Token feature is not enabled.
+    DelegationTokenAuthDisabled = 61,
+    /// Delegation Token is not found on server.
+    DelegationTokenNotFound = 62,
+    /// Specified Principal is not valid Owner/Renewer.
+    DelegationTokenOwnerMismatch = 63,
+    /// Delegation Token requests are not allowed on PLAINTEXT/1-way SSL
+    /// channels and on delegation token authenticated channels.
+    DelegationTokenRequestNotAllowed = 64,
+    /// Delegation Token authorization failed.
+    DelegationTokenAuthorizationFailed = 65,
+    /// Delegation Token is expired.
+    DelegationTokenExpired = 66,
+    /// Supplied principalType is not supported
+    InvalidPrincipalType = 67,
+    /// The group The group is not empty is not empty
+    NonEmptyGroup = 68,
+    /// The group id The group id does not exist was not found
+    GroupIdNotFound = 69,
+    /// The fetch session ID was not found
+    FetchSessionIdNotFound = 70,
+    /// The fetch session epoch is invalid
+    InvalidFetchSessionEpoch = 71,
 }
 
 impl KafkaCode {
+    pub fn is_retriable(&self) -> bool {
+        match *self {
+            KafkaCode::CorruptMessage
+            | KafkaCode::UnknownTopicOrPartition
+            | KafkaCode::LeaderNotAvailable
+            | KafkaCode::NotLeaderForPartition
+            | KafkaCode::RequestTimedOut
+            | KafkaCode::NetworkException
+            | KafkaCode::CoordinatorLoadInProgress
+            | KafkaCode::CoordinatorNotAvailable
+            | KafkaCode::NotCoordinator
+            | KafkaCode::NotEnoughReplicas
+            | KafkaCode::NotEnoughReplicasAfterAppend
+            | KafkaCode::NotController
+            | KafkaCode::KafkaStorageError
+            | KafkaCode::FetchSessionIdNotFound
+            | KafkaCode::InvalidFetchSessionEpoch => true,
+            _ => false,
+        }
+    }
+
     pub fn reason(&self) -> &'static str {
         match *self {
             KafkaCode::Unknown => {
@@ -213,11 +264,11 @@ impl KafkaCode {
             KafkaCode::NetworkException => {
                 "The server disconnected before a response was received."
             }
-            KafkaCode::GroupLoadInProgress => {
+            KafkaCode::CoordinatorLoadInProgress => {
                 "The coordinator is loading and hence can't process requests."
             }
-            KafkaCode::GroupCoordinatorNotAvailable => "The coordinator is not available.",
-            KafkaCode::NotCoordinatorForGroup => "This is not the correct coordinator.",
+            KafkaCode::CoordinatorNotAvailable => "The coordinator is not available.",
+            KafkaCode::NotCoordinator => "This is not the correct coordinator.",
             KafkaCode::InvalidTopic => {
                 "The request attempted to perform an operation on an invalid topic."
             }
@@ -293,11 +344,24 @@ impl KafkaCode {
             KafkaCode::TransactionalIdAuthorizationFailed => {
                 "Transactional Id authorization failed"
             }
-            KafkaCode::ProducerIdAuthorizationFailed => {
-                "Producer is not authorized to use producer Ids, which is required to write idempotent data."
-            }
-            KafkaCode::SecurityDisabled => "Security features are disabled.",
-            KafkaCode::BrokerAuthorizationFailed => "Broker authorization failed",
+            KafkaCode::SecurityDisabled => {"Security features are disabled."}
+            KafkaCode::OperationNotAttempted => {"The broker did not attempt to execute this operation."}
+            KafkaCode::KafkaStorageError =>{"Disk error when trying to access log file on the disk."}
+            KafkaCode::LogDirNotFound =>"The user-specified log directory is not found in the broker config.",
+            KafkaCode::SaslAuthenticationFailed => "SASL Authentication failed.",
+            KafkaCode::UnknownProducerId => "This exception is raised by the broker if it could not locate the producer metadata associated with the producerId in question.",
+            KafkaCode::ReassignmentInProgress => "A partition reassignment is in progress",
+            KafkaCode::DelegationTokenAuthDisabled => "Delegation Token feature is not enabled.",
+            KafkaCode::DelegationTokenNotFound => "Delegation Token is not found on server.",
+            KafkaCode::DelegationTokenOwnerMismatch => "Specified Principal is not valid Owner/Renewer.",
+            KafkaCode::DelegationTokenRequestNotAllowed => "Delegation Token requests are not allowed on PLAINTEXT/1-way SSL channels and on delegation token authenticated channels.",
+            KafkaCode::DelegationTokenAuthorizationFailed => "Delegation Token authorization failed.",
+            KafkaCode::DelegationTokenExpired => "Delegation Token is expired.",
+            KafkaCode::InvalidPrincipalType => "Supplied principalType is not supported",
+            KafkaCode::NonEmptyGroup => "The group The group is not empty is not empty",
+            KafkaCode::GroupIdNotFound => "The group id The group id does not exist was not found",
+            KafkaCode::FetchSessionIdNotFound =>"The fetch session ID was not found",
+            KafkaCode::InvalidFetchSessionEpoch => "The fetch session epoch is invalid",
         }
     }
 }

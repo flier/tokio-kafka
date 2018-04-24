@@ -342,14 +342,14 @@ where
 
                     Either::A(send_heartbeat.from_err().map_err(move |err| {
                         match err {
-                            Error(ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress), _)
+                            Error(ErrorKind::KafkaError(KafkaCode::CoordinatorLoadInProgress), _)
                             | Error(ErrorKind::KafkaError(KafkaCode::RebalanceInProgress), _) => {
                                 info!("group is loading or rebalancing, {}", err);
 
                                 state.borrow_mut().rebalancing(coordinator, generation.clone());
                             }
-                            Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _)
-                            | Error(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup), _)
+                            Error(ErrorKind::KafkaError(KafkaCode::CoordinatorNotAvailable), _)
+                            | Error(ErrorKind::KafkaError(KafkaCode::NotCoordinator), _)
                             | Error(ErrorKind::KafkaError(KafkaCode::IllegalGeneration), _)
                             | Error(ErrorKind::KafkaError(KafkaCode::UnknownMemberId), _) => {
                                 info!("group has outdated, need to rejoin, {}", err);
@@ -584,7 +584,7 @@ where
                     })
                     .static_boxed()
             }
-            _ => ErrorKind::KafkaError(KafkaCode::GroupLoadInProgress).into(),
+            _ => ErrorKind::KafkaError(KafkaCode::CoordinatorLoadInProgress).into(),
         }
     }
 
@@ -742,7 +742,7 @@ mod tests {
         let coordinator = build_coordinator(MockClient::new(), ConsumerConfig::default());
 
         match coordinator.group_coordinator().poll() {
-            Err(Error(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable), _)) => {}
+            Err(Error(ErrorKind::KafkaError(KafkaCode::CoordinatorNotAvailable), _)) => {}
             res @ _ => panic!("fail to discover group coordinator: {:?}", res),
         }
 

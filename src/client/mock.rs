@@ -175,7 +175,7 @@ where
             self.group_coordinators
                 .get(&group_id)
                 .cloned()
-                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable.into()).into())
+                .ok_or_else(|| ErrorKind::KafkaError(KafkaCode::CoordinatorNotAvailable).into())
                 .static_boxed()
         }
     }
@@ -191,7 +191,7 @@ where
         group_protocols: Vec<ConsumerGroupProtocol<'a>>,
     ) -> JoinGroup {
         if self.metadata.find_broker(coordinator).is_none() {
-            Err(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable).into())
+            Err(ErrorKind::KafkaError(KafkaCode::CoordinatorNotAvailable).into())
         } else if let Some(consumer_group) = self.consumer_groups.get(&group_id) {
             if group_protocols
                 .iter()
@@ -202,7 +202,7 @@ where
                 Ok(consumer_group.clone())
             }
         } else {
-            Err(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup).into())
+            Err(ErrorKind::KafkaError(KafkaCode::NotCoordinator).into())
         }.static_boxed()
     }
 
@@ -224,7 +224,7 @@ where
         let member_id: Cow<'a, str> = generation.member_id.clone().into();
 
         if self.metadata.find_broker(coordinator).is_none() {
-            Err(ErrorKind::KafkaError(KafkaCode::GroupCoordinatorNotAvailable).into())
+            Err(ErrorKind::KafkaError(KafkaCode::CoordinatorNotAvailable).into())
         } else if let Some(consumer_group) = self.consumer_groups.get(&group_id) {
             if consumer_group.generation_id != generation.generation_id {
                 Err(ErrorKind::KafkaError(KafkaCode::IllegalGeneration).into())
@@ -234,7 +234,7 @@ where
                 Err(ErrorKind::KafkaError(KafkaCode::UnknownMemberId).into())
             }
         } else {
-            Err(ErrorKind::KafkaError(KafkaCode::NotCoordinatorForGroup).into())
+            Err(ErrorKind::KafkaError(KafkaCode::NotCoordinator).into())
         }.static_boxed()
     }
 }
