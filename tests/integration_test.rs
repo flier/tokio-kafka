@@ -51,7 +51,7 @@ mod tests {
                                 vec![(tp.clone(), FetchOffset::Earliest), (tp.clone(), FetchOffset::Latest)]
                             })
                         })
-                        .collect()
+                        .collect::<Vec<_>>()
                 };
 
                 client.list_offsets(partitions).map(|responses| {
