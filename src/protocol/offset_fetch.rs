@@ -5,7 +5,7 @@ use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{parse_opt_string, parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, Offset,
-               ParseTag, PartitionId, Record, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE,
+               ParseTag, PartitionId, Request, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE,
                PARTITION_ID_SIZE, STR_LEN_SIZE};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,7 +58,7 @@ pub struct OffsetFetchPartitionStatus {
     pub error_code: ErrorCode,
 }
 
-impl<'a> Record for OffsetFetchRequest<'a> {
+impl<'a> Request for OffsetFetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
             + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {

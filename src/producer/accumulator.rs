@@ -12,7 +12,7 @@ use compression::Compression;
 use errors::Error;
 use network::TopicPartition;
 use producer::{ProducerBatch, RecordMetadata};
-use protocol::{ApiVersion, Timestamp};
+use protocol::{RecordFormat, RecordHeader, Timestamp};
 
 /// Accumulator acts as a queue that accumulates records
 pub trait Accumulator<'a> {
@@ -23,7 +23,8 @@ pub trait Accumulator<'a> {
         timestamp: Timestamp,
         key: Option<Bytes>,
         value: Option<Bytes>,
-        api_version: ApiVersion,
+        headers: Vec<RecordHeader>,
+        record_format: RecordFormat,
     ) -> PushRecord;
 
     fn flush(&mut self);
@@ -75,27 +76,28 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
         timestamp: Timestamp,
         key: Option<Bytes>,
         value: Option<Bytes>,
-        api_version: ApiVersion,
+        headers: Vec<RecordHeader>,
+        record_format: RecordFormat,
     ) -> PushRecord {
         let mut batches = self.batches.borrow_mut();
         let batches = batches.entry(tp).or_insert_with(VecDeque::new);
 
         if let Some(batch) = batches.back_mut() {
-            match batch.push_record(timestamp, key.clone(), value.clone()) {
+            match batch.push_record(timestamp, key.clone(), value.clone(), headers.clone()) {
                 Ok(push_recrod) => {
                     trace!("pushed record to latest batch, {:?}", batch);
 
                     return PushRecord::new(push_recrod, batch.is_full(), false);
                 }
                 Err(err) => {
-                    debug!("fail to push record, {}", err);
+                    trace!("fail to push record to batch that exceeded limits, try again, {}", err);
                 }
             }
         }
 
-        let mut batch = ProducerBatch::new(api_version, self.compression, self.batch_size);
+        let mut batch = ProducerBatch::new(record_format, self.compression, self.batch_size);
 
-        match batch.push_record(timestamp, key, value) {
+        match batch.push_record(timestamp, key, value, headers) {
             Ok(push_recrod) => {
                 trace!("pushed record to a new batch, {:?}", batch);
 
@@ -117,10 +119,8 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
         trace!("flush all batches");
 
         for (_, batches) in self.batches.borrow_mut().iter_mut() {
-            let api_version = batches.back().map(|batch| batch.api_version());
-
-            if let Some(api_version) = api_version {
-                batches.push_back(ProducerBatch::new(api_version, self.compression, self.batch_size))
+            if let Some(record_format) = batches.back().map(|batch| batch.record_format()) {
+                batches.push_back(ProducerBatch::new(record_format, self.compression, self.batch_size))
             }
         }
     }

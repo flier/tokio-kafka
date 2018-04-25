@@ -12,7 +12,7 @@ use futures::{Async, Future, Poll};
 use compression::Compression;
 use errors::{Error, ErrorKind, Result};
 use producer::{ProducerInterceptor, ProducerInterceptors, RecordMetadata};
-use protocol::{ApiVersion, KafkaCode, MessageSet, MessageSetBuilder, Offset, PartitionId, Timestamp};
+use protocol::{KafkaCode, MessageSet, MessageSetBuilder, Offset, PartitionId, RecordFormat, RecordHeader, Timestamp};
 
 #[derive(Debug)]
 pub struct Thunk {
@@ -70,11 +70,11 @@ impl Deref for ProducerBatch {
 }
 
 impl ProducerBatch {
-    pub fn new(api_version: ApiVersion, compression: Compression, write_limit: usize) -> Self {
+    pub fn new(record_format: RecordFormat, compression: Compression, write_limit: usize) -> Self {
         let now = Instant::now();
 
         ProducerBatch {
-            builder: MessageSetBuilder::new(api_version, compression, write_limit, 0),
+            builder: MessageSetBuilder::new(record_format, compression, write_limit, 0),
             thunks: vec![],
             create_time: now,
             last_push_time: now,
@@ -94,11 +94,12 @@ impl ProducerBatch {
         timestamp: Timestamp,
         key: Option<Bytes>,
         value: Option<Bytes>,
+        headers: Vec<RecordHeader>,
     ) -> Result<FutureRecordMetadata> {
         let key_size = key.as_ref().map_or(0, |b| b.len());
         let value_size = value.as_ref().map_or(0, |b| b.len());
 
-        let relative_offset = self.builder.push(timestamp, key, value)?;
+        let relative_offset = self.builder.push(timestamp, key, value, headers)?;
 
         let (sender, receiver) = channel();
 

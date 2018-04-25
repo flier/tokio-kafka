@@ -3,12 +3,12 @@ use std::mem;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
 
-use nom::{IResult, be_i16, be_i32, be_i64};
+use nom::{be_i16, be_i32, be_i64, IResult};
 
 use errors::Result;
 use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder,
-               Offset, ParseTag, PartitionId, Record, RequestHeader, RequiredAck, ResponseHeader, Timestamp, WriteExt,
-               ARRAY_LEN_SIZE, BYTES_LEN_SIZE, PARTITION_ID_SIZE, STR_LEN_SIZE};
+               Offset, ParseTag, PartitionId, Record, RecordFormat, Request, RequestHeader, RequiredAck,
+               ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE, PARTITION_ID_SIZE, STR_LEN_SIZE};
 
 const REQUIRED_ACKS_SIZE: usize = 2;
 const ACK_TIMEOUT_SIZE: usize = 4;
@@ -16,6 +16,8 @@ const ACK_TIMEOUT_SIZE: usize = 4;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProduceRequest<'a> {
     pub header: RequestHeader<'a>,
+    /// The transactional id or null if the producer is not transactional
+    pub transactional_id: Option<Cow<'a, str>>,
     /// This field indicates how many acknowledgements the servers should
     /// receive before responding to the request.
     pub required_acks: RequiredAck,
@@ -42,23 +44,42 @@ pub struct ProducePartitionData<'a> {
     pub message_set: Cow<'a, MessageSet>,
 }
 
-impl<'a> Record for ProduceRequest<'a> {
+impl<'a> ProduceRequest<'a> {
+    pub fn required_record_format(api_version: ApiVersion) -> RecordFormat {
+        match api_version {
+            0 | 1 => RecordFormat::V0,
+            2 => RecordFormat::V1,
+            3 | 4 | 5 => RecordFormat::V2,
+            _ => panic!("unknown api version to use for produce request version"),
+        }
+    }
+}
+
+impl<'a> Request for ProduceRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
-        self.header.size(api_version) + REQUIRED_ACKS_SIZE + ACK_TIMEOUT_SIZE
-            + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
-                size + STR_LEN_SIZE + topic.topic_name.len()
-                    + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, partition| {
-                        size + PARTITION_ID_SIZE + BYTES_LEN_SIZE + partition.message_set.size(api_version)
-                    })
-            })
+        self.header.size(api_version) + if self.header.api_version >= 3 {
+            STR_LEN_SIZE + self.transactional_id.as_ref().map_or(0, |s| s.len())
+        } else {
+            0
+        } + REQUIRED_ACKS_SIZE + ACK_TIMEOUT_SIZE + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
+            size + STR_LEN_SIZE + topic.topic_name.len()
+                + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, partition| {
+                    size + PARTITION_ID_SIZE + BYTES_LEN_SIZE
+                        + partition.message_set.size(Self::required_record_format(api_version))
+                })
+        })
     }
 }
 
 impl<'a> Encodable for ProduceRequest<'a> {
     fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        let encoder = MessageSetEncoder::new(self.header.api_version, None);
+        let encoder = MessageSetEncoder::new(Self::required_record_format(self.header.api_version), None);
 
         self.header.encode::<T>(dst)?;
+
+        if self.header.api_version >= 3 {
+            dst.put_str::<T, _>(self.transactional_id.as_ref())?;
+        }
 
         dst.put_i16::<T>(self.required_acks);
         dst.put_i32::<T>(self.ack_timeout);
@@ -111,6 +132,9 @@ pub struct ProducePartitionStatus {
     /// Unit is milliseconds since beginning of the epoch (midnight Jan 1, 1970
     /// (UTC)).
     pub timestamp: Option<Timestamp>,
+    /// The start offset of the log at the time this produce response was
+    /// created
+    pub log_start_offset: Option<Offset>,
 }
 
 impl ProduceResponse {
@@ -154,11 +178,13 @@ named_args!(parse_produce_partition_status(api_version: ApiVersion)<ProduceParti
          >> error_code: be_i16
          >> offset: be_i64
          >> timestamp: cond!(api_version > 1, be_i64)
+         >> log_start_offset: cond!(api_version > 4, be_i64)
          >> (ProducePartitionStatus {
                 partition_id,
                 error_code,
                 offset,
                 timestamp,
+                log_start_offset,
             })
         )
     )
@@ -175,11 +201,74 @@ mod tests {
     use protocol::*;
 
     lazy_static!{
-        static ref TEST_REQUEST_DATA: Vec<u8> = vec![
+        static ref TEST_REQUEST_PACKET_V0: Vec<u8> = vec![
             // ProduceRequest
                 // RequestHeader
                 0, 0,                               // api_key
-                0, 1,                               // api_version
+                0, 0,                               // api_version
+                0, 0, 0, 123,                       // correlation_id
+                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
+            255, 255,                               // required_acks
+            0, 0, 0, 123,                           // ack_timeout
+                // topics: [ProduceTopicData]
+                0, 0, 0, 1,
+                    // ProduceTopicData
+                    0, 5, 116, 111, 112, 105, 99,   // topic_name
+                    // partitions: [ProducePartitionData]
+                    0, 0, 0, 1,
+                        // ProducePartitionData
+                        0, 0, 0, 1,                 // partition
+                        // MessageSet
+                        0, 0, 0, 34,
+                        // messages: [Message]
+                            0, 0, 0, 0, 0, 0, 0, 0,             // offset
+                            0, 0, 0, 22,                        // size
+                            35, 86, 193, 55,                    // crc
+                            0,                                  // magic
+                            0,                                  // attributes
+                            0, 0, 0, 3, 107, 101, 121,          // key
+                            0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+        ];
+
+        static ref TEST_REQUEST_V0: ProduceRequest<'static> = ProduceRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Produce as ApiVersion,
+                api_version: 0,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+            transactional_id: None,
+            required_acks: RequiredAcks::All as RequiredAck,
+            ack_timeout: 123,
+            topics: vec![
+                ProduceTopicData {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        ProducePartitionData {
+                            partition_id: 1,
+                            message_set: Cow::Owned(MessageSet {
+                                messages: vec![
+                                    Message {
+                                        offset: 0,
+                                        compression: Compression::None,
+                                        key: Some(Bytes::from(&b"key"[..])),
+                                        value: Some(Bytes::from(&b"value"[..])),
+                                        timestamp: Some(MessageTimestamp::CreateTime(456)),
+                                        headers: Vec::new(),
+                                    },
+                                ],
+                            }),
+                        },
+                    ],
+                },
+            ],
+        };
+
+        static ref TEST_REQUEST_PACKET_V2: Vec<u8> = vec![
+            // ProduceRequest
+                // RequestHeader
+                0, 0,                               // api_key
+                0, 2,                               // api_version
                 0, 0, 0, 123,                       // correlation_id
                 0, 6, 99, 108, 105, 101, 110, 116,  // client_id
             255, 255,                               // required_acks
@@ -205,7 +294,106 @@ mod tests {
                             0, 0, 0, 5, 118, 97, 108, 117, 101  // value
         ];
 
-        static ref TEST_RESPONSE_DATA: Vec<u8> = vec![
+        static ref TEST_REQUEST_V2: ProduceRequest<'static> = ProduceRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Produce as ApiVersion,
+                api_version: 2,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+            transactional_id: None,
+            required_acks: RequiredAcks::All as RequiredAck,
+            ack_timeout: 123,
+            topics: vec![
+                ProduceTopicData {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        ProducePartitionData {
+                            partition_id: 1,
+                            message_set: Cow::Owned(MessageSet {
+                                messages: vec![
+                                    Message {
+                                        offset: 0,
+                                        compression: Compression::None,
+                                        key: Some(Bytes::from(&b"key"[..])),
+                                        value: Some(Bytes::from(&b"value"[..])),
+                                        timestamp: Some(MessageTimestamp::CreateTime(456)),
+                                        headers: Vec::new(),
+                                    },
+                                ],
+                            }),
+                        },
+                    ],
+                },
+            ],
+        };
+
+      static ref TEST_REQUEST_PACKET_V3: Vec<u8> = vec![
+            // ProduceRequest
+                // RequestHeader
+                0, 0,                               // api_key
+                0, 3,                               // api_version
+                0, 0, 0, 123,                       // correlation_id
+                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
+            0, 2, b'i', b'd',                       // transactional_id
+            255, 255,                               // required_acks
+            0, 0, 0, 123,                           // ack_timeout
+                // topics: [ProduceTopicData]
+                0, 0, 0, 1,
+                    // ProduceTopicData
+                    0, 5, 116, 111, 112, 105, 99,   // topic_name
+                    // partitions: [ProducePartitionData]
+                    0, 0, 0, 1,
+                        // ProducePartitionData
+                        0, 0, 0, 1,                 // partition
+                        // MessageSet
+                        0, 0, 0, 42,
+                        // messages: [Message]
+                            0, 0, 0, 0, 0, 0, 0, 0,             // offset
+                            0, 0, 0, 30,                        // size
+                            226, 52, 65, 188,                   // crc
+                            1,                                  // magic
+                            0,                                  // attributes
+                            0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
+                            0, 0, 0, 3, 107, 101, 121,          // key
+                            0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+        ];
+
+        static ref TEST_REQUEST_V3: ProduceRequest<'static> = ProduceRequest {
+            header: RequestHeader {
+                api_key: ApiKeys::Produce as ApiVersion,
+                api_version: 3,
+                correlation_id: 123,
+                client_id: Some("client".into()),
+            },
+            transactional_id: Some("id".into()),
+            required_acks: RequiredAcks::All as RequiredAck,
+            ack_timeout: 123,
+            topics: vec![
+                ProduceTopicData {
+                    topic_name: "topic".into(),
+                    partitions: vec![
+                        ProducePartitionData {
+                            partition_id: 1,
+                            message_set: Cow::Owned(MessageSet {
+                                messages: vec![
+                                    Message {
+                                        offset: 0,
+                                        compression: Compression::None,
+                                        key: Some(Bytes::from(&b"key"[..])),
+                                        value: Some(Bytes::from(&b"value"[..])),
+                                        timestamp: Some(MessageTimestamp::CreateTime(456)),
+                                        headers: Vec::new(),
+                                    },
+                                ],
+                            }),
+                        },
+                    ],
+                },
+            ],
+        };
+
+        static ref TEST_RESPONSE_PACKET_V0: Vec<u8> = vec![
             // ResponseHeader
             0, 0, 0, 123, // correlation_id
             // topics: [ProduceTopicStatus]
@@ -229,6 +417,7 @@ mod tests {
                                                   error_code: 2,
                                                   offset: 3,
                                                   timestamp: Some(4),
+                                                  log_start_offset: None,
                                               }],
                          }],
             throttle_time: Some(5),
@@ -236,52 +425,45 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_produce_request() {
-        let req = ProduceRequest {
-            header: RequestHeader {
-                api_key: ApiKeys::Produce as ApiVersion,
-                api_version: 1,
-                correlation_id: 123,
-                client_id: Some("client".into()),
-            },
-            required_acks: RequiredAcks::All as RequiredAck,
-            ack_timeout: 123,
-            topics: vec![
-                ProduceTopicData {
-                    topic_name: "topic".into(),
-                    partitions: vec![
-                        ProducePartitionData {
-                            partition_id: 1,
-                            message_set: Cow::Owned(MessageSet {
-                                messages: vec![
-                                    Message {
-                                        offset: 0,
-                                        compression: Compression::None,
-                                        key: Some(Bytes::from(&b"key"[..])),
-                                        value: Some(Bytes::from(&b"value"[..])),
-                                        timestamp: Some(MessageTimestamp::CreateTime(456)),
-                                    },
-                                ],
-                            }),
-                        },
-                    ],
-                },
-            ],
-        };
-
+    fn test_encode_produce_request_v0() {
+        let req = &*TEST_REQUEST_V0;
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
-        assert_eq!(&buf[..], &TEST_REQUEST_DATA[..]);
+        assert_eq!(&buf[..], &TEST_REQUEST_PACKET_V0[..]);
+    }
+
+    #[test]
+    fn test_encode_produce_request_v2() {
+        let req = &*TEST_REQUEST_V2;
+        let mut buf = BytesMut::with_capacity(128);
+
+        req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
+
+        assert_eq!(&buf[..], &TEST_REQUEST_PACKET_V2[..]);
+    }
+
+    #[test]
+    fn test_encode_produce_request_v3() {
+        let req = &*TEST_REQUEST_V3;
+        let mut buf = BytesMut::with_capacity(128);
+
+        req.encode::<BigEndian>(&mut buf).unwrap();
+
+        assert_eq!(req.size(req.header.api_version), buf.len());
+
+        assert_eq!(&buf[..], &TEST_REQUEST_PACKET_V3[..]);
     }
 
     #[test]
     fn test_parse_produce_response() {
         assert_eq!(
-            parse_produce_response(TEST_RESPONSE_DATA.as_slice(), 2),
+            parse_produce_response(TEST_RESPONSE_PACKET_V0.as_slice(), 2),
             IResult::Done(&[][..], TEST_RESPONSE.clone())
         );
     }

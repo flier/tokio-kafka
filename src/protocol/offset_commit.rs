@@ -5,7 +5,7 @@ use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
 use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, Offset, ParseTag, PartitionId,
-               Record, RequestHeader, ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE, OFFSET_SIZE,
+               Request, RequestHeader, ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE, OFFSET_SIZE,
                PARTITION_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
 
 pub const DEFAULT_RETENTION_TIME: i64 = -1;
@@ -71,7 +71,7 @@ pub struct OffsetCommitPartitionStatus {
     pub error_code: ErrorCode,
 }
 
-impl<'a> Record for OffsetCommitRequest<'a> {
+impl<'a> Request for OffsetCommitRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.as_ref().map_or(0, |s| s.len())
             + if api_version > 0 {

@@ -1,7 +1,8 @@
+use std::borrow::Cow;
 use std::hash::Hash;
 
 use client::{PartitionRecord, TopicRecord};
-use protocol::{Offset, PartitionId, Timestamp};
+use protocol::{Offset, PartitionId, RecordHeader, Timestamp};
 
 /// A key/value pair to be sent to Kafka.
 ///
@@ -14,7 +15,8 @@ where
 {
     /// The topic this record is being sent to
     pub topic_name: String,
-    /// The partition to which the record will be sent (or `None` if no partition was specified)
+    /// The partition to which the record will be sent (or `None` if no
+    /// partition was specified)
     pub partition_id: Option<PartitionId>,
     /// The key (or `None` if no key is specified)
     pub key: Option<K>,
@@ -22,6 +24,8 @@ where
     pub value: Option<V>,
     /// The timestamp
     pub timestamp: Option<Timestamp>,
+    /// The header
+    pub headers: Vec<RecordHeader>,
 }
 
 impl<K> ProducerRecord<K, ()>
@@ -36,6 +40,7 @@ where
             key: Some(key),
             value: None,
             timestamp: None,
+            headers: Vec::new(),
         }
     }
 }
@@ -49,6 +54,7 @@ impl<V> ProducerRecord<(), V> {
             key: None,
             value: Some(value),
             timestamp: None,
+            headers: Vec::new(),
         }
     }
 }
@@ -65,6 +71,7 @@ where
             key: Some(key),
             value: Some(value),
             timestamp: None,
+            headers: Vec::new(),
         }
     }
 
@@ -79,6 +86,7 @@ where
             key: record.key,
             value: record.value,
             timestamp: record.timestamp,
+            headers: Vec::new(),
         }
     }
 
@@ -89,6 +97,7 @@ where
             key: record.key,
             value: record.value,
             timestamp: record.timestamp,
+            headers: Vec::new(),
         }
     }
 
@@ -102,6 +111,52 @@ where
     pub fn with_timestamp(mut self, timestamp: Timestamp) -> Self {
         self.timestamp = Some(timestamp);
         self
+    }
+
+    /// Add header to a record to be sent
+    pub fn with_header<H>(mut self, header: H) -> Self
+    where
+        H: Into<RecordHeader>,
+    {
+        self.headers.push(header.into());
+        self
+    }
+
+    /// Creates a record with headers to be sent
+    pub fn with_headers<I, H>(mut self, headers: I) -> Self
+    where
+        I: IntoIterator<Item = H>,
+        H: Into<RecordHeader>,
+    {
+        self.headers = headers.into_iter().map(|h| h.into()).collect();
+        self
+    }
+}
+
+impl<'a> From<&'a str> for RecordHeader {
+    fn from(key: &'a str) -> RecordHeader {
+        RecordHeader {
+            key: key.into(),
+            value: None,
+        }
+    }
+}
+
+impl<'a> From<Cow<'a, str>> for RecordHeader {
+    fn from(key: Cow<'a, str>) -> RecordHeader {
+        RecordHeader {
+            key: key.into_owned(),
+            value: None,
+        }
+    }
+}
+
+impl From<String> for RecordHeader {
+    fn from(key: String) -> RecordHeader {
+        RecordHeader {
+            key: key.into(),
+            value: None,
+        }
     }
 }
 

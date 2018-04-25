@@ -7,7 +7,7 @@ use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{parse_message_set, parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, MessageSet,
-               Offset, ParseTag, PartitionId, Record, ReplicaId, RequestHeader, ResponseHeader, WriteExt,
+               Offset, ParseTag, PartitionId, ReplicaId, Request, RequestHeader, ResponseHeader, WriteExt,
                ARRAY_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE, REPLICA_ID_SIZE, STR_LEN_SIZE};
 
 pub const DEFAULT_RESPONSE_MAX_BYTES: i32 = i32::MAX;
@@ -59,7 +59,7 @@ pub struct FetchPartition {
     pub max_bytes: i32,
 }
 
-impl<'a> Record for FetchRequest<'a> {
+impl<'a> Request for FetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REQUEST_OVERHEAD + if api_version > 2 { MAX_BYTES_SIZE } else { 0 }
             + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
@@ -297,6 +297,7 @@ mod tests {
                                         key: Some(Bytes::from(&b"key"[..])),
                                         value: Some(Bytes::from(&b"value"[..])),
                                         timestamp: None,
+                                        headers: Vec::new(),
                                     },
                                 ],
                             },
@@ -347,6 +348,7 @@ mod tests {
                                         key: Some(Bytes::from(&b"key"[..])),
                                         value: Some(Bytes::from(&b"value"[..])),
                                         timestamp: Some(MessageTimestamp::LogAppendTime(456)),
+                                        headers: Vec::new(),
                                     },
                                 ],
                             },

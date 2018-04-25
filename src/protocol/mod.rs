@@ -11,6 +11,7 @@ use errors::{Error, ErrorKind, Result};
 mod api_key;
 mod code;
 mod encode;
+mod zigzag;
 #[macro_use]
 mod parse;
 mod api_versions;
@@ -23,10 +24,12 @@ mod metadata;
 mod offset_commit;
 mod offset_fetch;
 mod produce;
+mod record;
 mod schema;
 
 pub use self::api_key::{ApiKey, ApiKeys};
-pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion, UsableApiVersions, SUPPORTED_API_VERSIONS};
+pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion, UsableApiVersions,
+                             SUPPORTED_API_VERSIONS};
 pub use self::code::{ErrorCode, KafkaCode};
 pub use self::encode::{Encodable, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE,
                        REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
@@ -47,7 +50,9 @@ pub use self::offset_fetch::{OffsetFetchPartition, OffsetFetchRequest, OffsetFet
 pub use self::parse::{display_parse_error, parse_bytes, parse_opt_bytes, parse_opt_str, parse_opt_string, parse_str,
                       parse_string, ParseTag, PARSE_TAGS};
 pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
+pub use self::record::{RecordBatch, RecordBody, RecordHeader};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
+pub use self::zigzag::ZigZag;
 
 /// Normal client consumers should always specify this as -1 as they have no
 /// node id.
@@ -141,8 +146,12 @@ impl FromStr for RequiredAcks {
     }
 }
 
-pub trait Record {
+pub trait Request {
     fn size(&self, api_version: ApiVersion) -> usize;
+}
+
+pub trait Record {
+    fn size(&self, record_format: RecordFormat) -> usize;
 }
 
 /// A trait for converting a value to a milliseconds.

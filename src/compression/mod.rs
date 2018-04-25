@@ -3,7 +3,7 @@ use std::mem;
 use std::str::FromStr;
 
 use errors::{Error, ErrorKind, Result};
-use protocol::ApiVersion;
+use protocol::RecordFormat;
 
 #[cfg(feature = "gzip")]
 mod gzip;
@@ -65,7 +65,7 @@ impl FromStr for Compression {
 }
 
 impl Compression {
-    pub fn compress(&self, api_version: ApiVersion, src: &[u8]) -> Result<Vec<u8>> {
+    pub fn compress(&self, record_format: RecordFormat, src: &[u8]) -> Result<Vec<u8>> {
         match *self {
             Compression::None => Ok(src.to_vec()),
 
@@ -79,8 +79,13 @@ impl Compression {
             Compression::LZ4 => {
                 let mut compressed = Vec::new();
                 {
-                    let mut writer =
-                        lz4::Lz4Writer::new(&mut compressed, api_version < 2, lz4::BLOCKSIZE_64KB, true, false)?;
+                    let mut writer = lz4::Lz4Writer::new(
+                        &mut compressed,
+                        record_format == RecordFormat::V0,
+                        lz4::BLOCKSIZE_64KB,
+                        true,
+                        false,
+                    )?;
                     writer.write_all(src)?;
                     writer.close()?;
                 }

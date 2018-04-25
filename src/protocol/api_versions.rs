@@ -7,7 +7,7 @@ use bytes::{ByteOrder, BytesMut};
 use nom::{IResult, be_i16, be_i32};
 
 use errors::{Error, Result};
-use protocol::{parse_response_header, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, Record, RecordFormat,
+use protocol::{parse_response_header, ApiKeys, ApiVersion, Encodable, ErrorCode, ParseTag, RecordFormat, Request,
                RequestHeader, ResponseHeader};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -101,7 +101,7 @@ lazy_static! {
         UsableApiVersion {
             api_key: ApiKeys::Produce,
             min_version: 0,
-            max_version: 1,
+            max_version: 2,
         },
         UsableApiVersion {
             api_key: ApiKeys::Fetch,
@@ -117,7 +117,7 @@ lazy_static! {
             api_key: ApiKeys::JoinGroup,
             min_version: 0,
             max_version: 1,
-        }
+        },
     ]);
 }
 
@@ -126,7 +126,7 @@ pub struct ApiVersionsRequest<'a> {
     pub header: RequestHeader<'a>,
 }
 
-impl<'a> Record for ApiVersionsRequest<'a> {
+impl<'a> Request for ApiVersionsRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version)
     }

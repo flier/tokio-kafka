@@ -871,6 +871,7 @@ where
             api_version,
             self.next_correlation_id(),
             self.client_id(),
+            None,
             required_acks,
             timeout,
             tp,

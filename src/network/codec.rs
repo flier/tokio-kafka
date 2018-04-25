@@ -8,7 +8,7 @@ use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
 use tokio_io::codec::{Decoder, Encoder};
 
 use network::{KafkaRequest, KafkaResponse};
-use protocol::{ApiKeys, ApiVersion, CorrelationId, Encodable, Record, RequestHeader};
+use protocol::{ApiKeys, ApiVersion, CorrelationId, Encodable, Request, RequestHeader};
 
 #[derive(Debug)]
 pub struct KafkaCodec<'a> {

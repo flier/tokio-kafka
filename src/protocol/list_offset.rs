@@ -5,7 +5,7 @@ use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, Offset, ParseTag, PartitionId,
-               Record, ReplicaId, RequestHeader, ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE,
+               ReplicaId, Request, RequestHeader, ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE,
                PARTITION_ID_SIZE, REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
 
 const MAX_NUMBER_OF_OFFSETS_SIZE: usize = 4;
@@ -64,7 +64,7 @@ pub struct ListPartitionOffset {
     pub max_number_of_offsets: i32,
 }
 
-impl<'a> Record for ListOffsetRequest<'a> {
+impl<'a> Request for ListOffsetRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REPLICA_ID_SIZE + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
             size + STR_LEN_SIZE + topic.topic_name.len() + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {

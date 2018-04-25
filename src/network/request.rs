@@ -11,7 +11,7 @@ use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, D
                JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest, ListOffsetRequest,
                ListPartitionOffset, ListTopicOffset, MessageSet, MetadataRequest, OffsetCommitPartition,
                OffsetCommitRequest, OffsetCommitTopic, OffsetFetchPartition, OffsetFetchRequest, OffsetFetchTopic,
-               PartitionId, ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
+               PartitionId, ProducePartitionData, ProduceRequest, ProduceTopicData, Request, RequestHeader,
                RequiredAck, RequiredAcks, SyncGroupAssignment, SyncGroupRequest, ToMilliseconds, CONSUMER_REPLICA_ID,
                DEFAULT_TIMESTAMP};
 
@@ -57,6 +57,7 @@ impl<'a> KafkaRequest<'a> {
         api_version: ApiVersion,
         correlation_id: CorrelationId,
         client_id: Option<Cow<'a, str>>,
+        transactional_id: Option<Cow<'a, str>>,
         required_acks: RequiredAcks,
         ack_timeout: Duration,
         tp: &TopicPartition<'a>,
@@ -82,6 +83,7 @@ impl<'a> KafkaRequest<'a> {
                 correlation_id,
                 client_id,
             },
+            transactional_id,
             required_acks: required_acks as RequiredAck,
             ack_timeout: ack_timeout.as_millis() as i32,
             topics,
@@ -390,7 +392,7 @@ impl<'a> KafkaRequest<'a> {
     }
 }
 
-impl<'a> Record for KafkaRequest<'a> {
+impl<'a> Request for KafkaRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         match *self {
             KafkaRequest::Produce(ref req) => req.size(api_version),

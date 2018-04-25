@@ -6,7 +6,7 @@ use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
 use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, NodeId, ParseTag, PartitionId,
-               Record, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE, STR_LEN_SIZE};
+               Request, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE, STR_LEN_SIZE};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest<'a> {
@@ -14,7 +14,7 @@ pub struct MetadataRequest<'a> {
     pub topic_names: Vec<Cow<'a, str>>,
 }
 
-impl<'a> Record for MetadataRequest<'a> {
+impl<'a> Request for MetadataRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + self.topic_names.iter().fold(ARRAY_LEN_SIZE, |size, topic_name| {
             size + STR_LEN_SIZE + topic_name.len()

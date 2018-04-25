@@ -12,8 +12,8 @@ use crc::crc32;
 
 use compression::Compression;
 use errors::{ErrorKind, Result};
-use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, Timestamp, WriteExt, BYTES_LEN_SIZE,
-               OFFSET_SIZE, TIMESTAMP_SIZE};
+use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, RecordHeader, Timestamp, WriteExt,
+               BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
@@ -27,6 +27,7 @@ const RECORD_HEADER_SIZE: usize = OFFSET_SIZE + MSG_SIZE + CRC_SIZE + MAGIC_SIZE
 const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
 pub enum RecordFormat {
     V0,
     V1,
@@ -58,8 +59,8 @@ impl Deref for MessageSet {
 }
 
 impl Record for MessageSet {
-    fn size(&self, api_version: ApiVersion) -> usize {
-        self.messages.iter().map(|message| message.size(api_version)).sum()
+    fn size(&self, record_format: RecordFormat) -> usize {
+        self.messages.iter().map(|message| message.size(record_format)).sum()
     }
 }
 
@@ -88,11 +89,16 @@ pub struct Message {
     pub compression: Compression,
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
+    pub headers: Vec<RecordHeader>,
 }
 
 impl Record for Message {
-    fn size(&self, api_version: ApiVersion) -> usize {
-        let record_overhead_size = RECORD_HEADER_SIZE + if api_version > 0 { TIMESTAMP_SIZE } else { 0 };
+    fn size(&self, record_format: RecordFormat) -> usize {
+        let record_overhead_size = RECORD_HEADER_SIZE + if record_format == RecordFormat::V1 {
+            TIMESTAMP_SIZE
+        } else {
+            0
+        };
         let key_size = BYTES_LEN_SIZE + self.key.as_ref().map_or(0, |b| b.len());
         let value_size = BYTES_LEN_SIZE + self.value.as_ref().map_or(0, |b| b.len());
 
@@ -132,14 +138,14 @@ impl fmt::Display for MessageTimestamp {
 }
 
 pub struct MessageSetEncoder {
-    api_version: ApiVersion,
+    record_format: RecordFormat,
     compression: Option<Compression>,
 }
 
 impl MessageSetEncoder {
-    pub fn new(api_version: ApiVersion, compression: Option<Compression>) -> Self {
+    pub fn new(record_format: RecordFormat, compression: Option<Compression>) -> Self {
         MessageSetEncoder {
-            api_version,
+            record_format,
             compression,
         }
     }
@@ -147,7 +153,7 @@ impl MessageSetEncoder {
     pub fn encode<T: ByteOrder>(&self, message_set: &MessageSet, buf: &mut BytesMut) -> Result<()> {
         let mut offset: Offset = 0;
 
-        buf.reserve(message_set.size(self.api_version));
+        buf.reserve(message_set.size(self.record_format));
 
         for message in &message_set.messages {
             let offset = if self.compression.unwrap_or(message.compression) == Compression::None {
@@ -170,7 +176,7 @@ impl MessageSetEncoder {
         let crc_off = buf.len();
         buf.put_i32::<T>(0);
         let data_off = buf.len();
-        buf.put_i8(self.api_version as i8);
+        buf.put_i8(self.record_format as i8);
         buf.put_i8(
             (self.compression.unwrap_or(message.compression) as i8 & COMPRESSION_CODEC_MASK)
                 | if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
@@ -180,7 +186,7 @@ impl MessageSetEncoder {
                 },
         );
 
-        if self.api_version > 0 {
+        if self.record_format == RecordFormat::V1 {
             buf.put_i64::<T>(
                 message
                     .timestamp
@@ -246,6 +252,7 @@ named_args!(parse_message(_api_version: ApiVersion)<Message>,
                 compression: Compression::from(attrs & COMPRESSION_CODEC_MASK),
                 key,
                 value,
+                headers: Vec::new(),
             }})
         )
     )
@@ -254,7 +261,7 @@ named_args!(parse_message(_api_version: ApiVersion)<Message>,
 /// This class is used to write new log data in memory, i.e.
 #[derive(Debug)]
 pub struct MessageSetBuilder {
-    api_version: ApiVersion,
+    record_format: RecordFormat,
     compression: Compression,
     write_limit: usize,
     written_uncompressed: usize,
@@ -265,9 +272,9 @@ pub struct MessageSetBuilder {
 }
 
 impl MessageSetBuilder {
-    pub fn new(api_version: ApiVersion, compression: Compression, write_limit: usize, base_offset: Offset) -> Self {
+    pub fn new(record_format: RecordFormat, compression: Compression, write_limit: usize, base_offset: Offset) -> Self {
         MessageSetBuilder {
-            api_version,
+            record_format,
             compression,
             write_limit,
             written_uncompressed: 0,
@@ -278,8 +285,8 @@ impl MessageSetBuilder {
         }
     }
 
-    pub fn api_version(&self) -> ApiVersion {
-        self.api_version
+    pub fn record_format(&self) -> RecordFormat {
+        self.record_format
     }
 
     pub fn is_full(&self) -> bool {
@@ -301,7 +308,11 @@ impl MessageSetBuilder {
     }
 
     fn record_size(&self, _timestamp: Timestamp, key: Option<&Bytes>, value: Option<&Bytes>) -> usize {
-        let record_overhead_size = RECORD_HEADER_SIZE + if self.api_version > 0 { TIMESTAMP_SIZE } else { 0 };
+        let record_overhead_size = RECORD_HEADER_SIZE + if self.record_format == RecordFormat::V1 {
+            TIMESTAMP_SIZE
+        } else {
+            0
+        };
         let key_size = BYTES_LEN_SIZE + key.map_or(0, |b| b.len());
         let value_size = BYTES_LEN_SIZE + value.map_or(0, |b| b.len());
 
@@ -310,10 +321,10 @@ impl MessageSetBuilder {
 
     #[cfg(any(feature = "gzip", feature = "snappy", feature = "lz4"))]
     fn wrap<T: ByteOrder>(&self, compression: Compression) -> Result<MessageSet> {
-        let mut buf = BytesMut::with_capacity((self.message_set.size(self.api_version) * 6 / 5).next_power_of_two());
-        let encoder = MessageSetEncoder::new(self.api_version, Some(Compression::None));
+        let mut buf = BytesMut::with_capacity((self.message_set.size(self.record_format) * 6 / 5).next_power_of_two());
+        let encoder = MessageSetEncoder::new(self.record_format, Some(Compression::None));
         encoder.encode::<T>(&self.message_set, &mut buf)?;
-        let compressed = compression.compress(self.api_version, &buf)?;
+        let compressed = compression.compress(self.record_format, &buf)?;
         Ok(MessageSet {
             messages: vec![
                 Message {
@@ -322,6 +333,7 @@ impl MessageSetBuilder {
                     compression,
                     key: None,
                     value: Some(Bytes::from(compressed)),
+                    headers: Vec::new(),
                 },
             ],
         })
@@ -343,10 +355,16 @@ impl MessageSetBuilder {
         self.last_offset.map_or(self.base_offset, |off| off + 1)
     }
 
-    pub fn push(&mut self, timestamp: Timestamp, key: Option<Bytes>, value: Option<Bytes>) -> Result<Offset> {
+    pub fn push(
+        &mut self,
+        timestamp: Timestamp,
+        key: Option<Bytes>,
+        value: Option<Bytes>,
+        headers: Vec<RecordHeader>,
+    ) -> Result<Offset> {
         let offset = self.next_offset();
 
-        self.push_with_offset(offset, timestamp, key, value)
+        self.push_with_offset(offset, timestamp, key, value, headers)
     }
 
     pub fn push_with_offset(
@@ -355,6 +373,7 @@ impl MessageSetBuilder {
         timestamp: Timestamp,
         key: Option<Bytes>,
         value: Option<Bytes>,
+        headers: Vec<RecordHeader>,
     ) -> Result<Offset> {
         if let Some(last_offset) = self.last_offset {
             if offset <= last_offset {
@@ -382,6 +401,7 @@ impl MessageSetBuilder {
             compression: self.compression,
             key,
             value,
+            headers,
         });
 
         self.last_offset = Some(offset);
@@ -414,9 +434,9 @@ mod tests {
     #[test]
     fn parse_message_set_v0() {
         let data = vec![
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 22 /* size */, 197,
-            70, 142, 169 /* crc */, 0 /* magic */, 8 /* attributes */, 0, 0, 0, 3, b'k', b'e',
-            b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e' /* value */,
+            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 22 /* size */, 197, 70, 142,
+            169 /* crc */, 0 /* magic */, 8 /* attributes */, 0, 0, 0, 3, b'k', b'e', b'y' /* key */, 0, 0, 0,
+            5, b'v', b'a', b'l', b'u', b'e' /* value */,
         ];
 
         let message_set = MessageSet {
@@ -427,6 +447,7 @@ mod tests {
                     key: Some(Bytes::from(&b"key"[..])),
                     value: Some(Bytes::from(&b"value"[..])),
                     timestamp: None,
+                    headers: Vec::new(),
                 },
             ],
         };
@@ -441,10 +462,9 @@ mod tests {
     #[test]
     fn parse_message_set_v1() {
         let data = vec![
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 30 /* size */, 206,
-            63, 210, 11 /* crc */, 1 /* magic */, 8 /* attributes */, 0, 0, 0, 0, 0, 0, 1,
-            200 /* timestamp */, 0, 0, 0, 3, b'k', b'e', b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u',
-            b'e' /* value */,
+            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 30 /* size */, 206, 63, 210,
+            11 /* crc */, 1 /* magic */, 8 /* attributes */, 0, 0, 0, 0, 0, 0, 1, 200 /* timestamp */, 0, 0, 0,
+            3, b'k', b'e', b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e' /* value */,
         ];
 
         let message_set = MessageSet {
@@ -455,6 +475,7 @@ mod tests {
                     key: Some(Bytes::from(&b"key"[..])),
                     value: Some(Bytes::from(&b"value"[..])),
                     timestamp: Some(MessageTimestamp::LogAppendTime(456)),
+                    headers: Vec::new(),
                 },
             ],
         };

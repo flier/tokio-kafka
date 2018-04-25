@@ -6,7 +6,8 @@ use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
 use protocol::{parse_bytes, parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, GenerationId,
-               ParseTag, Record, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE, STR_LEN_SIZE};
+               ParseTag, Request, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE,
+               STR_LEN_SIZE};
 
 const SESSION_TIMEOUT_SIZE: usize = 4;
 const REBALANCE_TIMEOUT_SIZE: usize = 4;
@@ -219,7 +220,7 @@ pub struct ListGroupsGroupStatus {
     pub protocol_type: String,
 }
 
-impl<'a> Record for GroupCoordinatorRequest<'a> {
+impl<'a> Request for GroupCoordinatorRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
     }
@@ -233,7 +234,7 @@ impl<'a> Encodable for GroupCoordinatorRequest<'a> {
     }
 }
 
-impl<'a> Record for JoinGroupRequest<'a> {
+impl<'a> Request for JoinGroupRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + { STR_LEN_SIZE + self.group_id.len() } + SESSION_TIMEOUT_SIZE
             + if api_version > 0 { REBALANCE_TIMEOUT_SIZE } else { 0 } + { STR_LEN_SIZE + self.member_id.len() }
@@ -267,7 +268,7 @@ impl<'a> Encodable for JoinGroupRequest<'a> {
     }
 }
 
-impl<'a> Record for HeartbeatRequest<'a> {
+impl<'a> Request for HeartbeatRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + { STR_LEN_SIZE + self.group_id.len() } + GROUP_GENERATION_ID_SIZE + {
             STR_LEN_SIZE + self.member_id.len()
@@ -285,7 +286,7 @@ impl<'a> Encodable for HeartbeatRequest<'a> {
     }
 }
 
-impl<'a> Record for LeaveGroupRequest<'a> {
+impl<'a> Request for LeaveGroupRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + { STR_LEN_SIZE + self.group_id.len() } + { STR_LEN_SIZE + self.member_id.len() }
     }
@@ -300,7 +301,7 @@ impl<'a> Encodable for LeaveGroupRequest<'a> {
     }
 }
 
-impl<'a> Record for SyncGroupRequest<'a> {
+impl<'a> Request for SyncGroupRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + { STR_LEN_SIZE + self.group_id.len() } + GROUP_GENERATION_ID_SIZE + {
             STR_LEN_SIZE + self.member_id.len()
@@ -325,7 +326,7 @@ impl<'a> Encodable for SyncGroupRequest<'a> {
     }
 }
 
-impl<'a> Record for DescribeGroupsRequest<'a> {
+impl<'a> Request for DescribeGroupsRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version)
             + self.groups
@@ -342,7 +343,7 @@ impl<'a> Encodable for DescribeGroupsRequest<'a> {
     }
 }
 
-impl<'a> Record for ListGroupsRequest<'a> {
+impl<'a> Request for ListGroupsRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version)
     }
