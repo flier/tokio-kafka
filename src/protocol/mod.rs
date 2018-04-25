@@ -50,9 +50,9 @@ pub use self::offset_fetch::{OffsetFetchPartition, OffsetFetchRequest, OffsetFet
 pub use self::parse::{display_parse_error, parse_bytes, parse_opt_bytes, parse_opt_str, parse_opt_string, parse_str,
                       parse_string, ParseTag, PARSE_TAGS};
 pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
-pub use self::record::{RecordBatch, RecordBody, RecordHeader};
+pub use self::record::{RecordBatch, RecordBody, RecordHeader, RECORD_ATTRIBUTE_LENGTH};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
-pub use self::zigzag::ZigZag;
+pub use self::zigzag::{ZigZag, NULL_VARINT_SIZE_BYTES};
 
 /// Normal client consumers should always specify this as -1 as they have no
 /// node id.

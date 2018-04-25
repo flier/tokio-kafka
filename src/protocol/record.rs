@@ -22,6 +22,7 @@ const RECORD_BATCH_OVERHEAD: usize = BASE_OFFSET_LENGTH + LENGTH_LENGTH + PARTIT
     + CRC_LENGTH + ATTRIBUTE_LENGTH + LAST_OFFSET_DELTA_LENGTH
     + FIRST_TIMESTAMP_LENGTH + MAX_TIMESTAMP_LENGTH + PRODUCER_ID_LENGTH
     + PRODUCER_EPOCH_LENGTH + BASE_SEQUENCE_LENGTH + RECORDS_COUNT_LENGTH;
+pub const RECORD_ATTRIBUTE_LENGTH: usize = 1;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecordBatch {
@@ -120,6 +121,7 @@ impl Encodable for RecordBody {
         dst.put_vari32(self.length)?;
         dst.put_u8(self.attributes);
         dst.put_vari64(self.timestamp_delta)?;
+        dst.put_vari32(self.offset_delta)?;
         dst.put_varbytes(self.key.as_ref())?;
         dst.put_varbytes(self.value.as_ref())?;
 

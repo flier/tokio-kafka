@@ -18,6 +18,7 @@ extern crate crc;
 #[cfg(feature = "encoding")]
 extern crate encoding;
 extern crate hexplay;
+extern crate num;
 extern crate rand;
 extern crate serde;
 extern crate time;

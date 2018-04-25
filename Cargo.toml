@@ -19,6 +19,7 @@ bytes = "0.4"
 nom = { version = "3.2", features = ["verbose-errors"] }
 crc = "1.4"
 twox-hash = "1.1"
+num = "0.1"
 time = "0.1"
 rand = "0.4"
 hexplay = "0.2"

@@ -12,8 +12,8 @@ use crc::crc32;
 
 use compression::Compression;
 use errors::{ErrorKind, Result};
-use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, RecordHeader, Timestamp, WriteExt,
-               BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
+use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, RecordHeader, Timestamp, WriteExt, ZigZag,
+               BYTES_LEN_SIZE, NULL_VARINT_SIZE_BYTES, OFFSET_SIZE, RECORD_ATTRIBUTE_LENGTH, TIMESTAMP_SIZE};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
@@ -94,27 +94,58 @@ pub struct Message {
 
 impl Record for Message {
     fn size(&self, record_format: RecordFormat) -> usize {
-        let record_overhead_size = RECORD_HEADER_SIZE + if record_format == RecordFormat::V1 {
-            TIMESTAMP_SIZE
-        } else {
-            0
-        };
-        let key_size = BYTES_LEN_SIZE + self.key.as_ref().map_or(0, |b| b.len());
-        let value_size = BYTES_LEN_SIZE + self.value.as_ref().map_or(0, |b| b.len());
+        match record_format {
+            RecordFormat::V0 | RecordFormat::V1 => {
+                let record_overhead_size = RECORD_HEADER_SIZE + if record_format == RecordFormat::V1 {
+                    TIMESTAMP_SIZE
+                } else {
+                    0
+                };
+                let key_size = BYTES_LEN_SIZE + self.key.as_ref().map_or(0, |b| b.len());
+                let value_size = BYTES_LEN_SIZE + self.value.as_ref().map_or(0, |b| b.len());
 
-        record_overhead_size + key_size + value_size
+                record_overhead_size + key_size + value_size
+            }
+            RecordFormat::V2 => {
+                let record_overhead_size = RECORD_ATTRIBUTE_LENGTH + i32::size_of_varint(self.offset as i32)
+                    + i64::size_of_varint(self.timestamp.unwrap_or_default().into());
+                let key_size = if let Some(ref key) = self.key {
+                    i32::size_of_varint(key.len() as i32) + key.len()
+                } else {
+                    NULL_VARINT_SIZE_BYTES
+                };
+                let value_size = if let Some(ref value) = self.value {
+                    i32::size_of_varint(value.len() as i32) + value.len()
+                } else {
+                    NULL_VARINT_SIZE_BYTES
+                };
+                let headers_size = self.headers.iter().fold(
+                    i32::size_of_varint(self.headers.len() as i32),
+                    |size, header| {
+                        let key = header.key.as_bytes();
+
+                        size + i32::size_of_varint(key.len() as i32) + key.len()
+                            + header.value.as_ref().map_or(NULL_VARINT_SIZE_BYTES, |value| {
+                                i32::size_of_varint(value.len() as i32) + value.len()
+                            })
+                    },
+                );
+
+                record_overhead_size + key_size + value_size + headers_size
+            }
+        }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MessageTimestamp {
     CreateTime(Timestamp),
     LogAppendTime(Timestamp),
 }
 
-impl MessageTimestamp {
-    pub fn value(&self) -> Timestamp {
-        match *self {
+impl From<MessageTimestamp> for Timestamp {
+    fn from(ts: MessageTimestamp) -> Timestamp {
+        match ts {
             MessageTimestamp::CreateTime(v) | MessageTimestamp::LogAppendTime(v) => v,
         }
     }
@@ -187,13 +218,7 @@ impl MessageSetEncoder {
         );
 
         if self.record_format == RecordFormat::V1 {
-            buf.put_i64::<T>(
-                message
-                    .timestamp
-                    .as_ref()
-                    .map(|timestamp| timestamp.value())
-                    .unwrap_or_default(),
-            );
+            buf.put_i64::<T>(message.timestamp.map(Timestamp::from).unwrap_or_default() as i64);
         }
 
         buf.put_bytes::<T, _>(message.key.as_ref())?;
@@ -434,9 +459,9 @@ mod tests {
     #[test]
     fn parse_message_set_v0() {
         let data = vec![
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 22 /* size */, 197, 70, 142,
-            169 /* crc */, 0 /* magic */, 8 /* attributes */, 0, 0, 0, 3, b'k', b'e', b'y' /* key */, 0, 0, 0,
-            5, b'v', b'a', b'l', b'u', b'e' /* value */,
+            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 22 /* size */, 197,
+            70, 142, 169 /* crc */, 0 /* magic */, 8 /* attributes */, 0, 0, 0, 3, b'k', b'e',
+            b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e' /* value */,
         ];
 
         let message_set = MessageSet {
@@ -462,9 +487,10 @@ mod tests {
     #[test]
     fn parse_message_set_v1() {
         let data = vec![
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 30 /* size */, 206, 63, 210,
-            11 /* crc */, 1 /* magic */, 8 /* attributes */, 0, 0, 0, 0, 0, 0, 1, 200 /* timestamp */, 0, 0, 0,
-            3, b'k', b'e', b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e' /* value */,
+            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 30 /* size */, 206,
+            63, 210, 11 /* crc */, 1 /* magic */, 8 /* attributes */, 0, 0, 0, 0, 0, 0, 1,
+            200 /* timestamp */, 0, 0, 0, 3, b'k', b'e', b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u',
+            b'e' /* value */,
         ];
 
         let message_set = MessageSet {

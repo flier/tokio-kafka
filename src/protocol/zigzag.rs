@@ -1,34 +1,50 @@
+use std::cmp::PartialEq;
+use std::ops::{BitAnd, Not, ShrAssign};
+
+use num::PrimInt;
+
+pub const NULL_VARINT_SIZE_BYTES: usize = 1;
+
 /// the variable-length zig-zag encoding from Google Protocol Buffers
 ///
 /// http://code.google.com/apis/protocolbuffers/docs/encoding.html
-pub trait ZigZag {
-    type Encoded;
+pub trait ZigZag<T>: Sized
+where
+    T: BitAnd<Output = T> + ShrAssign<usize> + Not + PartialEq + PrimInt,
+{
+    fn encode_zigzag(n: Self) -> T;
 
-    fn encode_zigzag(v: Self) -> Self::Encoded;
+    fn decode_zigzag(n: T) -> Self;
 
-    fn decode_zigzag(v: Self::Encoded) -> Self;
+    fn size_of_varint(n: Self) -> usize {
+        let mut v = Self::encode_zigzag(n);
+        let mut size = 1;
+
+        while (v & !T::from(0x7F).unwrap()) != T::zero() {
+            size += 1;
+            v.shr_assign(7usize);
+        }
+
+        size
+    }
 }
 
-impl ZigZag for i32 {
-    type Encoded = u32;
-
-    fn encode_zigzag(n: Self) -> Self::Encoded {
+impl ZigZag<u32> for i32 {
+    fn encode_zigzag(n: Self) -> u32 {
         ((n << 1) ^ (n >> 31)) as u32
     }
 
-    fn decode_zigzag(n: Self::Encoded) -> Self {
+    fn decode_zigzag(n: u32) -> Self {
         ((n >> 1) as i32) ^ (-((n & 1) as i32))
     }
 }
 
-impl ZigZag for i64 {
-    type Encoded = u64;
-
-    fn encode_zigzag(n: Self) -> Self::Encoded {
+impl ZigZag<u64> for i64 {
+    fn encode_zigzag(n: Self) -> u64 {
         ((n << 1) ^ (n >> 63)) as u64
     }
 
-    fn decode_zigzag(n: Self::Encoded) -> Self {
+    fn decode_zigzag(n: u64) -> Self {
         ((n >> 1) as i64) ^ (-((n & 1) as i64))
     }
 }
