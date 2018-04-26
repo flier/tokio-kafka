@@ -3,7 +3,7 @@ use std::mem;
 
 use bytes::{BufMut, ByteOrder, BytesMut};
 
-use nom::{be_i16, be_i32, be_i64, IResult};
+use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, MessageSet, MessageSetEncoder,
@@ -73,7 +73,15 @@ impl<'a> Request for ProduceRequest<'a> {
 
 impl<'a> Encodable for ProduceRequest<'a> {
     fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        let encoder = MessageSetEncoder::new(Self::required_record_format(self.header.api_version), None);
+        let record_format = Self::required_record_format(self.header.api_version);
+
+        trace!(
+            "encoding produce request, api version {}, record format {:?}",
+            self.header.api_version,
+            record_format
+        );
+
+        let encoder = MessageSetEncoder::new(record_format, None);
 
         self.header.encode::<T>(dst)?;
 
@@ -328,35 +336,75 @@ mod tests {
             ],
         };
 
-      static ref TEST_REQUEST_PACKET_V3: Vec<u8> = vec![
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        static ref TEST_REQUEST_PACKET_V3: Vec<u8> = vec![
             // ProduceRequest
                 // RequestHeader
-                0, 0,                               // api_key
-                0, 3,                               // api_version
-                0, 0, 0, 123,                       // correlation_id
-                0, 6, 99, 108, 105, 101, 110, 116,  // client_id
-            0, 2, b'i', b'd',                       // transactional_id
-            255, 255,                               // required_acks
-            0, 0, 0, 123,                           // ack_timeout
+                0, 0,                                       // api_key
+                0, 3,                                       // api_version
+                0, 0, 0, 123,                               // correlation_id
+                0, 6, b'c', b'l', b'i', b'e', b'n', b't',   // client_id
+            0, 2, b'i', b'd',                               // transactional_id
+            255, 255,                                       // required_acks
+            0, 0, 0, 123,                                   // ack_timeout
                 // topics: [ProduceTopicData]
                 0, 0, 0, 1,
                     // ProduceTopicData
-                    0, 5, 116, 111, 112, 105, 99,   // topic_name
+                    0, 5, b't', b'o', b'p', b'i', b'c',     // topic_name
                     // partitions: [ProducePartitionData]
                     0, 0, 0, 1,
                         // ProducePartitionData
                         0, 0, 0, 1,                 // partition
-                        // MessageSet
-                        0, 0, 0, 42,
-                        // messages: [Message]
-                            0, 0, 0, 0, 0, 0, 0, 0,             // offset
-                            0, 0, 0, 30,                        // size
-                            226, 52, 65, 188,                   // crc
-                            1,                                  // magic
-                            0,                                  // attributes
-                            0, 0, 0, 0, 0, 0, 1, 200,           // timestamp
-                            0, 0, 0, 3, 107, 101, 121,          // key
-                            0, 0, 0, 5, 118, 97, 108, 117, 101  // value
+                        // Record Batch
+                        0, 0, 0, 86,
+                        // records: [RecordBody]
+                        //      first offset
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        //      length
+                        0, 0, 0, 49,
+                        //      partition_leader_epoch
+                        0, 0, 0, 0,
+                        //      magic
+                        2,
+                        //      crc
+                        218, 150, 207, 117,
+                        //      attributes
+                        0, 0,
+                        //      last_offset_delta
+                        0, 0, 0, 0,
+                        //      first_timestamp
+                        0, 0, 0, 0, 0, 0, 1, 200,
+                        //      max_timestamp
+                        0, 0, 0, 0, 0, 0, 1, 200,
+                        //      producer_id
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        //      producer_epoch
+                        0, 0,
+                        //      first_sequence
+                        0, 0, 0, 0,
+                        //      records count
+                        0, 0, 0, 1,
+                        //      record
+                        //          length
+                        50,
+                        //          attributes
+                        0,
+                        //          timestamp_delta
+                        0,
+                        //          offset_delta
+                        0,
+                        //          key
+                        6, b'k', b'e', b'y',
+                        //          value
+                        10, b'v', b'a', b'l', b'u', b'e',
+                        //          headers count
+                        2,
+                        //          header
+                        //              key
+                        6, b'k', b'e', b'y',
+                        //              value
+                        10, b'v', b'a', b'l', b'u', b'e',
+
         ];
 
         static ref TEST_REQUEST_V3: ProduceRequest<'static> = ProduceRequest {
@@ -383,7 +431,12 @@ mod tests {
                                         key: Some(Bytes::from(&b"key"[..])),
                                         value: Some(Bytes::from(&b"value"[..])),
                                         timestamp: Some(MessageTimestamp::CreateTime(456)),
-                                        headers: Vec::new(),
+                                        headers: vec![
+                                            RecordHeader{
+                                                key: "key".to_owned(),
+                                                value: Some(Bytes::from(&b"value"[..]))
+                                            }
+                                        ],
                                     },
                                 ],
                             }),
@@ -430,8 +483,17 @@ mod tests {
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
+        let req_size = req.size(req.header.api_version);
 
-        assert_eq!(req.size(req.header.api_version), buf.len());
+        assert_eq!(
+            req_size,
+            buf.len(),
+            "encoded request to {} bytes, expected {} bytes, request: {:#?}\nencoded buffer:\n{}\n",
+            buf.len(),
+            req_size,
+            req,
+            hexdump!(&buf)
+        );
 
         assert_eq!(&buf[..], &TEST_REQUEST_PACKET_V0[..]);
     }
@@ -442,20 +504,42 @@ mod tests {
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
+        let req_size = req.size(req.header.api_version);
 
-        assert_eq!(req.size(req.header.api_version), buf.len());
+        assert_eq!(
+            req_size,
+            buf.len(),
+            "encoded request to {} bytes, expected {} bytes, request: {:#?}\nencoded buffer:\n{}\n",
+            buf.len(),
+            req_size,
+            req,
+            hexdump!(&buf)
+        );
 
         assert_eq!(&buf[..], &TEST_REQUEST_PACKET_V2[..]);
     }
 
     #[test]
     fn test_encode_produce_request_v3() {
+        use pretty_env_logger;
+
+        pretty_env_logger::init();
+
         let req = &*TEST_REQUEST_V3;
         let mut buf = BytesMut::with_capacity(128);
 
         req.encode::<BigEndian>(&mut buf).unwrap();
+        let req_size = req.size(req.header.api_version);
 
-        assert_eq!(req.size(req.header.api_version), buf.len());
+        assert_eq!(
+            req_size,
+            buf.len(),
+            "encoded request to {} bytes, expected {} bytes, request: {:#?}\nencoded buffer:\n{}\n",
+            buf.len(),
+            req_size,
+            req,
+            hexdump!(&buf)
+        );
 
         assert_eq!(&buf[..], &TEST_REQUEST_PACKET_V3[..]);
     }

@@ -12,8 +12,8 @@ use crc::crc32;
 
 use compression::Compression;
 use errors::{ErrorKind, Result};
-use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, RecordHeader, Timestamp, WriteExt, ZigZag,
-               BYTES_LEN_SIZE, NULL_VARINT_SIZE_BYTES, OFFSET_SIZE, RECORD_ATTRIBUTE_LENGTH, TIMESTAMP_SIZE};
+use protocol::{parse_opt_bytes, ApiVersion, Encodable, Offset, ParseTag, Record, RecordBatch, RecordHeader, Timestamp,
+               WriteExt, BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
@@ -60,7 +60,12 @@ impl Deref for MessageSet {
 
 impl Record for MessageSet {
     fn size(&self, record_format: RecordFormat) -> usize {
-        self.messages.iter().map(|message| message.size(record_format)).sum()
+        match record_format {
+            RecordFormat::V0 | RecordFormat::V1 => {
+                self.messages.iter().map(|message| message.size(record_format)).sum()
+            }
+            RecordFormat::V2 => RecordBatch::from(self.clone()).size(RecordFormat::V2),
+        }
     }
 }
 
@@ -106,33 +111,7 @@ impl Record for Message {
 
                 record_overhead_size + key_size + value_size
             }
-            RecordFormat::V2 => {
-                let record_overhead_size = RECORD_ATTRIBUTE_LENGTH + i32::size_of_varint(self.offset as i32)
-                    + i64::size_of_varint(self.timestamp.unwrap_or_default().into());
-                let key_size = if let Some(ref key) = self.key {
-                    i32::size_of_varint(key.len() as i32) + key.len()
-                } else {
-                    NULL_VARINT_SIZE_BYTES
-                };
-                let value_size = if let Some(ref value) = self.value {
-                    i32::size_of_varint(value.len() as i32) + value.len()
-                } else {
-                    NULL_VARINT_SIZE_BYTES
-                };
-                let headers_size = self.headers.iter().fold(
-                    i32::size_of_varint(self.headers.len() as i32),
-                    |size, header| {
-                        let key = header.key.as_bytes();
-
-                        size + i32::size_of_varint(key.len() as i32) + key.len()
-                            + header.value.as_ref().map_or(NULL_VARINT_SIZE_BYTES, |value| {
-                                i32::size_of_varint(value.len() as i32) + value.len()
-                            })
-                    },
-                );
-
-                record_overhead_size + key_size + value_size + headers_size
-            }
+            RecordFormat::V2 => unreachable!(),
         }
     }
 }
@@ -186,18 +165,29 @@ impl MessageSetEncoder {
 
         buf.reserve(message_set.size(self.record_format));
 
-        for message in &message_set.messages {
-            let offset = if self.compression.unwrap_or(message.compression) == Compression::None {
-                message.offset
-            } else {
-                offset = offset.wrapping_add(1);
-                offset - 1
-            };
+        match self.record_format {
+            RecordFormat::V0 | RecordFormat::V1 => {
+                for message in &message_set.messages {
+                    let offset = if self.compression.unwrap_or(message.compression) == Compression::None {
+                        message.offset
+                    } else {
+                        offset = offset.wrapping_add(1);
+                        offset - 1
+                    };
 
-            self.encode_message::<T>(message, offset, buf)?;
+                    self.encode_message::<T>(message, offset, buf)?;
+                }
+
+                Ok(())
+            }
+            RecordFormat::V2 => {
+                let record_batch = RecordBatch::from(message_set.clone());
+
+                trace!("convert message set to record batch: {:#?}", record_batch);
+
+                record_batch.encode::<T>(buf)
+            }
         }
-
-        Ok(())
     }
 
     fn encode_message<T: ByteOrder>(&self, message: &Message, offset: Offset, buf: &mut BytesMut) -> Result<()> {
