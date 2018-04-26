@@ -5,7 +5,7 @@ use std::str;
 use bytes::{BufMut, ByteOrder, BytesMut};
 
 use errors::{ErrorKind, Result};
-use protocol::ZigZag;
+use protocol::VarIntExt;
 
 pub const STR_LEN_SIZE: usize = 2;
 pub const BYTES_LEN_SIZE: usize = 4;
@@ -66,7 +66,7 @@ pub trait WriteExt: BufMut + Sized {
                 bail!(ErrorKind::EncodeError("bytes exceeds the maximum size."))
             }
             Some(v) => {
-                self.put_vari32(v.as_ref().len() as i32)?;
+                self.put_vari32(v.as_ref().len() as i32);
 
                 if !v.as_ref().is_empty() {
                     self.put_slice(v.as_ref());
@@ -74,7 +74,10 @@ pub trait WriteExt: BufMut + Sized {
 
                 Ok(())
             }
-            _ => self.put_vari32(-1),
+            _ => {
+                self.put_vari32(-1);
+                Ok(())
+            }
         }
     }
 
@@ -96,30 +99,12 @@ pub trait WriteExt: BufMut + Sized {
         Ok(())
     }
 
-    fn put_vari32(&mut self, value: i32) -> Result<()> {
-        let mut v = i32::encode_zigzag(value);
-
-        while (v & !0x7F) != 0 {
-            self.put_u8(((v & 0x7F) | 0x80) as u8);
-            v >>= 7;
-        }
-
-        self.put_u8((v & 0x7F) as u8);
-
-        Ok(())
+    fn put_vari32(&mut self, value: i32) {
+        value.put_varint(self);
     }
 
-    fn put_vari64(&mut self, value: i64) -> Result<()> {
-        let mut v = i64::encode_zigzag(value);
-
-        while (v & !0x7F) != 0 {
-            self.put_u8(((v & 0x7F) | 0x80) as u8);
-            v >>= 7;
-        }
-
-        self.put_u8((v & 0x7F) as u8);
-
-        Ok(())
+    fn put_vari64(&mut self, value: i64) {
+        value.put_varint(self);
     }
 }
 
@@ -205,35 +190,5 @@ mod tests {
         let s = unsafe { slice::from_raw_parts(buf.as_ptr(), i32::MAX as usize + 1) };
 
         assert!(buf.put_bytes::<BigEndian, _>(Some(s)).err().is_some());
-    }
-
-    #[test]
-    fn varint() {
-        fn test_varint(n: i64, s: &[u8]) {
-            let mut buf = vec![];
-
-            buf.put_vari64(n).unwrap();
-
-            assert_eq!(
-                buf.as_slice(),
-                s,
-                "varint {} encoded to {:?}, expected {:?}",
-                n,
-                &buf,
-                s
-            );
-        }
-        test_varint(0, &[0]);
-        test_varint(-1, &[1]);
-        test_varint(1, &[2]);
-        test_varint(-2, &[3]);
-        test_varint(2147483647, &[254, 255, 255, 255, 15]);
-        test_varint(-2147483648, &[255, 255, 255, 255, 15]);
-
-        test_varint(63, &[126]);
-        test_varint(-64, &[127]);
-        test_varint(64, &[128, 1]);
-        test_varint(-123, &[245, 1]);
-        test_varint(123, &[246, 1]);
     }
 }

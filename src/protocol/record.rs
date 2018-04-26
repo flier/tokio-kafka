@@ -5,7 +5,7 @@ use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 use crc::crc32;
 
 use errors::Result;
-use protocol::{Encodable, Message, MessageSet, Offset, Record, RecordFormat, Timestamp, WriteExt, ZigZag,
+use protocol::{Encodable, Message, MessageSet, Offset, Record, RecordFormat, Timestamp, VarIntExt, WriteExt,
                NULL_VARINT_SIZE_BYTES};
 
 const BASE_OFFSET_LENGTH: usize = 8;
@@ -219,14 +219,14 @@ impl Record for RecordBody {
 
 impl Encodable for RecordBody {
     fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        dst.put_vari32(self.size(RecordFormat::V2) as i32)?;
+        dst.put_vari32(self.size(RecordFormat::V2) as i32);
         dst.put_u8(self.attributes);
-        dst.put_vari64(self.timestamp_delta)?;
-        dst.put_vari32(self.offset_delta)?;
+        dst.put_vari64(self.timestamp_delta);
+        dst.put_vari32(self.offset_delta);
         dst.put_varbytes(self.key.as_ref())?;
         dst.put_varbytes(self.value.as_ref())?;
 
-        dst.put_vari32(self.headers.len() as i32)?;
+        dst.put_vari32(self.headers.len() as i32);
 
         for header in &self.headers {
             header.encode::<T>(dst)?;

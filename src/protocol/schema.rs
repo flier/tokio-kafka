@@ -13,6 +13,7 @@ use serde::ser::{self, Serialize, SerializeSeq};
 
 use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
 
+use super::VarIntExt;
 use errors::{Error, ErrorKind, Result};
 
 pub struct Schema {}
@@ -136,12 +137,9 @@ impl Serialize for VarInt {
         S: ser::Serializer,
     {
         let mut buf = Vec::with_capacity(8);
-        let mut v = ((self.0 << 1) ^ (self.0 >> 31)) as u32;
-        while (v & !0x7F) != 0 {
-            buf.push(((v & 0x7f) | 0x80) as u8);
-            v >>= 7;
-        }
-        buf.push(v as u8);
+
+        self.0.put_varint(&mut buf);
+
         serializer.serialize_bytes(&buf)
     }
 }
@@ -198,12 +196,9 @@ impl Serialize for VarLong {
         S: ser::Serializer,
     {
         let mut buf = Vec::with_capacity(16);
-        let mut v = ((self.0 << 1) ^ (self.0 >> 63)) as u64;
-        while (v & !0x7F) != 0 {
-            buf.push(((v & 0x7f) | 0x80) as u8);
-            v >>= 7;
-        }
-        buf.push(v as u8);
+
+        self.0.put_varint(&mut buf);
+
         serializer.serialize_bytes(&buf)
     }
 }

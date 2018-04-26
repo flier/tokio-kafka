@@ -52,7 +52,7 @@ pub use self::parse::{display_parse_error, parse_bytes, parse_opt_bytes, parse_o
 pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
 pub use self::record::{RecordBatch, RecordBody, RecordHeader};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
-pub use self::zigzag::{ZigZag, NULL_VARINT_SIZE_BYTES};
+pub use self::zigzag::{VarIntExt, ZigZag, NULL_VARINT_SIZE_BYTES};
 
 /// Normal client consumers should always specify this as -1 as they have no
 /// node id.
