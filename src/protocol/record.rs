@@ -5,8 +5,8 @@ use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 use crc::crc32;
 
 use errors::Result;
-use protocol::{Encodable, Message, MessageSet, Offset, Record, RecordFormat, Timestamp, VarIntExt, WriteExt,
-               NULL_VARINT_SIZE_BYTES};
+use protocol::{parse_varint, Encodable, Message, MessageSet, Offset, Record, RecordFormat, Timestamp, VarIntExt,
+               WriteExt, NULL_VARINT_SIZE_BYTES};
 
 const BASE_OFFSET_LENGTH: usize = 8;
 const LENGTH_LENGTH: usize = 4;
@@ -256,6 +256,25 @@ impl Encodable for RecordHeader {
         Ok(())
     }
 }
+
+named!(
+    parse_record_header<RecordHeader>,
+    do_parse!(
+        key:
+            map_res!(
+                map!(parse_varbytes, |bytes| bytes.map(|s| s.to_vec()).unwrap_or_default()),
+                String::from_utf8
+            ) >> value: map!(parse_varbytes, |bytes| bytes.map(|s| Bytes::from(s))) >> (RecordHeader {
+            key,
+            value,
+        })
+    )
+);
+
+named!(
+    parse_varbytes<Option<&[u8]>>,
+    do_parse!(len: parse_varint >> s: cond!(len >= 0, take!(len)) >> (s))
+);
 
 #[cfg(test)]
 mod tests {

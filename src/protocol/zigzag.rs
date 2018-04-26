@@ -69,7 +69,7 @@ impl VarIntExt<u32> for i32 {}
 impl VarIntExt<u64> for i64 {}
 
 named!(
-    parse_varint<i32>,
+    pub parse_varint<i32>,
     map!(
         verify!(
             recognize!(tuple!(take_till!(|b| b & 0x80 == 0), take!(1))),
@@ -84,7 +84,7 @@ named!(
 );
 
 named!(
-    parse_varlong<i64>,
+    pub parse_varlong<i64>,
     map!(
         verify!(
             recognize!(tuple!(take_till!(|b| b & 0x80 == 0), take!(1))),
