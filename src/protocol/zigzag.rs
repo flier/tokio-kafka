@@ -68,8 +68,40 @@ where
 impl VarIntExt<u32> for i32 {}
 impl VarIntExt<u64> for i64 {}
 
+named!(
+    parse_varint<i32>,
+    map!(
+        verify!(
+            recognize!(tuple!(take_till!(|b| b & 0x80 == 0), take!(1))),
+            |s: &[u8]| s.len() * 7 < 32
+        ),
+        |s| i32::decode_zigzag(
+            s.iter()
+                .fold((0, 0), |(n, shift), b| ((u32::from(b & 0x7f) << shift) + n, shift + 7))
+                .0,
+        )
+    )
+);
+
+named!(
+    parse_varlong<i64>,
+    map!(
+        verify!(
+            recognize!(tuple!(take_till!(|b| b & 0x80 == 0), take!(1))),
+            |s: &[u8]| s.len() * 7 < 64
+        ),
+        |s| i64::decode_zigzag(
+            s.iter()
+                .fold((0, 0), |(n, shift), b| ((u64::from(b & 0x7f) << shift) + n, shift + 7))
+                .0,
+        )
+    )
+);
+
 #[cfg(test)]
 mod tests {
+    use nom::{self, ErrorKind, IResult, Needed};
+
     use super::*;
 
     #[test]
@@ -110,6 +142,8 @@ mod tests {
                 &buf,
                 s
             );
+
+            assert_eq!(parse_varlong(s), IResult::Done(&[][..], n));
         }
         test_varint(0, &[0]);
         test_varint(-1, &[1]);
@@ -123,5 +157,15 @@ mod tests {
         test_varint(64, &[128, 1]);
         test_varint(-123, &[245, 1]);
         test_varint(123, &[246, 1]);
+
+        assert_eq!(parse_varint(&[0x80; 3][..]), IResult::Incomplete(Needed::Size(4)));
+        assert_eq!(
+            parse_varint(&[0x80, 0x80, 0x80, 1][..]),
+            IResult::Done(&[][..], 0b1000000_0000000_0000000)
+        );
+        assert_eq!(
+            parse_varint(&[0x80, 0x80, 0x80, 0x80, 1][..]),
+            IResult::Error(nom::Err::Position(ErrorKind::Verify, &[0x80, 0x80, 0x80, 0x80, 1][..]))
+        );
     }
 }
