@@ -11,7 +11,7 @@ use client::{Client, FetchRecords, KafkaClient, ListOffsets, PartitionData, Stat
 use consumer::{OffsetResetStrategy, SeekTo, Subscriptions};
 use errors::{Error, ErrorKind};
 use network::TopicPartition;
-use protocol::{FetchOffset, KafkaCode, Offset};
+use protocol::{FetchOffset, IsolationLevel, KafkaCode, Offset};
 
 pub struct Fetcher<'a> {
     client: KafkaClient<'a>,
@@ -20,6 +20,7 @@ pub struct Fetcher<'a> {
     fetch_max_bytes: usize,
     fetch_max_wait: Duration,
     partition_fetch_bytes: usize,
+    isolation_level: IsolationLevel,
 }
 
 impl<'a> Fetcher<'a>
@@ -33,6 +34,7 @@ where
         fetch_max_bytes: usize,
         fetch_max_wait: Duration,
         partition_fetch_bytes: usize,
+        isolation_level: IsolationLevel,
     ) -> Self {
         Fetcher {
             client,
@@ -41,6 +43,7 @@ where
             fetch_max_bytes,
             fetch_max_wait,
             partition_fetch_bytes,
+            isolation_level,
         }
     }
 
@@ -158,6 +161,7 @@ where
                 self.fetch_max_wait,
                 self.fetch_min_bytes,
                 self.fetch_max_bytes,
+                self.isolation_level,
                 fetch_partitions,
             )
             .and_then(move |(throttle_time, records)| {

@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use client::ClientConfig;
 use consumer::{AssignmentStrategy, OffsetResetStrategy};
+use protocol::IsolationLevel;
 
 /// The default milliseconds that the consumer offsets are auto-committed to Kafka.
 ///
@@ -64,6 +65,13 @@ pub const DEFAULT_FETCH_ERROR_BACKOFF_MILLIS: u64 = 500;
 /// Defaults to 1 `MBytes`, see
 /// [`ConsumerConfig::partition_fetch_bytes`](struct.ConsumerConfig.html#partition_fetch_bytes.v)
 pub const DEFAULT_PARTITION_FETCH_BYTES: usize = 1024 * 1024;
+
+/// This setting controls the visibility of transactional records.
+///
+/// Defaults to `read_uncommitted`, see
+///
+/// [`ConsumerConfig::isolation_level`](struct.ConsumerConfig.html#isolation_level.v)
+pub const DEFAULT_ISOLATION_LEVEL: IsolationLevel = IsolationLevel::ReadUncommitted;
 
 /// Configuration for the `KafkaConsumer`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -177,6 +185,18 @@ pub struct ConsumerConfig {
     /// (broker config) or `max.message.bytes` (topic config).
     #[serde(rename = "max.partition.fetch.bytes")]
     pub partition_fetch_bytes: usize,
+
+    /// This setting controls the visibility of transactional records.
+    ///
+    /// Here are the possible values (default is read_uncommitted):
+    ///
+    /// read_uncommitted: consume both committed and uncommitted messages in offset ordering.
+    ///
+    /// read_committed: only consume non-transactional messages or committed transactional messages in offset order.
+    /// In order to maintain offset ordering, this setting means that we will have to buffer messages in the consumer
+    /// until we see all messages in a given transaction.
+    #[serde(rename = "isolation.level")]
+    pub isolation_level: IsolationLevel,
 }
 
 impl Deref for ConsumerConfig {
@@ -211,6 +231,7 @@ impl Default for ConsumerConfig {
             fetch_max_wait: DEFAULT_FETCH_MAX_WAIT_MILLIS,
             fetch_error_backoff: DEFAULT_FETCH_ERROR_BACKOFF_MILLIS,
             partition_fetch_bytes: DEFAULT_PARTITION_FETCH_BYTES,
+            isolation_level: DEFAULT_ISOLATION_LEVEL,
         }
     }
 }
@@ -333,7 +354,8 @@ mod tests {
   "fetch.max.bytes": 52428800,
   "fetch.max.wait.ms": 500,
   "fetch.error.backoff.ms": 500,
-  "max.partition.fetch.bytes": 1048576
+  "max.partition.fetch.bytes": 1048576,
+  "isolation.level": "read_uncommitted"
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);

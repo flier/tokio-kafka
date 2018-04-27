@@ -31,8 +31,9 @@ use errors::{Error, Result};
 use errors::ErrorKind::{self, *};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition, DEFAULT_PORT};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
-               GenerationId, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset, PartitionId,
-               RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions, DEFAULT_RESPONSE_MAX_BYTES};
+               GenerationId, IsolationLevel, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet,
+               Offset, PartitionId, RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions,
+               DEFAULT_RESPONSE_MAX_BYTES};
 
 /// A trait for communicating with the Kafka cluster.
 pub trait Client<'a>: 'static {
@@ -60,6 +61,7 @@ pub trait Client<'a>: 'static {
         fetch_max_wait: Duration,
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
+        isolation_level: IsolationLevel,
         partitions: Vec<(TopicPartition<'a>, PartitionData)>,
     ) -> FetchRecords;
 
@@ -468,6 +470,7 @@ where
         fetch_max_wait: Duration,
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
+        isolation_level: IsolationLevel,
         partitions: Vec<(TopicPartition<'a>, PartitionData)>,
     ) -> FetchRecords {
         let inner = self.inner.clone();
@@ -477,7 +480,13 @@ where
                     .topics_by_broker(ApiKeys::Fetch, &metadata, partitions)
                     .into_future()
                     .and_then(move |topics| {
-                        inner.fetch_records(fetch_max_wait, fetch_min_bytes, fetch_max_bytes, topics)
+                        inner.fetch_records(
+                            fetch_max_wait,
+                            fetch_min_bytes,
+                            fetch_max_bytes,
+                            isolation_level,
+                            topics,
+                        )
                     })
             })
             .static_boxed()
@@ -941,6 +950,7 @@ where
         fetch_max_wait: Duration,
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
+        isolation_level: IsolationLevel,
         topics: TopicsByBroker<'a, PartitionData>,
     ) -> FetchRecords {
         let requests = {
@@ -956,6 +966,7 @@ where
                             .map(|&(partition_id, ref fetch_data)| FetchPartition {
                                 partition_id,
                                 fetch_offset: fetch_data.offset,
+                                log_start_offset: None,
                                 max_bytes: fetch_data.max_bytes.unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
                             })
                             .collect(),
@@ -969,6 +980,7 @@ where
                     fetch_max_wait,
                     fetch_min_bytes as i32,
                     fetch_max_bytes as i32,
+                    isolation_level,
                     fetch_topics,
                 );
                 let request = self.send_request(AutoName::HostPort(&host, port), request)

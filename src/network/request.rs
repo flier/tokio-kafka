@@ -8,12 +8,12 @@ use errors::Result;
 use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, DescribeGroupsRequest, Encodable,
                FetchOffset, FetchRequest, FetchTopic, GenerationId, GroupCoordinatorRequest, HeartbeatRequest,
-               JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest, ListOffsetRequest,
-               ListPartitionOffset, ListTopicOffset, MessageSet, MetadataRequest, OffsetCommitPartition,
-               OffsetCommitRequest, OffsetCommitTopic, OffsetFetchPartition, OffsetFetchRequest, OffsetFetchTopic,
-               PartitionId, ProducePartitionData, ProduceRequest, ProduceTopicData, Request, RequestHeader,
-               RequiredAck, RequiredAcks, SyncGroupAssignment, SyncGroupRequest, ToMilliseconds, CONSUMER_REPLICA_ID,
-               DEFAULT_TIMESTAMP};
+               IsolationLevel, JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest,
+               ListOffsetRequest, ListPartitionOffset, ListTopicOffset, MessageSet, MetadataRequest,
+               OffsetCommitPartition, OffsetCommitRequest, OffsetCommitTopic, OffsetFetchPartition,
+               OffsetFetchRequest, OffsetFetchTopic, PartitionId, ProducePartitionData, ProduceRequest,
+               ProduceTopicData, Request, RequestHeader, RequiredAck, RequiredAcks, SyncGroupAssignment,
+               SyncGroupRequest, ToMilliseconds, CONSUMER_REPLICA_ID, DEFAULT_TIMESTAMP};
 
 #[derive(Debug)]
 pub enum KafkaRequest<'a> {
@@ -99,6 +99,7 @@ impl<'a> KafkaRequest<'a> {
         max_wait_time: Duration,
         min_bytes: i32,
         max_bytes: i32,
+        isolation_level: IsolationLevel,
         topics: Vec<FetchTopic<'a>>,
     ) -> KafkaRequest<'a> {
         let request = FetchRequest {
@@ -112,7 +113,9 @@ impl<'a> KafkaRequest<'a> {
             max_wait_time: max_wait_time.as_millis() as i32,
             min_bytes,
             max_bytes,
+            isolation_level,
             topics,
+            session: None,
         };
 
         KafkaRequest::Fetch(request)

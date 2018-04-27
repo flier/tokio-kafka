@@ -151,6 +151,7 @@ where
         let fetch_max_bytes = self.inner.config.fetch_max_bytes;
         let fetch_max_wait = self.inner.config.fetch_max_wait();
         let partition_fetch_bytes = self.inner.config.partition_fetch_bytes;
+        let isolation_level = self.inner.config.isolation_level;
         let auto_commit_interval = self.inner.config.auto_commit_interval();
         let assignors = self.inner
             .config
@@ -200,6 +201,7 @@ where
                     fetch_max_bytes,
                     fetch_max_wait,
                     partition_fetch_bytes,
+                    isolation_level,
                 ));
 
                 SubscribedTopics::new(KafkaConsumer { inner }, subscriptions, coordinator, fetcher, timer)

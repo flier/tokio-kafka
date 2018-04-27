@@ -91,10 +91,6 @@ impl Broker {
     }
 
     pub fn api_version(&self, api_key: ApiKeys) -> Option<ApiVersion> {
-        if api_key == ApiKeys::Fetch {
-            return Some(1);
-        }
-
         self.api_versions
             .as_ref()
             .and_then(|api_versions| api_versions.find(api_key))

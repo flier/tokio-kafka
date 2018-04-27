@@ -19,7 +19,7 @@ use client::{Broker, BrokerRef, Client, Cluster, ConsumerGroup, ConsumerGroupAss
 use consumer::Assignment;
 use errors::{ErrorKind, Result};
 use network::{OffsetAndMetadata, TopicPartition};
-use protocol::{FetchOffset, KafkaCode, MessageSet, RequiredAcks, Schema};
+use protocol::{FetchOffset, IsolationLevel, KafkaCode, MessageSet, RequiredAcks, Schema};
 
 #[derive(Clone)]
 pub struct MockClient<'a> {
@@ -130,6 +130,7 @@ where
         fetch_max_wait: Duration,
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
+        isolation_leve: IsolationLevel,
         partitions: Vec<(TopicPartition<'a>, PartitionData)>,
     ) -> FetchRecords {
         unimplemented!()

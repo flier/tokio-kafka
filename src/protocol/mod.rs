@@ -33,7 +33,7 @@ pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiV
 pub use self::code::{ErrorCode, KafkaCode};
 pub use self::encode::{Encodable, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE,
                        REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
-pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic, FetchTopicData,
+pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic, FetchTopicData, IsolationLevel,
                       DEFAULT_RESPONSE_MAX_BYTES};
 pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordinatorRequest,
                       GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse, JoinGroupMember,

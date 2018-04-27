@@ -106,7 +106,7 @@ lazy_static! {
         UsableApiVersion {
             api_key: ApiKeys::Fetch,
             min_version: 0,
-            max_version: 3,
+            max_version: 7,
         },
         UsableApiVersion {
             api_key: ApiKeys::ListOffsets,
