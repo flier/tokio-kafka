@@ -1,12 +1,13 @@
 use std::cmp;
 use std::i64;
 
+use nom::{self, be_i16, be_i32, be_i64, be_u16, be_u32, be_u8};
 use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 use crc::crc32;
 
 use errors::Result;
-use protocol::{parse_varint, Encodable, Message, MessageSet, Offset, Record, RecordFormat, Timestamp, VarIntExt,
-               WriteExt, NULL_VARINT_SIZE_BYTES};
+use protocol::{parse_varint, parse_varlong, Encodable, Message, MessageSet, Offset, Record, RecordFormat, Timestamp,
+               VarIntExt, WriteExt, NULL_VARINT_SIZE_BYTES};
 
 const BASE_OFFSET_LENGTH: usize = 8;
 const LENGTH_LENGTH: usize = 4;
@@ -45,7 +46,7 @@ pub struct RecordBatch {
     /// worry about setting this value.
     pub partition_leader_epoch: i32,
     /// This byte holds metadata attributes about the message.
-    pub attributes: i16,
+    pub attributes: u16,
     /// The timestamp of the first Record in the batch.
     ///
     /// The timestamp of each Record in the RecordBatch is its 'timestamp_delta' + 'first_timestamp'.
@@ -161,13 +162,19 @@ impl Record for RecordBatch {
 impl Encodable for RecordBatch {
     fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
         dst.put_i64::<T>(self.first_offset);
-        dst.put_i32::<T>((RECORD_BATCH_OVERHEAD - LOG_OVERHEAD) as i32);
+        dst.put_i32::<T>(
+            (RECORD_BATCH_OVERHEAD - LOG_OVERHEAD
+                + self.records
+                    .iter()
+                    .map(|record| record.size(RecordFormat::V2))
+                    .sum::<usize>()) as i32,
+        );
         dst.put_i32::<T>(self.partition_leader_epoch);
         dst.put_u8(RecordFormat::V2 as u8);
         let crc_off = dst.len();
         dst.put_i32::<T>(0); // CRC
         let crc_start = dst.len();
-        dst.put_i16::<T>(self.attributes);
+        dst.put_u16::<T>(self.attributes);
         dst.put_i32::<T>(self.last_offset_delta);
         dst.put_i64::<T>(self.first_timestamp);
         dst.put_i64::<T>(self.max_timestamp);
@@ -178,7 +185,7 @@ impl Encodable for RecordBatch {
 
         let crc = crc32::checksum_ieee(&dst[crc_start..]);
 
-        T::write_i32(&mut dst[crc_off..], crc as i32);
+        T::write_u32(&mut dst[crc_off..], crc);
 
         for record in &self.records {
             record.encode::<T>(dst)?;
@@ -257,28 +264,103 @@ impl Encodable for RecordHeader {
     }
 }
 
-named!(
-    parse_record_header<RecordHeader>,
+#[cfg_attr(rustfmt, rustfmt_skip)]
+named!(parse_record_batch<RecordBatch>,
+    do_parse!(
+        first_offset: be_i64
+     >> remaining: map!(peek!(nom::rest), |rest| rest.len() - LENGTH_LENGTH)
+     >> length: verify!(map!(be_i32, |n| n as usize), |length| length <= remaining)
+     >> partition_leader_epoch: be_i32
+     >> magic: verify!(be_u8, |magic| magic >= RecordFormat::V2 as u8)
+     >> crc: be_u32
+     >> attributes: be_u16
+     >> last_offset_delta: be_i32
+     >> first_timestamp: be_i64
+     >> max_timestamp: be_i64
+     >> producer_id: be_i64
+     >> producer_epoch: be_i16
+     >> first_sequence: be_i32
+     >> records: length_count!(be_i32, parse_record_body)
+     >> padding_len: map_opt!(peek!(nom::rest),
+            |rest: &[u8]| {
+                remaining.checked_sub(rest.len()).and_then(|read| length.checked_sub(read))
+            }
+        )
+     >> padding: take!(padding_len)
+     >> (
+            RecordBatch {
+                first_offset,
+                last_offset_delta,
+                partition_leader_epoch,
+                attributes,
+                first_timestamp,
+                max_timestamp,
+                producer_id,
+                producer_epoch,
+                first_sequence,
+                records,
+            }
+        )
+    )
+);
+
+#[cfg_attr(rustfmt, rustfmt_skip)]
+named!(parse_record_body<RecordBody>,
+    do_parse!(
+        remaining: map!(peek!(nom::rest), |rest| rest.len())
+     >> length: verify!(map!(parse_varint, |n| n as usize), |length| length <= remaining)
+     >> attributes: call!(be_u8)
+     >> timestamp_delta: parse_varlong
+     >> offset_delta: parse_varint
+     >> key: parse_varbytes
+     >> value: parse_varbytes
+     >> headers: length_count!(parse_varint, parse_record_header)
+     >> padding_len: map_opt!(peek!(nom::rest),
+            |rest: &[u8]| {
+                remaining.checked_sub(rest.len()).and_then(|read| length.checked_sub(read))
+            }
+        )
+     >> padding: take!(padding_len)
+     >> (
+            RecordBody {
+                attributes,
+                timestamp_delta,
+                offset_delta,
+                key,
+                value,
+                headers
+            }
+        )
+    )
+);
+
+#[cfg_attr(rustfmt, rustfmt_skip)]
+named!(parse_record_header<RecordHeader>,
     do_parse!(
         key:
             map_res!(
                 map!(parse_varbytes, |bytes| bytes.map(|s| s.to_vec()).unwrap_or_default()),
                 String::from_utf8
-            ) >> value: map!(parse_varbytes, |bytes| bytes.map(|s| Bytes::from(s))) >> (RecordHeader {
-            key,
-            value,
-        })
+            )
+     >> value: parse_varbytes
+     >> (
+            RecordHeader {
+                key,
+                value,
+            }
+        )
     )
 );
 
 named!(
-    parse_varbytes<Option<&[u8]>>,
-    do_parse!(len: parse_varint >> s: cond!(len >= 0, take!(len)) >> (s))
+    parse_varbytes<Option<Bytes>>,
+    do_parse!(len: parse_varint >> s: cond!(len >= 0, map!(take!(len), Bytes::from)) >> (s))
 );
 
 #[cfg(test)]
 mod tests {
     use bytes::{BigEndian, Bytes};
+    use nom::IResult;
 
     use super::*;
 
@@ -347,7 +429,7 @@ mod tests {
             //  first offset
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
             //  length
-            0x00, 0x00, 0x00, 0x31,
+            0x00, 0x00, 0x00, 0x4A,
             //  partition_leader_epoch
             0x00, 0x00, 0x00, 0x03,
             //  magic
@@ -394,7 +476,11 @@ mod tests {
     }
 
     #[test]
-    fn encode_record_batch() {
+    fn test_record_batch() {
+        use pretty_env_logger;
+
+        let _ = pretty_env_logger::try_init();
+
         let mut buf = BytesMut::with_capacity(256);
 
         let record = &*TEST_RECORD_BATCH;
@@ -409,10 +495,14 @@ mod tests {
             record,
             hexdump!(&buf)
         );
+        assert_eq!(
+            parse_record_batch(&*ENCODED_RECORD_BATCH),
+            IResult::Done(&[][..], record.clone())
+        );
     }
 
     #[test]
-    fn encode_record_body() {
+    fn test_record_body() {
         let mut buf = BytesMut::with_capacity(256);
 
         let body = &*TEST_RECORD_BODY;
@@ -427,10 +517,14 @@ mod tests {
             body,
             hexdump!(&buf)
         );
+        assert_eq!(
+            parse_record_body(&*ENCODED_RECORD_BODY),
+            IResult::Done(&[][..], body.clone())
+        );
     }
 
     #[test]
-    fn encode_record_header() {
+    fn test_record_header() {
         let mut buf = BytesMut::with_capacity(256);
         let header = &*TEST_RECORD_HEADER;
 

@@ -521,10 +521,6 @@ mod tests {
 
     #[test]
     fn test_encode_produce_request_v3() {
-        use pretty_env_logger;
-
-        pretty_env_logger::init();
-
         let req = &*TEST_REQUEST_V3;
         let mut buf = BytesMut::with_capacity(128);
 
