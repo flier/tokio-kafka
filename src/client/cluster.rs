@@ -1,3 +1,4 @@
+use std::cmp;
 use std::collections::HashMap;
 
 use network::TopicPartition;
@@ -93,17 +94,23 @@ impl Broker {
         if api_key == ApiKeys::Fetch {
             return Some(1);
         }
-        let supported_version: i16 = SUPPORTED_API_VERSIONS
-            .find(api_key).map(|v| v.max_version).unwrap_or(0);
+
         self.api_versions
             .as_ref()
-            .and_then(|api_versions|
-                     api_versions.find(api_key)
-                    .map(|api_version| {
-                        debug!("Api Key {:?}, current: {}, supported: {}", api_key, api_version.max_version, supported_version);
-                        ::std::cmp::min(api_version.max_version, supported_version)
-                    })
-            )
+            .and_then(|api_versions| api_versions.find(api_key))
+            .map(|current_api| {
+                let supported_api = SUPPORTED_API_VERSIONS.find(api_key);
+                let selected_api_verion = supported_api.map_or(current_api.max_version, |supported_api| {
+                    cmp::min(current_api.max_version, supported_api.max_version)
+                });
+
+                debug!(
+                    "select api version {}, current {:?}, supported {:?}",
+                    selected_api_verion, current_api, supported_api
+                );
+
+                selected_api_verion
+            })
     }
 
     pub fn with_api_versions(&self, api_versions: Option<UsableApiVersions>) -> Self {
