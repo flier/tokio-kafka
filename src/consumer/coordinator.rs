@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use futures::future::Either;
 use futures::{future, Future, Stream};
-use tokio_retry::Retry;
+use tokio_retry::{Retry, Error as RetryError};
 use tokio_timer::Timer;
 
 use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupMember, ConsumerGroupProtocol,
@@ -340,26 +340,29 @@ where
 
                     let generation = generation.clone();
 
-                    Either::A(send_heartbeat.from_err().map_err(move |err| {
+                    Either::A(send_heartbeat.map_err(move |err| {
                         match err {
-                            Error(ErrorKind::KafkaError(KafkaCode::CoordinatorLoadInProgress), _)
-                            | Error(ErrorKind::KafkaError(KafkaCode::RebalanceInProgress), _) => {
-                                info!("group is loading or rebalancing, {}", err);
+                            RetryError::OperationError(ref err) => match *err {
+                                Error(ErrorKind::KafkaError(KafkaCode::CoordinatorLoadInProgress), _)
+                                | Error(ErrorKind::KafkaError(KafkaCode::RebalanceInProgress), _) => {
+                                    info!("group is loading or rebalancing, {}", err);
 
-                                state.borrow_mut().rebalancing(coordinator, generation.clone());
-                            }
-                            Error(ErrorKind::KafkaError(KafkaCode::CoordinatorNotAvailable), _)
-                            | Error(ErrorKind::KafkaError(KafkaCode::NotCoordinator), _)
-                            | Error(ErrorKind::KafkaError(KafkaCode::IllegalGeneration), _)
-                            | Error(ErrorKind::KafkaError(KafkaCode::UnknownMemberId), _) => {
-                                info!("group has outdated, need to rejoin, {}", err);
+                                    state.borrow_mut().rebalancing(coordinator, generation.clone());
+                                }
+                                Error(ErrorKind::KafkaError(KafkaCode::CoordinatorNotAvailable), _)
+                                | Error(ErrorKind::KafkaError(KafkaCode::NotCoordinator), _)
+                                | Error(ErrorKind::KafkaError(KafkaCode::IllegalGeneration), _)
+                                | Error(ErrorKind::KafkaError(KafkaCode::UnknownMemberId), _) => {
+                                    info!("group has outdated, need to rejoin, {}", err);
 
-                                state.borrow_mut().leaved();
-                            }
-                            _ => warn!("unknown error, {}", err),
-                        };
+                                    state.borrow_mut().leaved();
+                                }
+                                _ => warn!("unknown error, {}", err),
+                            },
+                            RetryError::TimerError(_) => {},
+                        }
 
-                        err
+                        err.into()
                     }))
                 } else {
                     Either::B(future::err(ErrorKind::Canceled("group generation outdated").into()))
