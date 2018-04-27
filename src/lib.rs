@@ -10,6 +10,8 @@ extern crate log;
 extern crate error_chain;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate bitflags;
 extern crate bytes;
 #[macro_use]
 extern crate nom;

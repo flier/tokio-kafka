@@ -6,8 +6,9 @@ use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
 use crc::crc32;
 
 use errors::Result;
-use protocol::{parse_varint, parse_varlong, Encodable, Message, MessageSet, Offset, Record, RecordFormat, Timestamp,
-               VarIntExt, WriteExt, NULL_VARINT_SIZE_BYTES};
+use compression::Compression;
+use protocol::{parse_varint, parse_varlong, Encodable, Message, MessageSet, MessageTimestamp, Offset, Record,
+               RecordFormat, Timestamp, VarIntExt, WriteExt, NULL_VARINT_SIZE_BYTES};
 
 const BASE_OFFSET_LENGTH: usize = 8;
 const LENGTH_LENGTH: usize = 4;
@@ -29,7 +30,56 @@ const RECORD_BATCH_OVERHEAD: usize = BASE_OFFSET_LENGTH + LENGTH_LENGTH + PARTIT
     + PRODUCER_EPOCH_LENGTH + BASE_SEQUENCE_LENGTH + RECORDS_COUNT_LENGTH;
 const RECORD_ATTRIBUTE_LENGTH: usize = 1;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+bitflags! {
+    pub struct RecordBatchAttributes: u16 {
+        /// the compression codec used for the message.
+        const COMPRESSION_CODEC_MASK = 0x07;
+        // the timestamp type.
+        const TIMESTAMP_TYPE_MASK = 0x08;
+        // whether the RecordBatch is part of a transaction or not.
+        const TRANSACTIONAL_FLAG_MASK = 0x10;
+        // whether the RecordBatch includes a control message.
+        const CONTROL_FLAG_MASK = 0x20;
+    }
+}
+
+impl From<Compression> for RecordBatchAttributes {
+    fn from(compression: Compression) -> Self {
+        RecordBatchAttributes::from_bits_truncate(compression as i8 as u16)
+    }
+}
+
+impl RecordBatchAttributes {
+    pub fn compression(&self) -> Compression {
+        Compression::from((*self & RecordBatchAttributes::COMPRESSION_CODEC_MASK).bits() as i8)
+    }
+
+    pub fn is_log_append_time(&self) -> bool {
+        self.contains(RecordBatchAttributes::TIMESTAMP_TYPE_MASK)
+    }
+
+    pub fn with_log_append_time(self) -> Self {
+        self | RecordBatchAttributes::TIMESTAMP_TYPE_MASK
+    }
+
+    pub fn is_transactional(&self) -> bool {
+        self.contains(RecordBatchAttributes::TRANSACTIONAL_FLAG_MASK)
+    }
+
+    pub fn within_transactional(self) -> Self {
+        self | RecordBatchAttributes::TRANSACTIONAL_FLAG_MASK
+    }
+
+    pub fn contains_control_message(&self) -> bool {
+        self.contains(RecordBatchAttributes::CONTROL_FLAG_MASK)
+    }
+
+    pub fn with_control_message(self) -> Self {
+        self | RecordBatchAttributes::CONTROL_FLAG_MASK
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct RecordBatch {
     /// Denotes the first offset in the RecordBatch.
     ///
@@ -46,15 +96,15 @@ pub struct RecordBatch {
     /// worry about setting this value.
     pub partition_leader_epoch: i32,
     /// This byte holds metadata attributes about the message.
-    pub attributes: u16,
+    pub attributes: RecordBatchAttributes,
     /// The timestamp of the first Record in the batch.
     ///
     /// The timestamp of each Record in the RecordBatch is its 'timestamp_delta' + 'first_timestamp'.
-    pub first_timestamp: i64,
+    pub first_timestamp: Timestamp,
     /// The timestamp of the last Record in the batch.
     ///
     /// This is used by the broker to ensure the correct behavior even when Records within the batch are compacted out.
-    pub max_timestamp: i64,
+    pub max_timestamp: Timestamp,
     /// Introduced in 0.11.0.0 for KIP-98, this is the broker assigned producerId received by the 'InitProducerId'
     /// request.
     ///
@@ -74,7 +124,7 @@ pub struct RecordBatch {
     pub records: Vec<RecordBody>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RecordBody {
     /// Record level attributes are presently unused.
     pub attributes: u8,
@@ -110,6 +160,8 @@ impl From<MessageSet> for RecordBatch {
             },
         );
 
+        let mut attributes = RecordBatchAttributes::empty();
+
         let records = message_set
             .messages
             .into_iter()
@@ -121,15 +173,25 @@ impl From<MessageSet> for RecordBatch {
                      key,
                      value,
                      headers,
-                 }| RecordBody {
-                    attributes: 0,
-                    timestamp_delta: timestamp
-                        .map(|timestamp| Timestamp::from(timestamp) - first_timestamp)
-                        .unwrap_or_default(),
-                    offset_delta: (offset - first_offset) as i32,
-                    key,
-                    value,
-                    headers,
+                 }| {
+                    if compression != Compression::None {
+                        attributes |= RecordBatchAttributes::from(compression);
+                    }
+
+                    if let Some(MessageTimestamp::LogAppendTime(_)) = timestamp {
+                        attributes |= RecordBatchAttributes::TIMESTAMP_TYPE_MASK;
+                    }
+
+                    RecordBody {
+                        attributes: 0,
+                        timestamp_delta: timestamp
+                            .map(|timestamp| Timestamp::from(timestamp) - first_timestamp)
+                            .unwrap_or_default(),
+                        offset_delta: (offset - first_offset) as i32,
+                        key,
+                        value,
+                        headers,
+                    }
                 },
             )
             .collect();
@@ -138,7 +200,7 @@ impl From<MessageSet> for RecordBatch {
             first_offset,
             last_offset_delta: (last_offset - first_offset) as i32,
             partition_leader_epoch: 0,
-            attributes: 0,
+            attributes,
             first_timestamp,
             max_timestamp,
             producer_id: 0,
@@ -146,6 +208,47 @@ impl From<MessageSet> for RecordBatch {
             first_sequence: 0,
             records,
         }
+    }
+}
+
+impl From<RecordBatch> for MessageSet {
+    fn from(record_batch: RecordBatch) -> Self {
+        let RecordBatch {
+            first_offset,
+            first_timestamp,
+            attributes,
+            records,
+            ..
+        } = record_batch;
+
+        let messages = records
+            .into_iter()
+            .map(
+                |RecordBody {
+                     offset_delta,
+                     timestamp_delta,
+                     key,
+                     value,
+                     headers,
+                     ..
+                 }| {
+                    Message {
+                        offset: first_offset + offset_delta as i64,
+                        timestamp: Some(if attributes.is_log_append_time() {
+                            MessageTimestamp::LogAppendTime(first_timestamp + timestamp_delta)
+                        } else {
+                            MessageTimestamp::CreateTime(first_timestamp + timestamp_delta)
+                        }),
+                        compression: attributes.compression(),
+                        key,
+                        value,
+                        headers,
+                    }
+                },
+            )
+            .collect();
+
+        MessageSet { messages }
     }
 }
 
@@ -174,7 +277,7 @@ impl Encodable for RecordBatch {
         let crc_off = dst.len();
         dst.put_i32::<T>(0); // CRC
         let crc_start = dst.len();
-        dst.put_u16::<T>(self.attributes);
+        dst.put_u16::<T>(self.attributes.bits());
         dst.put_i32::<T>(self.last_offset_delta);
         dst.put_i64::<T>(self.first_timestamp);
         dst.put_i64::<T>(self.max_timestamp);
@@ -273,7 +376,7 @@ named!(parse_record_batch<RecordBatch>,
      >> partition_leader_epoch: be_i32
      >> magic: verify!(be_u8, |magic| magic >= RecordFormat::V2 as u8)
      >> crc: be_u32
-     >> attributes: be_u16
+     >> attributes: map!(be_u16, RecordBatchAttributes::from_bits_truncate)
      >> last_offset_delta: be_i32
      >> first_timestamp: be_i64
      >> max_timestamp: be_i64
@@ -381,7 +484,7 @@ mod tests {
             first_offset: 1,
             last_offset_delta: 2,
             partition_leader_epoch: 3,
-            attributes: 4,
+            attributes: RecordBatchAttributes::from(Compression::LZ4).within_transactional(),
             first_timestamp: 5,
             max_timestamp: 6,
             producer_id: 7,
@@ -435,9 +538,9 @@ mod tests {
             //  magic
             0x02,
             //  crc
-            0x36, 0x11, 0xA2, 0xEE,
+            0x37, 0x69, 0x39, 0xE6,
             //  attributes
-            0x00, 0x04,
+            0x00, 0x13,
             //  last_offset_delta
             0x00, 0x00, 0x00, 0x02,
             //  first_timestamp
@@ -491,7 +594,7 @@ mod tests {
         assert_eq!(
             &buf,
             &*ENCODED_RECORD_BATCH,
-            "encoded record batch {:?} to buffer\n{}",
+            "encoded record batch {:?} to buffer:\n{}\n",
             record,
             hexdump!(&buf)
         );
@@ -513,7 +616,7 @@ mod tests {
         assert_eq!(
             &buf,
             &*ENCODED_RECORD_BODY,
-            "encoded record body {:?} to buffer\n{}",
+            "encoded record body {:?} to buffer:\n{}\n",
             body,
             hexdump!(&buf)
         );

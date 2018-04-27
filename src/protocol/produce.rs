@@ -361,7 +361,7 @@ mod tests {
                         //      first offset
                         0, 0, 0, 0, 0, 0, 0, 0,
                         //      length
-                        0, 0, 0, 49,
+                        0, 0, 0, 74,
                         //      partition_leader_epoch
                         0, 0, 0, 0,
                         //      magic
