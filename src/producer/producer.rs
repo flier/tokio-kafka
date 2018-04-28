@@ -178,7 +178,7 @@ where
                                     .from_err()
                                     .and_then(move |_| inner.flush_batches(false))
                                     .map(|_| ())
-                                    .map_err(|_| ())
+                                    .map_err(|e| warn!("flush batch error: {:?}", e))
                             };
 
                             inner.clone().client.handle().spawn(future);
