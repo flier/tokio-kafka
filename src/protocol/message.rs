@@ -3,17 +3,14 @@ use std::mem;
 use std::ops::Deref;
 
 use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
-
-use nom::{be_i32, be_i64, be_i8};
-
+use nom::{self, be_i32, be_i64, be_u32, be_u8};
 use time;
-
 use crc::crc32;
 
 use compression::Compression;
 use errors::{ErrorKind, Result};
-use protocol::{parse_opt_bytes, ApiVersion, Encodable, Offset, ParseTag, Record, RecordBatch, RecordHeader, Timestamp,
-               WriteExt, BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
+use protocol::{parse_opt_bytes, Encodable, Offset, ParseTag, Record, RecordBatch, RecordHeader, Timestamp, WriteExt,
+               BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
 
 pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
 pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
@@ -26,12 +23,47 @@ const RECORD_HEADER_SIZE: usize = OFFSET_SIZE + MSG_SIZE + CRC_SIZE + MAGIC_SIZE
 
 const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum RecordFormat {
     V0,
     V1,
     V2,
+}
+
+impl From<u8> for RecordFormat {
+    fn from(n: u8) -> Self {
+        unsafe { mem::transmute(n) }
+    }
+}
+
+bitflags! {
+    pub struct MessageAttributes: u8 {
+        /// the compression codec used for the message.
+        const COMPRESSION_CODEC_MASK = 0x07;
+        // the timestamp type.
+        const TIMESTAMP_TYPE_MASK = 0x08;
+    }
+}
+
+impl From<Compression> for MessageAttributes {
+    fn from(compression: Compression) -> Self {
+        MessageAttributes::from_bits_truncate(compression as i8 as u8)
+    }
+}
+
+impl MessageAttributes {
+    pub fn compression(&self) -> Compression {
+        Compression::from((*self & MessageAttributes::COMPRESSION_CODEC_MASK).bits() as i8)
+    }
+
+    pub fn is_log_append_time(&self) -> bool {
+        self.contains(MessageAttributes::TIMESTAMP_TYPE_MASK)
+    }
+
+    pub fn with_log_append_time(self) -> Self {
+        self | MessageAttributes::TIMESTAMP_TYPE_MASK
+    }
 }
 
 /// Message sets
@@ -45,7 +77,7 @@ pub enum RecordFormat {
 /// `MessageSet` => [Offset `MessageSize` Message]
 ///   Offset => int64
 ///   `MessageSize` => int32
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MessageSet {
     pub messages: Vec<Message>,
 }
@@ -87,7 +119,7 @@ impl Record for MessageSet {
 ///   Timestamp => int64
 ///   Key => bytes
 ///   Value => bytes
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Message {
     pub offset: Offset,
     pub timestamp: Option<MessageTimestamp>,
@@ -162,7 +194,6 @@ impl MessageSetEncoder {
 
     pub fn encode<T: ByteOrder>(&self, message_set: &MessageSet, buf: &mut BytesMut) -> Result<()> {
         let mut offset: Offset = 0;
-
         buf.reserve(message_set.size(self.record_format));
 
         match self.record_format {
@@ -224,51 +255,51 @@ impl MessageSetEncoder {
     }
 }
 
-named_args!(pub parse_message_set(api_version: ApiVersion)<MessageSet>,
+named!(pub parse_message_set<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
+        map!(many0!(parse_message), |messages| MessageSet { messages })
+    )
+);
+
+#[cfg_attr(rustfmt, rustfmt_skip)]
+named!(parse_message<Message>,
+    parse_tag!(
+        ParseTag::Message,
         do_parse!(
-            messages: many0!(apply!(parse_message, api_version))
-         >> (MessageSet {
-                messages,
-            })
+            offset: be_i64
+         >> message: length_value!(be_i32, apply!(parse_message_body, offset))
+         >> (
+                message
+            )
         )
     )
 );
 
-named_args!(parse_message(_api_version: ApiVersion)<Message>,
-    parse_tag!(ParseTag::Message,
-        do_parse!(
-            offset: be_i64
-         >> size: be_i32
-         >> data: peek!(take!(size))
-         >> _crc: parse_tag!(ParseTag::MessageCrc,
-            verify!(be_i32, |checksum: i32| {
-                let crc = crc32::checksum_ieee(&data[mem::size_of::<i32>()..]);
-
-                if crc != checksum as u32 {
-                    trace!("message checksum mismatched, expected={}, current={}", crc, checksum as u32);
-                }
-
-                crc == checksum as u32
-            }))
-         >> magic: be_i8
-         >> attrs: be_i8
-         >> timestamp: cond!(magic > 0, be_i64)
-         >> key: parse_opt_bytes
-         >> value: parse_opt_bytes
-         >> ({
+named_args!(
+    parse_message_body(offset: Offset)<Message>,
+    do_parse!(
+        crc: be_u32
+     >> verify!(peek!(nom::rest), |remaining| crc == crc32::checksum_ieee(remaining))
+     >> record_format: verify!(map!(be_u8, RecordFormat::from), |record_format| record_format < RecordFormat::V2)
+     >> attrs: map!(be_u8, MessageAttributes::from_bits_truncate)
+     >> timestamp: cond!(record_format > RecordFormat::V0, be_i64)
+     >> key: parse_opt_bytes
+     >> value: parse_opt_bytes
+     >> (
             Message {
                 offset,
-                timestamp: timestamp.map(|ts| if (attrs & TIMESTAMP_TYPE_MASK) == 0 {
-                    MessageTimestamp::CreateTime(ts)
-                }else {
-                    MessageTimestamp::LogAppendTime(ts)
+                timestamp: timestamp.map(|ts| {
+                    if attrs.is_log_append_time() {
+                        MessageTimestamp::LogAppendTime(ts)
+                    } else {
+                        MessageTimestamp::CreateTime(ts)
+                    }
                 }),
-                compression: Compression::from(attrs & COMPRESSION_CODEC_MASK),
+                compression: attrs.compression(),
                 key,
                 value,
                 headers: Vec::new(),
-            }})
+            }
         )
     )
 );
@@ -296,7 +327,7 @@ impl MessageSetBuilder {
             base_offset,
             last_offset: None,
             base_timestamp: None,
-            message_set: MessageSet { messages: vec![] },
+            message_set: Default::default(),
         }
     }
 
@@ -441,17 +472,23 @@ mod tests {
     #[test]
     fn parse_empty_message_set() {
         assert_eq!(
-            parse_message_set(&[][..], 0),
+            parse_message_set(&[][..]),
             IResult::Done(&[][..], MessageSet { messages: vec![] })
         );
     }
 
     #[test]
     fn parse_message_set_v0() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let data = vec![
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 22 /* size */, 197,
-            70, 142, 169 /* crc */, 0 /* magic */, 8 /* attributes */, 0, 0, 0, 3, b'k', b'e',
-            b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e' /* value */,
+            // messages: [Message]
+            0, 0, 0, 0, 0, 0, 0, 0, // offset
+            0, 0, 0, 22,            // size
+            197, 70, 142, 169,      // crc
+            0,                      // magic
+            8,                      // attributes
+            0, 0, 0, 3, b'k', b'e', b'y',
+            0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
         ];
 
         let message_set = MessageSet {
@@ -467,7 +504,7 @@ mod tests {
             ],
         };
 
-        let res = parse_message_set(&data[..], 0);
+        let res = parse_message_set(&data[..]);
 
         display_parse_error::<_>(&data[..], res.clone());
 
@@ -476,11 +513,17 @@ mod tests {
 
     #[test]
     fn parse_message_set_v1() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let data = vec![
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 30 /* size */, 206,
-            63, 210, 11 /* crc */, 1 /* magic */, 8 /* attributes */, 0, 0, 0, 0, 0, 0, 1,
-            200 /* timestamp */, 0, 0, 0, 3, b'k', b'e', b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u',
-            b'e' /* value */,
+            // messages: [Message]
+            0, 0, 0, 0, 0, 0, 0, 0,     // offset
+            0, 0, 0, 30,                // size
+            206, 63, 210, 11,           // crc
+            1,                          // magic
+            8,                          // attributes
+            0, 0, 0, 0, 0, 0, 1, 200,   // timestamp
+            0, 0, 0, 3, b'k', b'e', b'y',
+            0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
         ];
 
         let message_set = MessageSet {
@@ -496,7 +539,7 @@ mod tests {
             ],
         };
 
-        let res = parse_message_set(&data[..], 1);
+        let res = parse_message_set(&data[..]);
 
         display_parse_error::<_>(&data[..], res.clone());
 

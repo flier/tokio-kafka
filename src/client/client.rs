@@ -31,8 +31,8 @@ use errors::{Error, Result};
 use errors::ErrorKind::{self, *};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition, DEFAULT_PORT};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
-               GenerationId, IsolationLevel, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet,
-               Offset, PartitionId, RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions,
+               GenerationId, IsolationLevel, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, Offset,
+               PartitionId, RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions,
                DEFAULT_RESPONSE_MAX_BYTES};
 
 /// A trait for communicating with the Kafka cluster.
@@ -46,13 +46,16 @@ pub trait Client<'a>: 'static {
 
     /// Send the given record asynchronously and return a future which will eventually contain
     /// the response information.
-    fn produce_records(
+    fn produce_records<I, M>(
         &self,
         acks: RequiredAcks,
         timeout: Duration,
         topic_partition: TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> ProduceRecords;
+        records: I,
+    ) -> ProduceRecords
+    where
+        I: 'static + IntoIterator<Item = M>,
+        M: Into<Message>;
 
     /// Fetch records of partitions for all nodes for which we have assigned
     /// partitions.
@@ -452,13 +455,17 @@ where
         self.inner.config.retry_strategy()
     }
 
-    fn produce_records(
+    fn produce_records<I, M>(
         &self,
         required_acks: RequiredAcks,
         timeout: Duration,
         tp: TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> ProduceRecords {
+        records: I,
+    ) -> ProduceRecords
+    where
+        I: 'static + IntoIterator<Item = M>,
+        M: Into<Message>,
+    {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| inner.produce_records(&metadata, required_acks, timeout, &tp, records))
@@ -858,14 +865,18 @@ where
         future::join_all(responses).map(HashMap::from_iter).static_boxed()
     }
 
-    fn produce_records(
+    fn produce_records<I, M>(
         &self,
         metadata: &Metadata,
         required_acks: RequiredAcks,
         timeout: Duration,
         tp: &TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> ProduceRecords {
+        records: I,
+    ) -> ProduceRecords
+    where
+        I: 'static + IntoIterator<Item = M>,
+        M: Into<Message>,
+    {
         let (api_version, addr) = metadata.leader_for(tp).map_or_else(
             || (0, AutoName::Auto(self.config.hosts.first().unwrap())),
             |broker| {

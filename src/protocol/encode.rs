@@ -90,10 +90,14 @@ pub trait WriteExt: BufMut + Sized {
             bail!(ErrorKind::EncodeError("array exceeds the maximum size."))
         }
 
-        self.put_i32::<T>(items.len() as i32);
+        if items.is_empty() {
+            self.put_i32::<T>(-1);
+        } else {
+            self.put_i32::<T>(items.len() as i32);
 
-        for item in items {
-            callback(self, item)?;
+            for item in items {
+                callback(self, item)?;
+            }
         }
 
         Ok(())

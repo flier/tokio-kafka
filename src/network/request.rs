@@ -9,7 +9,7 @@ use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, DescribeGroupsRequest, Encodable,
                FetchOffset, FetchRequest, FetchTopic, GenerationId, GroupCoordinatorRequest, HeartbeatRequest,
                IsolationLevel, JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest,
-               ListOffsetRequest, ListPartitionOffset, ListTopicOffset, MessageSet, MetadataRequest,
+               ListOffsetRequest, ListPartitionOffset, ListTopicOffset, Message, MessageSet, MetadataRequest,
                OffsetCommitPartition, OffsetCommitRequest, OffsetCommitTopic, OffsetFetchPartition,
                OffsetFetchRequest, OffsetFetchTopic, PartitionId, ProducePartitionData, ProduceRequest,
                ProduceTopicData, Request, RequestHeader, RequiredAck, RequiredAcks, SyncGroupAssignment,
@@ -53,7 +53,7 @@ impl<'a> KafkaRequest<'a> {
         }
     }
 
-    pub fn produce_records(
+    pub fn produce_records<I, M>(
         api_version: ApiVersion,
         correlation_id: CorrelationId,
         client_id: Option<Cow<'a, str>>,
@@ -61,21 +61,12 @@ impl<'a> KafkaRequest<'a> {
         required_acks: RequiredAcks,
         ack_timeout: Duration,
         tp: &TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> KafkaRequest<'a> {
-        let topics = records
-            .into_iter()
-            .map(move |message_set| ProduceTopicData {
-                topic_name: tp.topic_name.to_owned(),
-                partitions: vec![
-                    ProducePartitionData {
-                        partition_id: tp.partition_id,
-                        message_set,
-                    },
-                ],
-            })
-            .collect();
-
+        records: I,
+    ) -> KafkaRequest<'a>
+    where
+        I: IntoIterator<Item = M>,
+        M: Into<Message>,
+    {
         let request = ProduceRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Produce as ApiKey,
@@ -86,7 +77,22 @@ impl<'a> KafkaRequest<'a> {
             transactional_id,
             required_acks: required_acks as RequiredAck,
             ack_timeout: ack_timeout.as_millis() as i32,
-            topics,
+            topics: vec![
+                ProduceTopicData {
+                    topic_name: tp.topic_name.to_owned(),
+                    partitions: vec![
+                        ProducePartitionData {
+                            partition_id: tp.partition_id,
+                            message_set: Cow::Owned(MessageSet {
+                                messages: records
+                                    .into_iter()
+                                    .map(|record| record.into())
+                                    .collect::<Vec<Message>>(),
+                            }),
+                        },
+                    ],
+                },
+            ],
         };
 
         KafkaRequest::Produce(request)

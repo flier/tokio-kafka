@@ -19,7 +19,7 @@ use client::{Broker, BrokerRef, Client, Cluster, ConsumerGroup, ConsumerGroupAss
 use consumer::Assignment;
 use errors::{ErrorKind, Result};
 use network::{OffsetAndMetadata, TopicPartition};
-use protocol::{FetchOffset, IsolationLevel, KafkaCode, MessageSet, RequiredAcks, Schema};
+use protocol::{FetchOffset, IsolationLevel, KafkaCode, Message, RequiredAcks, Schema};
 
 #[derive(Clone)]
 pub struct MockClient<'a> {
@@ -115,13 +115,17 @@ where
         unimplemented!()
     }
 
-    fn produce_records(
+    fn produce_records<I, M>(
         &self,
         acks: RequiredAcks,
         timeout: Duration,
         topic_partition: TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> ProduceRecords {
+        records: I,
+    ) -> ProduceRecords
+    where
+        I: IntoIterator<Item = M>,
+        M: Into<Message>,
+    {
         unimplemented!()
     }
 

@@ -8,8 +8,8 @@ use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{parse_message_set, parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, MessageSet,
-               Offset, ParseTag, PartitionId, ReplicaId, Request, RequestHeader, ResponseHeader, WriteExt,
-               ARRAY_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE, REPLICA_ID_SIZE, STR_LEN_SIZE};
+               Offset, ParseTag, PartitionId, ProducerId, ReplicaId, Request, RequestHeader, ResponseHeader,
+               SessionId, WriteExt, ARRAY_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE, REPLICA_ID_SIZE, STR_LEN_SIZE};
 use network::TopicPartition;
 
 pub const DEFAULT_RESPONSE_MAX_BYTES: i32 = i32::MAX;
@@ -44,7 +44,7 @@ impl Default for IsolationLevel {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FetchSession<'a> {
     /// The fetch session ID
-    pub id: i32,
+    pub id: SessionId,
     /// The fetch epoch
     pub epoch: i32,
     /// Topics to remove from the fetch session.
@@ -200,6 +200,10 @@ pub struct FetchResponse {
     /// Duration in milliseconds for which the request was throttled due to
     /// quota violation.
     pub throttle_time: Option<i32>,
+    /// Response error code
+    pub error_code: Option<ErrorCode>,
+    /// The fetch session ID
+    pub session_id: Option<SessionId>,
     pub topics: Vec<FetchTopicData>,
 }
 
@@ -214,10 +218,27 @@ pub struct FetchTopicData {
 pub struct FetchPartitionData {
     /// The id of the partition the fetch is for.
     pub partition_id: PartitionId,
+    /// Response error code
     pub error_code: ErrorCode,
     /// The offset at the end of the log for this partition.
     pub high_watermark: Offset,
+    /// The last stable offset (or LSO) of the partition.
+    ///
+    /// This is the last offset such that the state of all transactional records prior to this offset have been
+    /// decided (ABORTED or COMMITTED)
+    pub last_stable_offset: Option<Offset>,
+    /// Earliest available offset.
+    pub log_start_offset: Option<Offset>,
+    pub aborted_transactions: Option<FetchAbortedTransactions>,
     pub message_set: MessageSet,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FetchAbortedTransactions {
+    /// The producer id associated with the aborted transactions
+    pub producer_id: ProducerId,
+    /// The first offset in the aborted transaction
+    pub first_offset: Offset,
 }
 
 impl FetchResponse {
@@ -231,10 +252,14 @@ named_args!(parse_fetch_response(api_version: ApiVersion)<FetchResponse>,
         do_parse!(
             header: parse_response_header
          >> throttle_time: cond!(api_version > 0, be_i32)
+         >> error_code: cond!(api_version > 6, be_i16)
+         >> session_id: cond!(api_version > 6, be_i32)
          >> topics: length_count!(be_i32, apply!(parse_fetch_topic_data, api_version))
          >> (FetchResponse {
                 header,
                 throttle_time,
+                error_code,
+                session_id,
                 topics,
             })
         )
@@ -260,14 +285,30 @@ named_args!(parse_fetch_partition_data(api_version: ApiVersion)<FetchPartitionDa
             partition_id: be_i32
          >> error_code: be_i16
          >> high_watermark: be_i64
-         >> message_set: length_value!(be_i32, apply!(parse_message_set, api_version))
+         >> last_stable_offset: cond!(api_version > 3, be_i64)
+         >> log_start_offset: cond!(api_version > 4, be_i64)
+         >> aborted_transactions: cond!(api_version > 4, parse_aborted_transactions)
+         >> message_set: length_value!(be_i32, parse_message_set)
          >> (FetchPartitionData {
                 partition_id,
                 error_code,
                 high_watermark,
+                last_stable_offset,
+                log_start_offset,
+                aborted_transactions,
                 message_set,
             })
         )
+    )
+);
+
+named!(
+    parse_aborted_transactions<FetchAbortedTransactions>,
+    do_parse!(
+        producer_id: be_i64 >> first_offset: be_i64 >> (FetchAbortedTransactions {
+            producer_id,
+            first_offset,
+        })
     )
 );
 
@@ -311,12 +352,12 @@ mod tests {
                     ],
                     session: None,
                 }, &[
+                    // RequestHeader
+                    0, 1,           // api_key
+                    0, 1,           // api_version
+                    0, 0, 0, 123,   // correlation_id
+                    0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     // FetchRequest
-                        // RequestHeader
-                        0, 1,           // api_key
-                        0, 1,           // api_version
-                        0, 0, 0, 123,   // correlation_id
-                        0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     0, 0, 0, 2,         // replica_id
                     0, 0, 0, 3,         // max_wait_time
                     0, 0, 0, 4,         // min_bytes
@@ -359,12 +400,12 @@ mod tests {
                     ],
                     session: None,
                 }, &[
+                    // RequestHeader
+                    0, 1,           // api_key
+                    0, 3,           // api_version
+                    0, 0, 0, 123,   // correlation_id
+                    0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     // FetchRequest
-                        // RequestHeader
-                        0, 1,           // api_key
-                        0, 3,           // api_version
-                        0, 0, 0, 123,   // correlation_id
-                        0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     0, 0, 0, 2,         // replica_id
                     0, 0, 0, 3,         // max_wait_time
                     0, 0, 0, 4,         // min_bytes
@@ -408,12 +449,12 @@ mod tests {
                     ],
                     session: None,
                 }, &[
+                    // RequestHeader
+                    0, 1,           // api_key
+                    0, 4,           // api_version
+                    0, 0, 0, 123,   // correlation_id
+                    0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     // FetchRequest
-                        // RequestHeader
-                        0, 1,           // api_key
-                        0, 4,           // api_version
-                        0, 0, 0, 123,   // correlation_id
-                        0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     0, 0, 0, 2,         // replica_id
                     0, 0, 0, 3,         // max_wait_time
                     0, 0, 0, 4,         // min_bytes
@@ -458,12 +499,12 @@ mod tests {
                     ],
                     session: None,
                 }, &[
+                    // RequestHeader
+                    0, 1,           // api_key
+                    0, 5,           // api_version
+                    0, 0, 0, 123,   // correlation_id
+                    0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     // FetchRequest
-                        // RequestHeader
-                        0, 1,           // api_key
-                        0, 5,           // api_version
-                        0, 0, 0, 123,   // correlation_id
-                        0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     0, 0, 0, 2,         // replica_id
                     0, 0, 0, 3,         // max_wait_time
                     0, 0, 0, 4,         // min_bytes
@@ -516,12 +557,12 @@ mod tests {
                         ],
                     }),
                 }, &[
+                    // RequestHeader
+                    0, 1,           // api_key
+                    0, 7,           // api_version
+                    0, 0, 0, 123,   // correlation_id
+                    0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     // FetchRequest
-                        // RequestHeader
-                        0, 1,           // api_key
-                        0, 7,           // api_version
-                        0, 0, 0, 123,   // correlation_id
-                        0, 6, b'c', b'l', b'i', b'e', b'n', b't', // client_id
                     0, 0, 0, 2,         // replica_id
                     0, 0, 0, 3,         // max_wait_time
                     0, 0, 0, 4,         // min_bytes
@@ -565,103 +606,214 @@ mod tests {
         }
     }
 
-    #[test]
-    fn parse_fetch_response_v0() {
-        let response = FetchResponse {
-            header: ResponseHeader { correlation_id: 123 },
-            throttle_time: None,
-            topics: vec![
-                FetchTopicData {
-                    topic_name: "topic".to_owned(),
-                    partitions: vec![
-                        FetchPartitionData {
-                            partition_id: 1,
-                            error_code: 2,
-                            high_watermark: 3,
-                            message_set: MessageSet {
-                                messages: vec![
-                                    Message {
-                                        offset: 0,
-                                        compression: Compression::None,
-                                        key: Some(Bytes::from(&b"key"[..])),
-                                        value: Some(Bytes::from(&b"value"[..])),
-                                        timestamp: None,
-                                        headers: Vec::new(),
+    lazy_static! {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        static ref TEST_RESPONSES: Vec<(ApiVersion, FetchResponse, &'static [u8])> = vec![
+            (
+                0,
+                FetchResponse {
+                    header: ResponseHeader { correlation_id: 123 },
+                    throttle_time: None,
+                    error_code: None,
+                    session_id: None,
+                    topics: vec![
+                        FetchTopicData {
+                            topic_name: "topic".to_owned(),
+                            partitions: vec![
+                                FetchPartitionData {
+                                    partition_id: 1,
+                                    error_code: 2,
+                                    high_watermark: 3,
+                                    last_stable_offset: None,
+                                    log_start_offset: None,
+                                    aborted_transactions: None,
+                                    message_set: MessageSet {
+                                        messages: vec![
+                                            Message {
+                                                offset: 0,
+                                                compression: Compression::None,
+                                                key: Some(Bytes::from(&b"key"[..])),
+                                                value: Some(Bytes::from(&b"value"[..])),
+                                                timestamp: None,
+                                                headers: Vec::new(),
+                                            },
+                                        ],
                                     },
-                                ],
-                            },
+                                },
+                            ],
                         },
                     ],
-                },
-            ],
-        };
-
-        let data = vec![
-            /* ResponseHeader */ 0, 0, 0, 123 /* correlation_id */,
-            /* 0, 0, 0, 1,     // throttle_time
-             * topics: [TopicData] */ 0, 0, 0, 1, 0, 5, b't',
-            b'o', b'p', b'i', b'c' /* topic_name */, /* partitions: [PartitionData] */ 0, 0, 0, 1, 0, 0, 0,
-            1 /* partition */, 0, 2 /* error_code */, 0, 0, 0, 0, 0, 0, 0,
-            3 /* highwater_mark_offset */, /* MessageSet */ 0, 0, 0, 34 /* size */,
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 22 /* size */, 197,
-            70, 142, 169 /* crc */, 0 /* magic */, 8 /* attributes */,
-            /* 0, 0, 0, 0, 0, 0, 1, 200,           // timestamp */ 0, 0, 0, 3, 107, 101, 121 /* key */, 0, 0,
-            0, 5, 118, 97, 108, 117, 101 /* value */,
+                }, &[
+                    // ResponseHeader
+                    0, 0, 0, 123,   // correlation_id
+                    // FetchResponse
+                    // topics: [TopicData]
+                    0, 0, 0, 1,
+                        0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
+                        // partitions: [PartitionData]
+                        0, 0, 0, 1,
+                            0, 0, 0, 1,             // partition
+                            0, 2,                   // error_code
+                            0, 0, 0, 0, 0, 0, 0, 3, // highwater_mark
+                            // MessageSet
+                            0, 0, 0, 34,            // size
+                                // messages: [Message]
+                                0, 0, 0, 0, 0, 0, 0, 0,     // offset
+                                0, 0, 0, 22,                // size
+                                197, 70, 142, 169,          // crc
+                                0,                          // magic
+                                8,                          // attributes
+                                0, 0, 0, 3, b'k', b'e', b'y',
+                                0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
+                ]
+            ), (
+                1,
+                FetchResponse {
+                    header: ResponseHeader { correlation_id: 123 },
+                    throttle_time: None,
+                    error_code: None,
+                    session_id: None,
+                    topics: vec![
+                        FetchTopicData {
+                            topic_name: "topic".to_owned(),
+                            partitions: vec![
+                                FetchPartitionData {
+                                    partition_id: 1,
+                                    error_code: 2,
+                                    high_watermark: 3,
+                                    last_stable_offset: None,
+                                    log_start_offset: None,
+                                    aborted_transactions: None,
+                                    message_set: MessageSet {
+                                        messages: vec![
+                                            Message {
+                                                offset: 0,
+                                                compression: Compression::None,
+                                                key: Some(Bytes::from(&b"key"[..])),
+                                                value: Some(Bytes::from(&b"value"[..])),
+                                                timestamp: None,
+                                                headers: Vec::new(),
+                                            },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }, &[
+                    // ResponseHeader
+                    0, 0, 0, 123,   // correlation_id
+                    // FetchResponse
+                    0, 0, 0, 1,     // throttle_time
+                    // topics: [TopicData]
+                    0, 0, 0, 1,
+                        0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
+                        // partitions: [PartitionData]
+                        0, 0, 0, 1,
+                            0, 0, 0, 1,             // partition
+                            0, 2,                   // error_code
+                            0, 0, 0, 0, 0, 0, 0, 3, // highwater_mark
+                            // MessageSet
+                            0, 0, 0, 42,            // size
+                                // messages: [Message]
+                                0, 0, 0, 0, 0, 0, 0, 0,     // offset
+                                0, 0, 0, 30,                // size
+                                206, 63, 210, 11,           // crc
+                                1,                          // magic
+                                8,                          // attributes
+                                0, 0, 0, 0, 0, 0, 1, 200,   // timestamp
+                                0, 0, 0, 3, b'k', b'e', b'y',
+                                0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
+                ]
+            ), (
+                4,
+                FetchResponse {
+                    header: ResponseHeader { correlation_id: 123 },
+                    throttle_time: Some(1),
+                    error_code: None,
+                    session_id: None,
+                    topics: vec![
+                        FetchTopicData {
+                            topic_name: "topic".to_owned(),
+                            partitions: vec![
+                                FetchPartitionData {
+                                    partition_id: 1,
+                                    error_code: 2,
+                                    high_watermark: 3,
+                                    last_stable_offset: Some(4),
+                                    log_start_offset: None,
+                                    aborted_transactions: Some(FetchAbortedTransactions {
+                                        producer_id: 5,
+                                        first_offset: 6,
+                                    }),
+                                    message_set: MessageSet {
+                                        messages: vec![
+                                            Message {
+                                                offset: 0,
+                                                compression: Compression::None,
+                                                key: Some(Bytes::from(&b"key"[..])),
+                                                value: Some(Bytes::from(&b"value"[..])),
+                                                timestamp: Some(MessageTimestamp::LogAppendTime(456)),
+                                                headers: Vec::new(),
+                                            },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }, &[
+                    // ResponseHeader */
+                    0, 0, 0, 123,   // correlation_id
+                    // FetchResponse
+                    0, 0, 0, 1,     // throttle_time
+                    // topics: [TopicData]
+                    0, 0, 0, 1,
+                        0, 5, b't', b'o', b'p', b'i', b'c', // topic_name
+                        // partitions: [PartitionData]
+                        0, 0, 0, 1,
+                            0, 0, 0, 1,             // partition
+                            0, 2,                   // error_code
+                            0, 0, 0, 0, 0, 0, 0, 3, // highwater_mark
+                            0, 0, 0, 0, 0, 0, 0, 4, // last_stable_offset
+                            // aborted_transactions: FetchAbortedTransactions
+                                0, 0, 0, 0, 0, 0, 0, 5, // producer_id
+                                0, 0, 0, 0, 0, 0, 0, 6, // first_offset
+                            // MessageSet
+                            0, 0, 0, 42,            // size
+                                // messages: [Message]
+                                0, 0, 0, 0, 0, 0, 0, 0,     // offset
+                                0, 0, 0, 22,                // size
+                                206, 63, 210, 11,           // crc
+                                1,                          // magic
+                                8,                          // attributes
+                                0, 0, 0, 0, 0, 0, 1, 200,   // timestamp
+                                0, 0, 0, 3, b'k', b'e', b'y',
+                                0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
+                ]
+            )
         ];
-
-        let res = parse_fetch_response(&data[..], 0);
-
-        display_parse_error::<_>(&data[..], res.clone());
-
-        assert_eq!(res, IResult::Done(&[][..], response));
     }
 
     #[test]
-    fn parse_fetch_response_v1() {
-        let response = FetchResponse {
-            header: ResponseHeader { correlation_id: 123 },
-            throttle_time: Some(1),
-            topics: vec![
-                FetchTopicData {
-                    topic_name: "topic".to_owned(),
-                    partitions: vec![
-                        FetchPartitionData {
-                            partition_id: 1,
-                            error_code: 2,
-                            high_watermark: 3,
-                            message_set: MessageSet {
-                                messages: vec![
-                                    Message {
-                                        offset: 0,
-                                        compression: Compression::None,
-                                        key: Some(Bytes::from(&b"key"[..])),
-                                        value: Some(Bytes::from(&b"value"[..])),
-                                        timestamp: Some(MessageTimestamp::LogAppendTime(456)),
-                                        headers: Vec::new(),
-                                    },
-                                ],
-                            },
-                        },
-                    ],
-                },
-            ],
-        };
+    fn parse_fetch_responses() {
+        use pretty_env_logger;
 
-        let data = vec![
-            /* ResponseHeader */ 0, 0, 0, 123 /* correlation_id */, 0, 0, 0, 1 /* throttle_time */,
-            /* topics: [TopicData] */ 0, 0, 0, 1, 0, 5, b't', b'o', b'p', b'i', b'c' /* topic_name */,
-            /* partitions: [PartitionData] */ 0, 0, 0, 1, 0, 0, 0, 1 /* partition */, 0,
-            2 /* error_code */, 0, 0, 0, 0, 0, 0, 0, 3 /* highwater_mark_offset */, /* MessageSet */ 0,
-            0, 0, 42 /* size */, /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0,
-            30 /* size */, 206, 63, 210, 11 /* crc */, 1 /* magic */, 8 /* attributes */, 0, 0, 0,
-            0, 0, 0, 1, 200 /* timestamp */, 0, 0, 0, 3, 107, 101, 121 /* key */, 0, 0, 0, 5, 118, 97, 108,
-            117, 101 /* value */,
-        ];
+        let _ = pretty_env_logger::try_init();
 
-        let res = parse_fetch_response(&data[..], 1);
+        for &(api_version, ref response, ref data) in &*TEST_RESPONSES {
+            let res = parse_fetch_response(data, api_version);
 
-        display_parse_error::<_>(&data[..], res.clone());
+            display_parse_error::<_>(data, res.clone());
 
-        assert_eq!(res, IResult::Done(&[][..], response));
+            assert_eq!(
+                res,
+                IResult::Done(&[][..], response.clone()),
+                "fail to parse fech response, api_version {}, expected: {:#?}\n{}",
+                api_version,
+                response,
+                hexdump!(data)
+            );
+        }
     }
 }

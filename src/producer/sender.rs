@@ -1,4 +1,4 @@
-use std::borrow::{Borrow, Cow};
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -57,7 +57,6 @@ where
         let partition_id = self.tp.partition_id;
         let acks = self.acks;
         let ack_timeout = self.ack_timeout;
-        let message_set = Cow::Owned(self.message_set.clone());
         let thunks = self.thunks.clone();
         let interceptors = self.interceptors.clone();
 
@@ -66,7 +65,7 @@ where
                 acks,
                 ack_timeout,
                 topic_partition!(topic_name.clone(), partition_id),
-                vec![message_set],
+                self.message_set.messages.clone(),
             )
             .map(move |responses| {
                 responses.get(&topic_name).map(|partitions| {

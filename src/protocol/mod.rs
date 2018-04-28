@@ -101,6 +101,12 @@ pub type RequiredAck = i16;
 /// The generation of the group.
 pub type GenerationId = i32;
 
+/// The fetch session ID
+pub type SessionId = i32;
+
+/// The producer ID
+pub type ProducerId = i64;
+
 /// Possible choices on acknowledgement requirements when producing/sending
 /// messages to Kafka.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
