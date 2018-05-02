@@ -12,9 +12,6 @@ use errors::{ErrorKind, Result};
 use protocol::{parse_opt_bytes, Encodable, Offset, ParseTag, Record, RecordBatch, RecordHeader, Timestamp, WriteExt,
                BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
 
-pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
-pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
-
 const MSG_SIZE: usize = 4;
 const CRC_SIZE: usize = 4;
 const MAGIC_SIZE: usize = 1;
@@ -101,24 +98,6 @@ impl Record for MessageSet {
     }
 }
 
-/// Message format
-///
-/// v0
-/// Message => Crc `MagicByte` Attributes Key Value
-///   Crc => int32
-///   `MagicByte` => int8
-///   Attributes => int8
-///   Key => bytes
-///   Value => bytes
-///
-/// v1 (supported since 0.10.0)
-/// Message => Crc `MagicByte` Attributes Key Value
-///   Crc => int32
-///   `MagicByte` => int8
-///   Attributes => int8
-///   Timestamp => int64
-///   Key => bytes
-///   Value => bytes
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Message {
     pub offset: Offset,
@@ -221,6 +200,24 @@ impl MessageSetEncoder {
         }
     }
 
+    /// Message format
+    ///
+    /// v0
+    /// Message => Crc `MagicByte` Attributes Key Value
+    ///   Crc => int32
+    ///   `MagicByte` => int8
+    ///   Attributes => int8
+    ///   Key => bytes
+    ///   Value => bytes
+    ///
+    /// v1 (supported since 0.10.0)
+    /// Message => Crc `MagicByte` Attributes Key Value
+    ///   Crc => int32
+    ///   `MagicByte` => int8
+    ///   Attributes => int8
+    ///   Timestamp => int64
+    ///   Key => bytes
+    ///   Value => bytes
     fn encode_message<T: ByteOrder>(&self, message: &Message, offset: Offset, buf: &mut BytesMut) -> Result<()> {
         buf.put_i64::<T>(offset);
         let size_off = buf.len();
@@ -229,14 +226,14 @@ impl MessageSetEncoder {
         buf.put_i32::<T>(0);
         let data_off = buf.len();
         buf.put_i8(self.record_format as i8);
-        buf.put_i8(
-            (self.compression.unwrap_or(message.compression) as i8 & COMPRESSION_CODEC_MASK)
-                | if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
-                    TIMESTAMP_TYPE_MASK
-                } else {
-                    0
-                },
-        );
+
+        let mut attrs = MessageAttributes::from(self.compression.unwrap_or(message.compression));
+
+        if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
+            attrs |= MessageAttributes::TIMESTAMP_TYPE_MASK
+        };
+
+        buf.put_u8(attrs.bits());
 
         if self.record_format == RecordFormat::V1 {
             buf.put_i64::<T>(message.timestamp.map(Timestamp::from).unwrap_or_default() as i64);

@@ -367,6 +367,20 @@ impl Encodable for RecordHeader {
     }
 }
 
+/// RecordBatch =>
+///   FirstOffset => int64
+///   Length => int32
+///   PartitionLeaderEpoch => int32
+///   Magic => int8
+///   CRC => int32
+///   Attributes => int16
+///   LastOffsetDelta => int32
+///   FirstTimestamp => int64
+///   MaxTimestamp => int64
+///   ProducerId => int64
+///   ProducerEpoch => int16
+///   FirstSequence => int32
+///   Records => [Record]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 named!(parse_record_batch<RecordBatch>,
     do_parse!(
@@ -407,6 +421,16 @@ named!(parse_record_batch<RecordBatch>,
     )
 );
 
+/// Record =>
+///   Length => varint
+///   Attributes => int8
+///   TimestampDelta => varint
+///   OffsetDelta => varint
+///   KeyLen => varint
+///   Key => data
+///   ValueLen => varint
+///   Value => data
+///   Headers => [Header]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 named!(parse_record_body<RecordBody>,
     do_parse!(
@@ -437,6 +461,11 @@ named!(parse_record_body<RecordBody>,
     )
 );
 
+/// Header => HeaderKey HeaderVal
+///   HeaderKeyLen => varint
+///   HeaderKey => string
+///   HeaderValueLen => varint
+///   HeaderValue => data
 #[cfg_attr(rustfmt, rustfmt_skip)]
 named!(parse_record_header<RecordHeader>,
     do_parse!(
