@@ -254,7 +254,7 @@ impl MessageSetEncoder {
 
 named!(pub parse_message_set<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
-        map!(many0!(parse_message), |messages| MessageSet { messages })
+        map!(many1!(parse_message), |messages| MessageSet { messages })
     )
 );
 
@@ -461,85 +461,70 @@ impl MessageSetBuilder {
 
 #[cfg(test)]
 mod tests {
-    use nom::IResult;
+    use nom::{IResult, Needed};
 
     use super::*;
     use protocol::*;
 
-    #[test]
-    fn parse_empty_message_set() {
-        assert_eq!(
-            parse_message_set(&[][..]),
-            IResult::Done(&[][..], MessageSet { messages: vec![] })
-        );
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    lazy_static! {
+        static ref TEST_MESSAGE_SET: Vec<(&'static [u8], IResult<&'static [u8], MessageSet>)> =
+            vec![
+                (
+                    b"",
+                    IResult::Incomplete(Needed::Size(8))
+                ), (&[
+                    // messages: [Message]
+                    0, 0, 0, 0, 0, 0, 0, 0, // offset
+                    0, 0, 0, 22,            // size
+                    197, 70, 142, 169,      // crc
+                    0,                      // magic
+                    8,                      // attributes
+                    0, 0, 0, 3, b'k', b'e', b'y',
+                    0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
+                ][..], IResult::Done(&[][..], MessageSet {
+                    messages: vec![
+                        Message {
+                            offset: 0,
+                            compression: Compression::None,
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
+                            timestamp: None,
+                            headers: Vec::new(),
+                        },
+                    ],
+                })), (&[
+                    // messages: [Message]
+                    0, 0, 0, 0, 0, 0, 0, 0,     // offset
+                    0, 0, 0, 30,                // size
+                    206, 63, 210, 11,           // crc
+                    1,                          // magic
+                    8,                          // attributes
+                    0, 0, 0, 0, 0, 0, 1, 200,   // timestamp
+                    0, 0, 0, 3, b'k', b'e', b'y',
+                    0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
+                ][..], IResult::Done(&[][..], MessageSet {
+                    messages: vec![
+                        Message {
+                            offset: 0,
+                            compression: Compression::None,
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
+                            timestamp: Some(MessageTimestamp::LogAppendTime(456)),
+                            headers: Vec::new(),
+                        },
+                    ],
+                }))];
     }
 
     #[test]
-    fn parse_message_set_v0() {
-        #[cfg_attr(rustfmt, rustfmt_skip)]
-        let data = vec![
-            // messages: [Message]
-            0, 0, 0, 0, 0, 0, 0, 0, // offset
-            0, 0, 0, 22,            // size
-            197, 70, 142, 169,      // crc
-            0,                      // magic
-            8,                      // attributes
-            0, 0, 0, 3, b'k', b'e', b'y',
-            0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
-        ];
+    fn test_parse_message_set() {
+        for &(data, ref result) in TEST_MESSAGE_SET.iter() {
+            let res = parse_message_set(&data);
 
-        let message_set = MessageSet {
-            messages: vec![
-                Message {
-                    offset: 0,
-                    compression: Compression::None,
-                    key: Some(Bytes::from(&b"key"[..])),
-                    value: Some(Bytes::from(&b"value"[..])),
-                    timestamp: None,
-                    headers: Vec::new(),
-                },
-            ],
-        };
+            display_parse_error::<_>(&data, res.clone());
 
-        let res = parse_message_set(&data[..]);
-
-        display_parse_error::<_>(&data[..], res.clone());
-
-        assert_eq!(res, IResult::Done(&[][..], message_set));
-    }
-
-    #[test]
-    fn parse_message_set_v1() {
-        #[cfg_attr(rustfmt, rustfmt_skip)]
-        let data = vec![
-            // messages: [Message]
-            0, 0, 0, 0, 0, 0, 0, 0,     // offset
-            0, 0, 0, 30,                // size
-            206, 63, 210, 11,           // crc
-            1,                          // magic
-            8,                          // attributes
-            0, 0, 0, 0, 0, 0, 1, 200,   // timestamp
-            0, 0, 0, 3, b'k', b'e', b'y',
-            0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
-        ];
-
-        let message_set = MessageSet {
-            messages: vec![
-                Message {
-                    offset: 0,
-                    compression: Compression::None,
-                    key: Some(Bytes::from(&b"key"[..])),
-                    value: Some(Bytes::from(&b"value"[..])),
-                    timestamp: Some(MessageTimestamp::LogAppendTime(456)),
-                    headers: Vec::new(),
-                },
-            ],
-        };
-
-        let res = parse_message_set(&data[..]);
-
-        display_parse_error::<_>(&data[..], res.clone());
-
-        assert_eq!(res, IResult::Done(&[][..], message_set));
+            assert_eq!(res, result.clone());
+        }
     }
 }
