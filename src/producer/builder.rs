@@ -144,6 +144,12 @@ where
         self
     }
 
+    /// Sets the maximum size of a request in bytes.
+    pub fn with_max_request_size(mut self, max_request_size: usize) -> Self {
+        self.config.max_request_size = max_request_size;
+        self
+    }
+
     /// Sets the maximum amount of time the client will wait for the response
     /// of a request.
     pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {

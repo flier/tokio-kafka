@@ -24,6 +24,10 @@ pub struct Thunk {
 }
 
 impl Thunk {
+    pub fn fail(self, err: Error) -> ::std::result::Result<(), Result<RecordMetadata>> {
+        self.sender.send(Err(err))
+    }
+
     pub fn done<K: Hash, V>(
         self,
         interceptors: Option<Rc<RefCell<ProducerInterceptors<K, V>>>>,

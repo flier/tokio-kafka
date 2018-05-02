@@ -196,6 +196,18 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
+    /// Sets the maximum amount of data the server should return for a fetch request.
+    pub fn with_fetch_max_bytes(mut self, bytes: usize) -> Self {
+        self.config.fetch_max_bytes = bytes;
+        self
+    }
+
+    /// Sets the maximum amount of data per-partition the server will return.
+    pub fn with_partition_max_bytes(mut self, bytes: usize) -> Self {
+        self.config.partition_fetch_bytes = bytes;
+        self
+    }
+
     /// Sets the key serializer that serialize key to record
     pub fn with_key_deserializer(mut self, key_deserializer: K) -> Self {
         self.key_deserializer = Some(key_deserializer);

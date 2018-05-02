@@ -58,6 +58,7 @@ where
         let acks = self.acks;
         let ack_timeout = self.ack_timeout;
         let thunks = self.thunks.clone();
+        let thunks1 = self.thunks.clone();
         let interceptors = self.interceptors.clone();
 
         self.client
@@ -89,6 +90,16 @@ where
                             }
                         });
                 });
+            })
+            .map_err(move |err| {
+                if let Some(thunks) = (*thunks1).borrow_mut().take() {
+                    for thunk in thunks {
+                        if let Err(err) = thunk.fail(format!("{}", err).into()) {
+                            warn!("fail to send error to thunk, {:?}", err);
+                        }
+                    }
+                }
+                err
             })
             .static_boxed()
     }
