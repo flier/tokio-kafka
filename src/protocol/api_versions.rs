@@ -119,6 +119,11 @@ lazy_static! {
             max_version: 2,
         },
         UsableApiVersion {
+            api_key: ApiKeys::OffsetFetch,
+            min_version: 0,
+            max_version: 1,
+        },
+        UsableApiVersion {
             api_key: ApiKeys::JoinGroup,
             min_version: 0,
             max_version: 1,
