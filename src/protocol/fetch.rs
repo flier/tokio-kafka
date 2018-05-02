@@ -287,7 +287,7 @@ named_args!(parse_fetch_partition_data(api_version: ApiVersion)<FetchPartitionDa
          >> high_watermark: be_i64
          >> last_stable_offset: cond!(api_version > 3, be_i64)
          >> log_start_offset: cond!(api_version > 4, be_i64)
-         >> aborted_transactions: cond!(api_version > 4, parse_aborted_transactions)
+         >> aborted_transactions: cond!(api_version > 3, parse_aborted_transactions)
          >> message_set: length_value!(be_i32, parse_message_set)
          >> (FetchPartitionData {
                 partition_id,
@@ -670,7 +670,7 @@ mod tests {
                 1,
                 FetchResponse {
                     header: ResponseHeader { correlation_id: 123 },
-                    throttle_time: None,
+                    throttle_time: Some(1),
                     error_code: None,
                     session_id: None,
                     topics: vec![
@@ -691,7 +691,7 @@ mod tests {
                                                 compression: Compression::None,
                                                 key: Some(Bytes::from(&b"key"[..])),
                                                 value: Some(Bytes::from(&b"value"[..])),
-                                                timestamp: None,
+                                                timestamp: Some(MessageTimestamp::LogAppendTime(456)),
                                                 headers: Vec::new(),
                                             },
                                         ],
@@ -783,7 +783,7 @@ mod tests {
                             0, 0, 0, 42,            // size
                                 // messages: [Message]
                                 0, 0, 0, 0, 0, 0, 0, 0,     // offset
-                                0, 0, 0, 22,                // size
+                                0, 0, 0, 30,                // size
                                 206, 63, 210, 11,           // crc
                                 1,                          // magic
                                 8,                          // attributes
