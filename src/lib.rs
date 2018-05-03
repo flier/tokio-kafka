@@ -79,7 +79,7 @@ pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster
                  ToStaticBoxFuture, TopicRecord, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
                  DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS};
 pub use compression::Compression;
-pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer, OffsetResetStrategy, SeekTo, Subscribed};
+pub use consumer::{Consumer, ConsumerBuilder, ConsumerConfig, KafkaConsumer, OffsetResetStrategy, SeekTo, Subscribed};
 pub use errors::{Error, ErrorKind, Result};
 pub use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition, DEFAULT_PORT};
 pub use producer::{DefaultPartitioner, GetTopic, KafkaProducer, Partitioner, Producer, ProducerBuilder,

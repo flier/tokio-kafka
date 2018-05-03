@@ -15,9 +15,9 @@ mod common;
 
 #[cfg(feature = "integration_test")]
 mod tests {
-    use futures::Future;
+    use futures::{Future, Stream};
 
-    use tokio_kafka::{Client, Cluster, FetchOffset, KafkaCode, ListedOffset};
+    use tokio_kafka::{Client, Cluster, Consumer, FetchOffset, KafkaCode, ListedOffset, SeekTo, Subscribed};
 
     use common;
 
@@ -27,12 +27,13 @@ mod tests {
     const TOPIC_BAR_MESSAGE_COUNT: i64 = 10;
 
     #[test]
-    fn metadata() {
-        common::run(|client| {
+    fn update_metadata() {
+        common::run_as_client(|client| {
             client.metadata().and_then(move |metadata| {
                 info!("fetch metadata: {:?}", metadata);
 
                 assert!(!metadata.brokers().is_empty());
+
                 let partitions = {
                     let topics = metadata.topics();
 
@@ -82,6 +83,28 @@ mod tests {
                     );
                 })
             })
+        }).unwrap()
+    }
+
+    #[test]
+    fn consume_message() {
+        common::run_as_consumer(|consumer| {
+            consumer
+                .subscribe(vec!["foo", "bar"])
+                .and_then(move |topics| {
+                    assert_eq!(topics.subscription(), vec!["foo", "bar"]);
+
+                    for partition in topics.assigment() {
+                        topics.seek(&partition, SeekTo::Beginning)?;
+                    }
+
+                    Ok(topics)
+                })
+                .and_then(|topics| {
+                    assert_eq!(topics.collect().wait()?, vec![]);
+
+                    Ok(())
+                })
         }).unwrap()
     }
 }
