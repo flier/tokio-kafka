@@ -133,7 +133,7 @@ fn run(config: Config) -> Result<()> {
         .with_key_deserializer(StringDeserializer::default())
         .with_value_deserializer(StringDeserializer::default());
 
-    let mut consumer = builder.build()?;
+    let consumer = builder.build()?;
     let offset = config.offset;
 
     let work = consumer

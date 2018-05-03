@@ -24,7 +24,7 @@ pub trait Consumer<'a> {
 
     /// Subscribe to the given list of topics to get dynamically assigned
     /// partitions.
-    fn subscribe<I, S>(&mut self, topic_names: I) -> Subscribe<Self::Topics>
+    fn subscribe<I, S>(&self, topic_names: I) -> Subscribe<Self::Topics>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>;
@@ -35,7 +35,7 @@ pub trait Consumer<'a> {
 /// This also consists of a topic name and a partition number from which the record is being
 /// received, an offset that points to the record in a Kafka partition, and a timestamp as marked
 /// by the corresponding `ConsumerRecord`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConsumerRecord<'a, K, V> {
     /// The topic this record is received from
     pub topic_name: Cow<'a, str>,
@@ -135,7 +135,7 @@ where
     type Value = V::Item;
     type Topics = SubscribedTopics<'a, K, V>;
 
-    fn subscribe<I, S>(&mut self, topic_names: I) -> Subscribe<Self::Topics>
+    fn subscribe<I, S>(&self, topic_names: I) -> Subscribe<Self::Topics>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
