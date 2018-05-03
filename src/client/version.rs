@@ -1,65 +1,150 @@
-use std::fmt;
-use std::mem;
-use std::result::Result as StdResult;
+#![allow(non_camel_case_types)]
 use std::str::FromStr;
+use std::iter::FromIterator;
 
-use serde::de::{self, Deserialize, Deserializer, Visitor};
-use serde::ser::{Serialize, Serializer};
+use semver::{Identifier, Version as SemVersion};
 
-use errors::{Error, ErrorKind, Result};
-use protocol::{ApiKeys, UsableApiVersion, UsableApiVersions};
+use errors::{Error, Result};
+use protocol::{ApiKeys, RecordFormat, UsableApiVersion, UsableApiVersions};
 
 /// Kafka version for API requests version
 ///
 /// See [`ClientConfig::broker_version_fallback`](struct.ClientConfig.html#broker_version_fallback.
 /// v)
-#[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[repr(u16)]
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[repr(u32)]
 pub enum KafkaVersion {
-    /// Kafka 0.8.0
-    KAFKA_0_8_0 = 800,
-    /// Kafka 0.8.1.0, 0.8.1.1
-    KAFKA_0_8_1 = 801,
-    /// Kafka 0.8.2.0, 0.8.2.2
-    KAFKA_0_8_2 = 802,
-    /// Kafka 0.9.0.0, 0.9.0.1
-    KAFKA_0_9_0 = 900,
+    #[serde(rename = "0.8.0")]
+    KAFKA_0_8_0,
+    #[serde(rename = "0.8.1")]
+    KAFKA_0_8_1,
+    #[serde(rename = "0.8.2")]
+    KAFKA_0_8_2,
+    #[serde(rename = "0.9.0")]
+    KAFKA_0_9_0,
+    /// 0.10.0-IV0 is introduced for KIP-31/32 which changes the message format.
+    #[serde(rename = "0.10.0-IV0")]
+    KAFKA_0_10_0_IV0,
+    /// 0.10.0-IV1 is introduced for KIP-36(rack awareness) and KIP-43(SASL
+    /// handshake).
+    #[serde(rename = "0.10.0")]
+    KAFKA_0_10_0_IV1,
+    /// introduced for JoinGroup protocol change in KIP-62
+    #[serde(rename = "0.10.1-IV0")]
+    KAFKA_0_10_1_IV0,
+    /// 0.10.1-IV1 is introduced for KIP-74(fetch response size limit).
+    #[serde(rename = "0.10.1-IV1")]
+    KAFKA_0_10_1_IV1,
+    /// introduced ListOffsetRequest v1 in KIP-79
+    #[serde(rename = "0.10.1")]
+    KAFKA_0_10_1_IV2,
+    /// introduced UpdateMetadataRequest v3 in KIP-103
+    #[serde(rename = "0.10.2")]
+    KAFKA_0_10_2_IV0,
+    /// KIP-98 (idempotent and transactional producer support)
+    #[serde(rename = "0.11.0-IV0")]
+    KAFKA_0_11_0_IV0,
+    /// introduced DeleteRecordsRequest v0 and FetchRequest v4 in KIP-107
+    #[serde(rename = "0.11.0-IV1")]
+    KAFKA_0_11_0_IV1,
+    /// Introduced leader epoch fetches to the replica fetcher via KIP-101
+    #[serde(rename = "0.11.0")]
+    KAFKA_0_11_0_IV2,
+    /// Introduced LeaderAndIsrRequest V1, UpdateMetadataRequest V4 and
+    /// FetchRequest V6 via KIP-112
+    #[serde(rename = "1.0")]
+    KAFKA_1_0_IV0,
+    /// Introduced DeleteGroupsRequest V0 via KIP-229, plus KIP-227 incremental fetch requests,
+    /// and KafkaStorageException for fetch requests.
+    #[serde(rename = "1.1")]
+    KAFKA_1_1_IV0,
+    #[serde(rename = "2.0")]
+    KAFKA_2_0_IV0,
 }
 
 impl KafkaVersion {
-    pub fn version(&self) -> &'static str {
-        match *self {
-            KafkaVersion::KAFKA_0_8_0 => "0.8.0",
-            KafkaVersion::KAFKA_0_8_1 => "0.8.1",
-            KafkaVersion::KAFKA_0_8_2 => "0.8.2",
-            KafkaVersion::KAFKA_0_9_0 => "0.9.0",
-        }
+    pub fn supported_api_versions() -> &'static UsableApiVersions {
+        &*SUPPORTED_API_VERSIONS
     }
 
-    pub fn value(&self) -> u16 {
-        unsafe { mem::transmute(*self) }
-    }
-
-    pub fn api_versions(&self) -> &UsableApiVersions {
+    pub fn api_versions(&self) -> Option<&UsableApiVersions> {
         match *self {
-            KafkaVersion::KAFKA_0_8_0 => &*KAFKA_0_8_0_VERSIONS,
-            KafkaVersion::KAFKA_0_8_1 => &*KAFKA_0_8_1_VERSIONS,
-            KafkaVersion::KAFKA_0_8_2 => &*KAFKA_0_8_2_VERSIONS,
-            KafkaVersion::KAFKA_0_9_0 => &*KAFKA_0_9_0_VERSIONS,
+            KafkaVersion::KAFKA_0_8_0 => Some(&*KAFKA_0_8_0_VERSIONS),
+            KafkaVersion::KAFKA_0_8_1 => Some(&*KAFKA_0_8_1_VERSIONS),
+            KafkaVersion::KAFKA_0_8_2 => Some(&*KAFKA_0_8_2_VERSIONS),
+            KafkaVersion::KAFKA_0_9_0 => Some(&*KAFKA_0_9_0_VERSIONS),
+            _ => None,
         }
     }
 }
 
-impl From<u16> for KafkaVersion {
-    fn from(v: u16) -> Self {
-        unsafe { mem::transmute(v) }
+impl From<KafkaVersion> for SemVersion {
+    fn from(version: KafkaVersion) -> Self {
+        match version {
+            KafkaVersion::KAFKA_0_8_0 => SemVersion::new(0, 8, 0),
+            KafkaVersion::KAFKA_0_8_1 => SemVersion::new(0, 8, 1),
+            KafkaVersion::KAFKA_0_8_2 => SemVersion::new(0, 8, 2),
+            KafkaVersion::KAFKA_0_9_0 => SemVersion::new(0, 9, 0),
+            KafkaVersion::KAFKA_0_10_0_IV0 => SemVersion {
+                major: 0,
+                minor: 10,
+                patch: 0,
+                pre: vec![],
+                build: vec![Identifier::AlphaNumeric("IV0".to_owned())],
+            },
+            KafkaVersion::KAFKA_0_10_0_IV1 => SemVersion {
+                major: 0,
+                minor: 10,
+                patch: 0,
+                pre: vec![],
+                build: vec![Identifier::AlphaNumeric("IV1".to_owned())],
+            },
+            KafkaVersion::KAFKA_0_10_1_IV0 => SemVersion {
+                major: 0,
+                minor: 10,
+                patch: 1,
+                pre: vec![],
+                build: vec![Identifier::AlphaNumeric("IV0".to_owned())],
+            },
+            KafkaVersion::KAFKA_0_10_1_IV1 => SemVersion {
+                major: 0,
+                minor: 10,
+                patch: 1,
+                pre: vec![],
+                build: vec![Identifier::AlphaNumeric("IV1".to_owned())],
+            },
+            KafkaVersion::KAFKA_0_10_1_IV2 => SemVersion::new(0, 10, 1),
+            KafkaVersion::KAFKA_0_10_2_IV0 => SemVersion::new(0, 10, 2),
+            KafkaVersion::KAFKA_0_11_0_IV0 => SemVersion {
+                major: 0,
+                minor: 11,
+                patch: 0,
+                pre: vec![],
+                build: vec![Identifier::AlphaNumeric("IV0".to_owned())],
+            },
+            KafkaVersion::KAFKA_0_11_0_IV1 => SemVersion {
+                major: 0,
+                minor: 11,
+                patch: 0,
+                pre: vec![],
+                build: vec![Identifier::AlphaNumeric("IV1".to_owned())],
+            },
+            KafkaVersion::KAFKA_0_11_0_IV2 => SemVersion::new(0, 11, 0),
+            KafkaVersion::KAFKA_1_0_IV0 => SemVersion::new(1, 0, 0),
+            KafkaVersion::KAFKA_1_1_IV0 => SemVersion::new(1, 1, 0),
+            KafkaVersion::KAFKA_2_0_IV0 => SemVersion::new(2, 0, 0),
+        }
     }
 }
 
-impl Default for KafkaVersion {
-    fn default() -> Self {
-        KafkaVersion::KAFKA_0_9_0
+impl RecordFormat {
+    pub fn min_kafka_version(self) -> KafkaVersion {
+        match self {
+            RecordFormat::V0 => KafkaVersion::KAFKA_0_8_0,
+            RecordFormat::V1 => KafkaVersion::KAFKA_0_10_0_IV1,
+            RecordFormat::V2 => KafkaVersion::KAFKA_0_11_0_IV2,
+        }
     }
 }
 
@@ -67,59 +152,80 @@ impl FromStr for KafkaVersion {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "0.8.0" => Ok(KafkaVersion::KAFKA_0_8_0),
-            "0.8.1" => Ok(KafkaVersion::KAFKA_0_8_1),
-            "0.8.2" => Ok(KafkaVersion::KAFKA_0_8_2),
-            "0.9.0" => Ok(KafkaVersion::KAFKA_0_9_0),
-            _ => bail!(ErrorKind::ParseError(format!("unknown kafka version: {}", s))),
-        }
+        parse_api_versions(s.as_bytes()).to_result().map_err(|err| err.into())
     }
 }
 
-impl fmt::Display for KafkaVersion {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.version())
+named!(
+    parse_api_versions<KafkaVersion>,
+    alt_complete!(
+        tag!("0.8.0")       => { |_| KafkaVersion::KAFKA_0_8_0 } |
+        tag!("0.8.1")       => { |_| KafkaVersion::KAFKA_0_8_1 } |
+        tag!("0.8.2")       => { |_| KafkaVersion::KAFKA_0_8_2 } |
+        tag!("0.9.0")       => { |_| KafkaVersion::KAFKA_0_9_0 } |
+        tag!("0.10.0-IV0")  => { |_| KafkaVersion::KAFKA_0_10_0_IV0 } |
+        tag!("0.10.0-IV1")  => { |_| KafkaVersion::KAFKA_0_10_0_IV1 } |
+        tag!("0.10.0")      => { |_| KafkaVersion::KAFKA_0_10_0_IV1 } |
+        tag!("0.10.1-IV0")  => { |_| KafkaVersion::KAFKA_0_10_1_IV0 } |
+        tag!("0.10.1-IV1")  => { |_| KafkaVersion::KAFKA_0_10_1_IV1 } |
+        tag!("0.10.1-IV2")  => { |_| KafkaVersion::KAFKA_0_10_1_IV2 } |
+        tag!("0.10.1")      => { |_| KafkaVersion::KAFKA_0_10_1_IV2 } |
+        tag!("0.10.2-IV0")  => { |_| KafkaVersion::KAFKA_0_10_2_IV0 } |
+        tag!("0.10.2")      => { |_| KafkaVersion::KAFKA_0_10_2_IV0 } |
+        tag!("0.11.0-IV0")  => { |_| KafkaVersion::KAFKA_0_11_0_IV0 } |
+        tag!("0.11.0-IV1")  => { |_| KafkaVersion::KAFKA_0_11_0_IV1 } |
+        tag!("0.11.0-IV2")  => { |_| KafkaVersion::KAFKA_0_11_0_IV2 } |
+        tag!("0.11.0")      => { |_| KafkaVersion::KAFKA_0_11_0_IV2 } |
+        tag!("1.0-IV0")     => { |_| KafkaVersion::KAFKA_1_0_IV0 } |
+        tag!("1.0")         => { |_| KafkaVersion::KAFKA_1_0_IV0 } |
+        tag!("1.1-IV0")     => { |_| KafkaVersion::KAFKA_1_1_IV0 } |
+        tag!("1.1")         => { |_| KafkaVersion::KAFKA_1_1_IV0 } |
+        tag!("2.0-IV0")     => { |_| KafkaVersion::KAFKA_2_0_IV0 } |
+        tag!("2.0")         => { |_| KafkaVersion::KAFKA_2_0_IV0 }
+    )
+);
+
+impl Default for KafkaVersion {
+    fn default() -> Self {
+        KafkaVersion::KAFKA_0_9_0
     }
 }
 
-impl Serialize for KafkaVersion {
-    fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.version())
-    }
-}
-
-impl<'de> Deserialize<'de> for KafkaVersion {
-    fn deserialize<D>(deserializer: D) -> StdResult<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct KafkaVersionVistor;
-
-        impl<'de> Visitor<'de> for KafkaVersionVistor {
-            type Value = KafkaVersion;
-
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("Valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.")
-            }
-
-            fn visit_str<E>(self, v: &str) -> StdResult<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                v.parse().map_err(de::Error::custom)
-            }
-        }
-
-        deserializer.deserialize_str(KafkaVersionVistor)
-    }
-}
-
+// api versions we support
 lazy_static! {
-    static ref KAFKA_0_8_0_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+    static ref SUPPORTED_API_VERSIONS: UsableApiVersions = UsableApiVersions::from_iter(vec![
+        UsableApiVersion {
+            api_key: ApiKeys::Produce,
+            min_version: 0,
+            max_version: 5,
+        },
+        UsableApiVersion {
+            api_key: ApiKeys::Fetch,
+            min_version: 0,
+            max_version: 7,
+        },
+        UsableApiVersion {
+            api_key: ApiKeys::ListOffsets,
+            min_version: 0,
+            max_version: 1,
+        },
+        UsableApiVersion {
+            api_key: ApiKeys::OffsetCommit,
+            min_version: 0,
+            max_version: 2,
+        },
+        UsableApiVersion {
+            api_key: ApiKeys::OffsetFetch,
+            min_version: 0,
+            max_version: 1,
+        },
+        UsableApiVersion {
+            api_key: ApiKeys::JoinGroup,
+            min_version: 0,
+            max_version: 1,
+        },
+    ]);
+    static ref KAFKA_0_8_0_VERSIONS: UsableApiVersions = UsableApiVersions::from_iter(vec![
         UsableApiVersion {
             api_key: ApiKeys::Produce,
             min_version: 0,
@@ -161,7 +267,7 @@ lazy_static! {
             max_version: 0,
         },
     ]);
-    static ref KAFKA_0_8_1_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+    static ref KAFKA_0_8_1_VERSIONS: UsableApiVersions = UsableApiVersions::from_iter(vec![
         UsableApiVersion {
             api_key: ApiKeys::Produce,
             min_version: 0,
@@ -213,7 +319,7 @@ lazy_static! {
             max_version: 0,
         },
     ]);
-    static ref KAFKA_0_8_2_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+    static ref KAFKA_0_8_2_VERSIONS: UsableApiVersions = UsableApiVersions::from_iter(vec![
         UsableApiVersion {
             api_key: ApiKeys::Produce,
             min_version: 0,
@@ -280,7 +386,7 @@ lazy_static! {
             max_version: 0,
         },
     ]);
-    static ref KAFKA_0_9_0_VERSIONS: UsableApiVersions = UsableApiVersions::new(vec![
+    static ref KAFKA_0_9_0_VERSIONS: UsableApiVersions = UsableApiVersions::from_iter(vec![
         UsableApiVersion {
             api_key: ApiKeys::Produce,
             min_version: 0,
@@ -367,4 +473,40 @@ lazy_static! {
             max_version: 0,
         },
     ]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_kafka_versions() {
+        let api_versions = vec![
+            ("0.8.0", KafkaVersion::KAFKA_0_8_0),
+            ("0.8.0.0", KafkaVersion::KAFKA_0_8_0),
+            ("0.8.2", KafkaVersion::KAFKA_0_8_2),
+            ("0.9.0", KafkaVersion::KAFKA_0_9_0),
+            ("0.10.0-IV0", KafkaVersion::KAFKA_0_10_0_IV0),
+            ("0.10.0-IV1", KafkaVersion::KAFKA_0_10_0_IV1),
+            ("0.10.0", KafkaVersion::KAFKA_0_10_0_IV1),
+            ("0.10.1-IV0", KafkaVersion::KAFKA_0_10_1_IV0),
+            ("0.10.1-IV1", KafkaVersion::KAFKA_0_10_1_IV1),
+            ("0.10.1-IV2", KafkaVersion::KAFKA_0_10_1_IV2),
+            ("0.10.1", KafkaVersion::KAFKA_0_10_1_IV2),
+            ("0.10.2-IV0", KafkaVersion::KAFKA_0_10_2_IV0),
+            ("0.10.2", KafkaVersion::KAFKA_0_10_2_IV0),
+            ("0.11.0-IV0", KafkaVersion::KAFKA_0_11_0_IV0),
+            ("0.11.0-IV1", KafkaVersion::KAFKA_0_11_0_IV1),
+            ("0.11.0-IV2", KafkaVersion::KAFKA_0_11_0_IV2),
+            ("0.11.0", KafkaVersion::KAFKA_0_11_0_IV2),
+            ("1.0-IV0", KafkaVersion::KAFKA_1_0_IV0),
+            ("1.0", KafkaVersion::KAFKA_1_0_IV0),
+            ("1.1-IV0", KafkaVersion::KAFKA_1_1_IV0),
+            ("1.1", KafkaVersion::KAFKA_1_1_IV0),
+        ];
+
+        for (s, version) in api_versions {
+            assert_eq!(s.parse::<KafkaVersion>().unwrap(), version, "parse API version: {}", s);
+        }
+    }
 }

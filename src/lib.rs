@@ -34,6 +34,7 @@ extern crate prometheus;
 extern crate abstract_ns;
 extern crate ns_router;
 extern crate ns_std_threaded;
+extern crate semver;
 
 #[macro_use]
 extern crate futures;

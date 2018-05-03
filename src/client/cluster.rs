@@ -1,8 +1,9 @@
 use std::cmp;
 use std::collections::HashMap;
 
+use protocol::{ApiKeys, ApiVersion, NodeId, PartitionId, UsableApiVersions};
 use network::TopicPartition;
-use protocol::{ApiKeys, ApiVersion, NodeId, PartitionId, UsableApiVersions, SUPPORTED_API_VERSIONS};
+use client::KafkaVersion;
 
 /// A trait for representation of a subset of the nodes, topics, and partitions in the Kafka
 /// cluster.
@@ -95,7 +96,7 @@ impl Broker {
             .as_ref()
             .and_then(|api_versions| api_versions.find(api_key))
             .map(|current_api| {
-                let supported_api = SUPPORTED_API_VERSIONS.find(api_key);
+                let supported_api = KafkaVersion::supported_api_versions().find(api_key);
                 let selected_api_verion = supported_api.map_or(current_api.max_version, |supported_api| {
                     cmp::min(current_api.max_version, supported_api.max_version)
                 });

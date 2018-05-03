@@ -837,7 +837,7 @@ where
         self.send_request(AutoName::HostPort(broker.host(), broker.port()), request)
             .and_then(|res| {
                 if let KafkaResponse::ApiVersions(res) = res {
-                    Ok(UsableApiVersions::new(res.api_versions))
+                    Ok(res.api_versions.into_iter().collect())
                 } else {
                     bail!(UnexpectedResponse(res.api_key()))
                 }
