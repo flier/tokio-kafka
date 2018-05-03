@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::mem;
 
-use bytes::{ByteOrder, BytesMut};
+use bytes::BufMut;
 
 use nom::{IResult, be_i16, be_i32};
 
@@ -143,8 +143,8 @@ impl<'a> Request for ApiVersionsRequest<'a> {
 }
 
 impl<'a> Encodable for ApiVersionsRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        self.header.encode::<T>(dst)
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        self.header.encode(dst)
     }
 }
 
@@ -229,7 +229,7 @@ named!(
 
 #[cfg(test)]
 mod tests {
-    use bytes::{BigEndian, BytesMut};
+    use bytes::BytesMut;
 
     use nom::IResult;
 
@@ -314,7 +314,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 

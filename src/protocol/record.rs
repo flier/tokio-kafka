@@ -1,8 +1,9 @@
 use std::cmp;
 use std::i64;
+use std::io::Cursor;
 
 use nom::{self, be_i16, be_i32, be_i64, be_u16, be_u32, be_u8};
-use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
+use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
 use crc::crc32;
 
 use errors::Result;
@@ -263,35 +264,45 @@ impl Record for RecordBatch {
 }
 
 impl Encodable for RecordBatch {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        dst.put_i64::<T>(self.first_offset);
-        dst.put_i32::<T>(
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        dst.put_i64_be(self.first_offset);
+        dst.put_i32_be(
             (RECORD_BATCH_OVERHEAD - LOG_OVERHEAD
                 + self.records
                     .iter()
                     .map(|record| record.size(RecordFormat::V2))
                     .sum::<usize>()) as i32,
         );
-        dst.put_i32::<T>(self.partition_leader_epoch);
+        dst.put_i32_be(self.partition_leader_epoch);
         dst.put_u8(RecordFormat::V2 as u8);
-        let crc_off = dst.len();
-        dst.put_i32::<T>(0); // CRC
-        let crc_start = dst.len();
-        dst.put_u16::<T>(self.attributes.bits());
-        dst.put_i32::<T>(self.last_offset_delta);
-        dst.put_i64::<T>(self.first_timestamp);
-        dst.put_i64::<T>(self.max_timestamp);
-        dst.put_i64::<T>(self.producer_id);
-        dst.put_i16::<T>(self.producer_epoch);
-        dst.put_i32::<T>(self.first_sequence);
-        dst.put_i32::<T>(self.records.len() as i32);
 
-        let crc = crc32::checksum_ieee(&dst[crc_start..]);
+        let record_header_size = {
+            let mut cur = Cursor::new(unsafe { dst.bytes_mut() });
+            let crc_off = cur.position() as usize;
+            cur.put_i32_be(0); // CRC
+            let crc_start = cur.position() as usize;
+            cur.put_u16_be(self.attributes.bits());
+            cur.put_i32_be(self.last_offset_delta);
+            cur.put_i64_be(self.first_timestamp);
+            cur.put_i64_be(self.max_timestamp);
+            cur.put_i64_be(self.producer_id);
+            cur.put_i16_be(self.producer_epoch);
+            cur.put_i32_be(self.first_sequence);
+            cur.put_i32_be(self.records.len() as i32);
 
-        T::write_u32(&mut dst[crc_off..], crc);
+            let size = cur.position() as usize;
+            let bytes = cur.into_inner();
+            let crc = crc32::checksum_ieee(&bytes[crc_start..size]);
+
+            BigEndian::write_u32(&mut bytes[crc_off..], crc);
+
+            size
+        };
+
+        unsafe { dst.advance_mut(record_header_size as usize) };
 
         for record in &self.records {
-            record.encode::<T>(dst)?;
+            record.encode(dst)?;
         }
 
         Ok(())
@@ -328,7 +339,7 @@ impl Record for RecordBody {
 }
 
 impl Encodable for RecordBody {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         dst.put_vari32(self.size(RecordFormat::V2) as i32);
         dst.put_u8(self.attributes);
         dst.put_vari64(self.timestamp_delta);
@@ -339,7 +350,7 @@ impl Encodable for RecordBody {
         dst.put_vari32(self.headers.len() as i32);
 
         for header in &self.headers {
-            header.encode::<T>(dst)?;
+            header.encode(dst)?;
         }
 
         Ok(())
@@ -360,7 +371,7 @@ impl Record for RecordHeader {
 }
 
 impl Encodable for RecordHeader {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         dst.put_varbytes(Some(self.key.as_bytes()))?;
         dst.put_varbytes(self.value.as_ref())?;
         Ok(())
@@ -491,7 +502,7 @@ named!(
 
 #[cfg(test)]
 mod tests {
-    use bytes::{BigEndian, Bytes};
+    use bytes::{Bytes, BytesMut};
     use nom::IResult;
 
     use super::*;
@@ -617,7 +628,7 @@ mod tests {
 
         let record = &*TEST_RECORD_BATCH;
 
-        record.encode::<BigEndian>(&mut buf).unwrap();
+        record.encode(&mut buf).unwrap();
 
         assert_eq!(record.size(RecordFormat::V2), buf.len());
         assert_eq!(
@@ -639,7 +650,7 @@ mod tests {
 
         let body = &*TEST_RECORD_BODY;
 
-        body.encode::<BigEndian>(&mut buf).unwrap();
+        body.encode(&mut buf).unwrap();
 
         assert_eq!(body.size(RecordFormat::V2), buf.len());
         assert_eq!(
@@ -660,7 +671,7 @@ mod tests {
         let mut buf = BytesMut::with_capacity(256);
         let header = &*TEST_RECORD_HEADER;
 
-        header.encode::<BigEndian>(&mut buf).unwrap();
+        header.encode(&mut buf).unwrap();
 
         assert_eq!(header.size(RecordFormat::V2), buf.len());
         assert_eq!(&buf, &*ENCODED_RECORD_HEADER);

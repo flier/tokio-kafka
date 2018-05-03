@@ -41,10 +41,10 @@ impl<'a> Encoder for KafkaCodec<'a> {
 
         dst.reserve(mem::size_of::<i32>() + request.size(api_version));
 
-        dst.put_i32::<BigEndian>(0);
+        dst.put_i32_be(0);
 
         request
-            .encode::<BigEndian>(dst)
+            .encode(dst)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid request, {}", err)))?;
 
         let size = dst.len() - off - mem::size_of::<i32>();

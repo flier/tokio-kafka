@@ -2,7 +2,7 @@ use std::i32;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use bytes::{BufMut, ByteOrder, BytesMut};
+use bytes::BufMut;
 
 use nom::{IResult, be_i16, be_i32, be_i64};
 
@@ -143,35 +143,35 @@ impl<'a> Request for FetchRequest<'a> {
 }
 
 impl<'a> Encodable for FetchRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         let api_version = self.header.api_version;
 
-        self.header.encode::<T>(dst)?;
+        self.header.encode(dst)?;
 
-        dst.put_i32::<T>(self.replica_id);
-        dst.put_i32::<T>(self.max_wait_time);
-        dst.put_i32::<T>(self.min_bytes);
+        dst.put_i32_be(self.replica_id);
+        dst.put_i32_be(self.max_wait_time);
+        dst.put_i32_be(self.min_bytes);
         if api_version > 2 {
-            dst.put_i32::<T>(self.max_bytes);
+            dst.put_i32_be(self.max_bytes);
         }
         if api_version > 3 {
             dst.put_u8(self.isolation_level as u8);
         }
         if api_version > 6 {
             if let Some(FetchSession { id, epoch, .. }) = self.session {
-                dst.put_i32::<T>(id);
-                dst.put_i32::<T>(epoch);
+                dst.put_i32_be(id);
+                dst.put_i32_be(epoch);
             }
         }
-        dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
-            buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
-            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition_id);
-                buf.put_i64::<T>(partition.fetch_offset);
+        dst.put_array(&self.topics, |buf, topic| {
+            buf.put_str(Some(topic.topic_name.as_ref()))?;
+            buf.put_array(&topic.partitions, |buf, partition| {
+                buf.put_i32_be(partition.partition_id);
+                buf.put_i64_be(partition.fetch_offset);
                 if api_version > 4 {
-                    buf.put_i64::<T>(partition.log_start_offset.unwrap_or_default());
+                    buf.put_i64_be(partition.log_start_offset.unwrap_or_default());
                 }
-                buf.put_i32::<T>(partition.max_bytes);
+                buf.put_i32_be(partition.max_bytes);
                 Ok(())
             })
         })?;
@@ -179,15 +179,15 @@ impl<'a> Encodable for FetchRequest<'a> {
             if let Some(ref session) = self.session {
                 let topics = session.forgetten_topics().into_iter().collect::<Vec<_>>();
 
-                dst.put_array::<T, _, _>(&topics, |buf, &(ref topic_name, ref partitions)| {
-                    buf.put_str::<T, _>(Some(topic_name))?;
-                    buf.put_array::<T, _, _>(&partitions, |buf, &partition_id| {
-                        buf.put_i32::<T>(partition_id);
+                dst.put_array(&topics, |buf, &(ref topic_name, ref partitions)| {
+                    buf.put_str(Some(topic_name))?;
+                    buf.put_array(&partitions, |buf, &partition_id| {
+                        buf.put_i32_be(partition_id);
                         Ok(())
                     })
                 })?;
             } else {
-                dst.put_i32::<T>(0);
+                dst.put_i32_be(0);
             }
         }
         Ok(())
@@ -315,7 +315,7 @@ named!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::{BigEndian, Bytes};
+    use bytes::{Bytes, BytesMut};
     use compression::Compression;
 
     use nom::IResult;
@@ -598,7 +598,7 @@ mod tests {
         for &(ref request, encoded) in &*TEST_REQUESTS {
             let mut buf = BytesMut::with_capacity(128);
 
-            request.encode::<BigEndian>(&mut buf).unwrap();
+            request.encode(&mut buf).unwrap();
 
             assert_eq!(request.size(request.header.api_version), buf.len());
 

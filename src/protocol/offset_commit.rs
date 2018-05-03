@@ -1,4 +1,4 @@
-use bytes::{BufMut, ByteOrder, BytesMut};
+use bytes::BufMut;
 use std::borrow::Cow;
 
 use nom::{IResult, be_i16, be_i32};
@@ -90,28 +90,28 @@ impl<'a> Request for OffsetCommitRequest<'a> {
 }
 
 impl<'a> Encodable for OffsetCommitRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         let api_version = self.header.api_version;
 
-        self.header.encode::<T>(dst)?;
+        self.header.encode(dst)?;
 
-        dst.put_str::<T, _>(self.group_id.as_ref())?;
+        dst.put_str(self.group_id.as_ref())?;
         if api_version > 0 {
-            dst.put_i32::<T>(self.group_generation_id.unwrap_or_default());
-            dst.put_str::<T, _>(self.member_id.as_ref())?;
+            dst.put_i32_be(self.group_generation_id.unwrap_or_default());
+            dst.put_str(self.member_id.as_ref())?;
         }
         if api_version > 1 {
-            dst.put_i64::<T>(self.retention_time.unwrap_or(DEFAULT_RETENTION_TIME));
+            dst.put_i64_be(self.retention_time.unwrap_or(DEFAULT_RETENTION_TIME));
         }
-        dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
-            buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
-            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition_id);
-                buf.put_i64::<T>(partition.offset);
+        dst.put_array(&self.topics, |buf, topic| {
+            buf.put_str(Some(topic.topic_name.as_ref()))?;
+            buf.put_array(&topic.partitions, |buf, partition| {
+                buf.put_i32_be(partition.partition_id);
+                buf.put_i64_be(partition.offset);
                 if api_version == 1 {
-                    buf.put_i64::<T>(partition.timestamp);
+                    buf.put_i64_be(partition.timestamp);
                 }
-                buf.put_str::<T, _>(partition.metadata.as_ref())
+                buf.put_str(partition.metadata.as_ref())
             })
         })
     }
@@ -161,7 +161,7 @@ named!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::BigEndian;
+    use bytes::BytesMut;
 
     use nom::IResult;
     use protocol::*;
@@ -207,7 +207,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -257,7 +257,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -307,7 +307,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 

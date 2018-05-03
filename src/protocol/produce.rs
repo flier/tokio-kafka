@@ -1,7 +1,7 @@
 use std::borrow::Cow;
-use std::mem;
+use std::io::{Cursor, Seek, SeekFrom};
 
-use bytes::{BufMut, ByteOrder, BytesMut};
+use bytes::BufMut;
 
 use nom::{IResult, be_i16, be_i32, be_i64};
 
@@ -72,7 +72,7 @@ impl<'a> Request for ProduceRequest<'a> {
 }
 
 impl<'a> Encodable for ProduceRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         let record_format = Self::required_record_format(self.header.api_version);
 
         trace!(
@@ -83,26 +83,38 @@ impl<'a> Encodable for ProduceRequest<'a> {
 
         let encoder = MessageSetEncoder::new(record_format, None);
 
-        self.header.encode::<T>(dst)?;
+        self.header.encode(dst)?;
 
         if self.header.api_version >= 3 {
-            dst.put_str::<T, _>(self.transactional_id.as_ref())?;
+            dst.put_str(self.transactional_id.as_ref())?;
         }
 
-        dst.put_i16::<T>(self.required_acks);
-        dst.put_i32::<T>(self.ack_timeout);
-        dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
-            buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
-            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition_id);
+        dst.put_i16_be(self.required_acks);
+        dst.put_i32_be(self.ack_timeout);
+        dst.put_array(&self.topics, |buf, topic| {
+            buf.put_str(Some(topic.topic_name.as_ref()))?;
+            buf.put_array(&topic.partitions, |buf, partition| {
+                let message_set_size = {
+                    let mut cur = Cursor::new(unsafe { buf.bytes_mut() });
 
-                let size_off = buf.len();
-                buf.put_i32::<T>(0);
+                    cur.put_i32_be(partition.partition_id);
 
-                encoder.encode::<T>(&partition.message_set, buf)?;
+                    let size_off = cur.position();
+                    cur.put_i32_be(0);
 
-                let message_set_size = buf.len() - size_off - mem::size_of::<i32>();
-                T::write_i32(&mut buf[size_off..], message_set_size as i32);
+                    let data_off = cur.position();
+                    encoder.encode(&partition.message_set, &mut cur)?;
+
+                    let message_set_size = cur.position();
+
+                    cur.seek(SeekFrom::Start(size_off))?;
+
+                    cur.put_i32_be((message_set_size - data_off) as i32);
+
+                    message_set_size
+                };
+
+                unsafe { buf.advance_mut(message_set_size as usize) };
 
                 Ok(())
             })
@@ -200,7 +212,7 @@ named_args!(parse_produce_partition_status(api_version: ApiVersion)<ProduceParti
 
 #[cfg(test)]
 mod tests {
-    use bytes::{BigEndian, Bytes};
+    use bytes::{Bytes, BytesMut};
 
     use nom::IResult;
 
@@ -482,7 +494,7 @@ mod tests {
         let req = &*TEST_REQUEST_V0;
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
         let req_size = req.size(req.header.api_version);
 
         assert_eq!(
@@ -503,7 +515,7 @@ mod tests {
         let req = &*TEST_REQUEST_V2;
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
         let req_size = req.size(req.header.api_version);
 
         assert_eq!(
@@ -522,9 +534,9 @@ mod tests {
     #[test]
     fn test_encode_produce_request_v3() {
         let req = &*TEST_REQUEST_V3;
-        let mut buf = BytesMut::with_capacity(128);
+        let mut buf = BytesMut::with_capacity(256);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
         let req_size = req.size(req.header.api_version);
 
         assert_eq!(

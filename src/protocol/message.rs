@@ -1,8 +1,9 @@
 use std::fmt;
 use std::mem;
 use std::ops::Deref;
+use std::io::Cursor;
 
-use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
+use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
 use nom::{self, be_i32, be_i64, be_u32, be_u8};
 use time;
 use crc::crc32;
@@ -171,9 +172,8 @@ impl MessageSetEncoder {
         }
     }
 
-    pub fn encode<T: ByteOrder>(&self, message_set: &MessageSet, buf: &mut BytesMut) -> Result<()> {
+    pub fn encode<T: BufMut>(&self, message_set: &MessageSet, buf: &mut T) -> Result<()> {
         let mut offset: Offset = 0;
-        buf.reserve(message_set.size(self.record_format));
 
         match self.record_format {
             RecordFormat::V0 | RecordFormat::V1 => {
@@ -185,7 +185,7 @@ impl MessageSetEncoder {
                         offset - 1
                     };
 
-                    self.encode_message::<T>(message, offset, buf)?;
+                    self.encode_message(message, offset, buf)?;
                 }
 
                 Ok(())
@@ -195,7 +195,7 @@ impl MessageSetEncoder {
 
                 trace!("convert message set to record batch: {:#?}", record_batch);
 
-                record_batch.encode::<T>(buf)
+                record_batch.encode(buf)
             }
         }
     }
@@ -218,35 +218,43 @@ impl MessageSetEncoder {
     ///   Timestamp => int64
     ///   Key => bytes
     ///   Value => bytes
-    fn encode_message<T: ByteOrder>(&self, message: &Message, offset: Offset, buf: &mut BytesMut) -> Result<()> {
-        buf.put_i64::<T>(offset);
-        let size_off = buf.len();
-        buf.put_i32::<T>(0);
-        let crc_off = buf.len();
-        buf.put_i32::<T>(0);
-        let data_off = buf.len();
-        buf.put_i8(self.record_format as i8);
+    fn encode_message<T: BufMut>(&self, message: &Message, offset: Offset, buf: &mut T) -> Result<()> {
+        let message_size = {
+            let mut cur = Cursor::new(unsafe { buf.bytes_mut() });
+            cur.put_i64_be(offset);
+            let size_off = cur.position() as usize;
+            cur.put_i32_be(0);
+            let crc_off = cur.position() as usize;
+            cur.put_i32_be(0);
+            let magic_off = cur.position() as usize;
+            cur.put_i8(self.record_format as i8);
 
-        let mut attrs = MessageAttributes::from(self.compression.unwrap_or(message.compression));
+            let mut attrs = MessageAttributes::from(self.compression.unwrap_or(message.compression));
 
-        if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
-            attrs |= MessageAttributes::TIMESTAMP_TYPE_MASK
+            if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
+                attrs |= MessageAttributes::TIMESTAMP_TYPE_MASK
+            };
+
+            cur.put_u8(attrs.bits());
+
+            if self.record_format == RecordFormat::V1 {
+                cur.put_i64_be(message.timestamp.map(Timestamp::from).unwrap_or_default() as i64);
+            }
+
+            cur.put_bytes(message.key.as_ref())?;
+            cur.put_bytes(message.value.as_ref())?;
+
+            let size = cur.position() as usize;
+            let bytes = cur.into_inner();
+            let crc = crc32::checksum_ieee(&bytes[magic_off..size]);
+
+            BigEndian::write_i32(&mut bytes[size_off..], (size - crc_off) as i32);
+            BigEndian::write_i32(&mut bytes[crc_off..], crc as i32);
+
+            size
         };
 
-        buf.put_u8(attrs.bits());
-
-        if self.record_format == RecordFormat::V1 {
-            buf.put_i64::<T>(message.timestamp.map(Timestamp::from).unwrap_or_default() as i64);
-        }
-
-        buf.put_bytes::<T, _>(message.key.as_ref())?;
-        buf.put_bytes::<T, _>(message.value.as_ref())?;
-
-        let size = buf.len() - crc_off;
-        let crc = crc32::checksum_ieee(&buf[data_off..]);
-
-        T::write_i32(&mut buf[size_off..], size as i32);
-        T::write_i32(&mut buf[crc_off..], crc as i32);
+        unsafe { buf.advance_mut(message_size) };
 
         Ok(())
     }
@@ -366,7 +374,7 @@ impl MessageSetBuilder {
     fn wrap<T: ByteOrder>(&self, compression: Compression) -> Result<MessageSet> {
         let mut buf = BytesMut::with_capacity((self.message_set.size(self.record_format) * 6 / 5).next_power_of_two());
         let encoder = MessageSetEncoder::new(self.record_format, Some(Compression::None));
-        encoder.encode::<T>(&self.message_set, &mut buf)?;
+        encoder.encode(&self.message_set, &mut buf)?;
         let compressed = compression.compress(self.record_format, &buf)?;
         Ok(MessageSet {
             messages: vec![

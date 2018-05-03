@@ -1,4 +1,4 @@
-use bytes::{BufMut, ByteOrder, BytesMut};
+use bytes::BufMut;
 use std::borrow::Cow;
 
 use nom::be_i32;
@@ -26,11 +26,11 @@ impl<'a> RequestHeader<'a> {
 }
 
 impl<'a> Encodable for RequestHeader<'a> {
-    fn encode<T: ByteOrder>(&self, buf: &mut BytesMut) -> Result<()> {
-        buf.put_i16::<T>(self.api_key);
-        buf.put_i16::<T>(self.api_version);
-        buf.put_i32::<T>(self.correlation_id);
-        buf.put_str::<T, _>(self.client_id.as_ref())
+    fn encode<T: BufMut>(&self, buf: &mut T) -> Result<()> {
+        buf.put_i16_be(self.api_key);
+        buf.put_i16_be(self.api_version);
+        buf.put_i32_be(self.correlation_id);
+        buf.put_str(self.client_id.as_ref())
     }
 }
 
@@ -52,7 +52,7 @@ named!(pub parse_response_header<ResponseHeader>,
 mod tests {
 
     use super::*;
-    use bytes::BigEndian;
+    use bytes::BytesMut;
     use protocol::*;
 
     #[test]
@@ -66,7 +66,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(64);
 
-        hdr.encode::<BigEndian>(&mut buf).unwrap();
+        hdr.encode(&mut buf).unwrap();
 
         assert_eq!(hdr.size(hdr.api_version), buf.len());
 

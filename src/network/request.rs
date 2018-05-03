@@ -2,7 +2,7 @@ use std::borrow::{Cow, ToOwned};
 use std::collections::HashMap;
 use std::time::Duration;
 
-use bytes::{ByteOrder, BytesMut};
+use bytes::BufMut;
 
 use errors::Result;
 use network::{OffsetAndMetadata, TopicPartition};
@@ -423,22 +423,22 @@ impl<'a> Request for KafkaRequest<'a> {
 }
 
 impl<'a> Encodable for KafkaRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         match *self {
-            KafkaRequest::Produce(ref req) => req.encode::<T>(dst),
-            KafkaRequest::Fetch(ref req) => req.encode::<T>(dst),
-            KafkaRequest::ListOffsets(ref req) => req.encode::<T>(dst),
-            KafkaRequest::Metadata(ref req) => req.encode::<T>(dst),
-            KafkaRequest::OffsetCommit(ref req) => req.encode::<T>(dst),
-            KafkaRequest::OffsetFetch(ref req) => req.encode::<T>(dst),
-            KafkaRequest::GroupCoordinator(ref req) => req.encode::<T>(dst),
-            KafkaRequest::JoinGroup(ref req) => req.encode::<T>(dst),
-            KafkaRequest::Heartbeat(ref req) => req.encode::<T>(dst),
-            KafkaRequest::LeaveGroup(ref req) => req.encode::<T>(dst),
-            KafkaRequest::SyncGroup(ref req) => req.encode::<T>(dst),
-            KafkaRequest::DescribeGroups(ref req) => req.encode::<T>(dst),
-            KafkaRequest::ListGroups(ref req) => req.encode::<T>(dst),
-            KafkaRequest::ApiVersions(ref req) => req.encode::<T>(dst),
+            KafkaRequest::Produce(ref req) => req.encode(dst),
+            KafkaRequest::Fetch(ref req) => req.encode(dst),
+            KafkaRequest::ListOffsets(ref req) => req.encode(dst),
+            KafkaRequest::Metadata(ref req) => req.encode(dst),
+            KafkaRequest::OffsetCommit(ref req) => req.encode(dst),
+            KafkaRequest::OffsetFetch(ref req) => req.encode(dst),
+            KafkaRequest::GroupCoordinator(ref req) => req.encode(dst),
+            KafkaRequest::JoinGroup(ref req) => req.encode(dst),
+            KafkaRequest::Heartbeat(ref req) => req.encode(dst),
+            KafkaRequest::LeaveGroup(ref req) => req.encode(dst),
+            KafkaRequest::SyncGroup(ref req) => req.encode(dst),
+            KafkaRequest::DescribeGroups(ref req) => req.encode(dst),
+            KafkaRequest::ListGroups(ref req) => req.encode(dst),
+            KafkaRequest::ApiVersions(ref req) => req.encode(dst),
         }
     }
 }
