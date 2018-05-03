@@ -12,7 +12,8 @@ use futures::{Async, Future, Poll};
 use compression::Compression;
 use errors::{Error, ErrorKind, Result};
 use producer::{ProducerInterceptor, ProducerInterceptors, RecordMetadata};
-use protocol::{KafkaCode, MessageSet, MessageSetBuilder, Offset, PartitionId, RecordFormat, RecordHeader, Timestamp};
+use protocol::{KafkaCode, MessageSet, MessageSetBuilder, Offset, OffsetAssigner, PartitionId, RecordFormat,
+               RecordHeader, Timestamp};
 
 #[derive(Debug)]
 pub struct Thunk {
@@ -74,11 +75,16 @@ impl Deref for ProducerBatch {
 }
 
 impl ProducerBatch {
-    pub fn new(record_format: RecordFormat, compression: Compression, write_limit: usize) -> Self {
+    pub fn new(
+        record_format: RecordFormat,
+        compression: Compression,
+        offset_assigner: Rc<OffsetAssigner>,
+        write_limit: usize,
+    ) -> Self {
         let now = Instant::now();
 
         ProducerBatch {
-            builder: MessageSetBuilder::new(record_format, compression, write_limit, 0),
+            builder: MessageSetBuilder::new(record_format, compression, offset_assigner, write_limit, 0),
             thunks: vec![],
             create_time: now,
             last_push_time: now,

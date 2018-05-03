@@ -81,7 +81,7 @@ impl<'a> Encodable for ProduceRequest<'a> {
             record_format
         );
 
-        let encoder = MessageSetEncoder::new(record_format, None);
+        let encoder = MessageSetEncoder::new(record_format, None, Default::default());
 
         self.header.encode(dst)?;
 

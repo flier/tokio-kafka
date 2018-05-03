@@ -3,6 +3,7 @@
 use std::mem;
 use std::str::FromStr;
 use std::time::Duration;
+use std::sync::atomic::{AtomicIsize, Ordering};
 
 use time::Timespec;
 
@@ -81,6 +82,15 @@ pub type PartitionId = i32;
 
 /// This is the offset used in kafka as the log sequence number.
 pub type Offset = i64;
+
+#[derive(Debug, Default)]
+pub struct OffsetAssigner(AtomicIsize);
+
+impl OffsetAssigner {
+    pub fn next(&self) -> Offset {
+        self.0.fetch_add(1, Ordering::Relaxed) as Offset
+    }
+}
 
 /// This is the timestamp of the message.
 ///

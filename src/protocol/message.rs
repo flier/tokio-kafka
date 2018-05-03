@@ -2,6 +2,7 @@ use std::fmt;
 use std::mem;
 use std::ops::Deref;
 use std::io::Cursor;
+use std::rc::Rc;
 
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
 use nom::{self, be_i32, be_i64, be_u32, be_u8};
@@ -10,8 +11,8 @@ use crc::crc32;
 
 use compression::Compression;
 use errors::{ErrorKind, Result};
-use protocol::{parse_opt_bytes, Encodable, Offset, ParseTag, Record, RecordBatch, RecordHeader, Timestamp, WriteExt,
-               BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
+use protocol::{parse_opt_bytes, Encodable, Offset, OffsetAssigner, ParseTag, Record, RecordBatch, RecordHeader,
+               Timestamp, WriteExt, BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
 
 const MSG_SIZE: usize = 4;
 const CRC_SIZE: usize = 4;
@@ -162,30 +163,27 @@ impl fmt::Display for MessageTimestamp {
 pub struct MessageSetEncoder {
     record_format: RecordFormat,
     compression: Option<Compression>,
+    offset_assigner: Rc<OffsetAssigner>,
 }
 
 impl MessageSetEncoder {
-    pub fn new(record_format: RecordFormat, compression: Option<Compression>) -> Self {
+    pub fn new(
+        record_format: RecordFormat,
+        compression: Option<Compression>,
+        offset_assigner: Rc<OffsetAssigner>,
+    ) -> Self {
         MessageSetEncoder {
             record_format,
             compression,
+            offset_assigner,
         }
     }
 
     pub fn encode<T: BufMut>(&self, message_set: &MessageSet, buf: &mut T) -> Result<()> {
-        let mut offset: Offset = 0;
-
         match self.record_format {
             RecordFormat::V0 | RecordFormat::V1 => {
                 for message in &message_set.messages {
-                    let offset = if self.compression.unwrap_or(message.compression) == Compression::None {
-                        message.offset
-                    } else {
-                        offset = offset.wrapping_add(1);
-                        offset - 1
-                    };
-
-                    self.encode_message(message, offset, buf)?;
+                    self.encode_message(message, self.offset_assigner.next(), buf)?;
                 }
 
                 Ok(())
@@ -314,6 +312,7 @@ named_args!(
 pub struct MessageSetBuilder {
     record_format: RecordFormat,
     compression: Compression,
+    offset_assigner: Rc<OffsetAssigner>,
     write_limit: usize,
     written_uncompressed: usize,
     base_offset: Offset,
@@ -323,10 +322,17 @@ pub struct MessageSetBuilder {
 }
 
 impl MessageSetBuilder {
-    pub fn new(record_format: RecordFormat, compression: Compression, write_limit: usize, base_offset: Offset) -> Self {
+    pub fn new(
+        record_format: RecordFormat,
+        compression: Compression,
+        offset_assigner: Rc<OffsetAssigner>,
+        write_limit: usize,
+        base_offset: Offset,
+    ) -> Self {
         MessageSetBuilder {
             record_format,
             compression,
+            offset_assigner,
             write_limit,
             written_uncompressed: 0,
             base_offset,
@@ -373,7 +379,11 @@ impl MessageSetBuilder {
     #[cfg(any(feature = "gzip", feature = "snappy", feature = "lz4"))]
     fn wrap<T: ByteOrder>(&self, compression: Compression) -> Result<MessageSet> {
         let mut buf = BytesMut::with_capacity((self.message_set.size(self.record_format) * 6 / 5).next_power_of_two());
-        let encoder = MessageSetEncoder::new(self.record_format, Some(Compression::None));
+        let encoder = MessageSetEncoder::new(
+            self.record_format,
+            Some(Compression::None),
+            self.offset_assigner.clone(),
+        );
         encoder.encode(&self.message_set, &mut buf)?;
         let compressed = compression.compress(self.record_format, &buf)?;
         Ok(MessageSet {

@@ -12,7 +12,7 @@ use compression::Compression;
 use errors::Error;
 use network::TopicPartition;
 use producer::{ProducerBatch, RecordMetadata};
-use protocol::{RecordFormat, RecordHeader, Timestamp};
+use protocol::{OffsetAssigner, RecordFormat, RecordHeader, Timestamp};
 
 /// Accumulator acts as a queue that accumulates records
 pub trait Accumulator<'a> {
@@ -39,6 +39,8 @@ pub struct RecordAccumulator<'a> {
     /// The compression codec for the records
     compression: Compression,
 
+    offset_assigner: Rc<OffsetAssigner>,
+
     /// An artificial delay time to add before declaring a records instance that isn't full ready
     /// for sending.
     ///
@@ -55,6 +57,7 @@ impl<'a> RecordAccumulator<'a> {
         RecordAccumulator {
             batch_size,
             compression,
+            offset_assigner: Rc::new(OffsetAssigner::default()),
             linger,
             batches: Rc::new(RefCell::new(HashMap::new())),
         }
@@ -95,7 +98,12 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
             }
         }
 
-        let mut batch = ProducerBatch::new(record_format, self.compression, self.batch_size);
+        let mut batch = ProducerBatch::new(
+            record_format,
+            self.compression,
+            self.offset_assigner.clone(),
+            self.batch_size,
+        );
 
         match batch.push_record(timestamp, key, value, headers) {
             Ok(push_recrod) => {
@@ -120,7 +128,12 @@ impl<'a> Accumulator<'a> for RecordAccumulator<'a> {
 
         for (_, batches) in self.batches.borrow_mut().iter_mut() {
             if let Some(record_format) = batches.back().map(|batch| batch.record_format()) {
-                batches.push_back(ProducerBatch::new(record_format, self.compression, self.batch_size))
+                batches.push_back(ProducerBatch::new(
+                    record_format,
+                    self.compression,
+                    self.offset_assigner.clone(),
+                    self.batch_size,
+                ))
             }
         }
     }
