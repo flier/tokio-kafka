@@ -1,21 +1,22 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::cmp;
 use std::time::Duration;
 use std::rc::Rc;
+use std::cell::Cell;
 
 use bytes::IntoBuf;
 use futures::{future, Async, Future, Poll, Stream};
-use tokio_timer::{Sleep, Timer};
+use tokio_timer::Timer;
 
 use client::{Client, FetchRecords, FetchedRecords, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup, KafkaConsumer,
                LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions, UpdatePositions};
 use errors::{Error, ErrorKind, Result};
 use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
-use protocol::{FetchOffset, Offset, Timestamp};
+use protocol::{FetchOffset, Offset, Record, Timestamp};
 use serialization::Deserializer;
 
 /// A trait for to the subscribed list of topics.
@@ -187,8 +188,8 @@ enum State<'a, K, V> {
     UpdatingOffsets(StaticBoxFuture),
     Updating(UpdatePositions),
     Fetching(FetchRecords),
-    Retry(Sleep),
-    Fetched(Box<Iterator<Item = ConsumerRecord<'a, K, V>>>, Duration),
+    Fetched(Cell<VecDeque<(ConsumerRecord<'a, K, V>, usize)>>, Duration),
+    Prefetching(FetchRecords, Cell<VecDeque<(ConsumerRecord<'a, K, V>, usize)>>),
 }
 
 impl<'a, K, V> State<'a, K, V>
@@ -211,6 +212,87 @@ where
         State::Fetching(fetcher.fetch_records(partitions))
     }
 
+    fn prefetch(
+        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        fetcher: Rc<Fetcher<'a>>,
+        records: VecDeque<(ConsumerRecord<'a, K, V>, usize)>,
+    ) -> Self {
+        let partitions = subscriptions.borrow().assigned_partitions();
+
+        trace!("updating postion of partitions: {:?}", partitions);
+
+        let fetching = fetcher
+            .update_positions(partitions.clone())
+            .and_then(move |_| fetcher.fetch_records(partitions))
+            .static_boxed();
+
+        State::Prefetching(fetching, Cell::new(records))
+    }
+
+    fn retry<A, T>(timer: Rc<Timer>, backoff: Duration, action: A) -> StaticBoxFuture<T>
+    where
+        A: 'static + FnOnce() -> StaticBoxFuture<T>,
+    {
+        trace!("request was failed or throttled due to quota violation, {:?}", backoff);
+
+        timer.sleep(backoff).from_err().and_then(|_| action()).static_boxed()
+    }
+
+    fn retry_fetch(
+        timer: Rc<Timer>,
+        backoff: Duration,
+        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        fetcher: Rc<Fetcher<'a>>,
+    ) -> Self {
+        State::Fetching(Self::retry(timer, backoff, move || {
+            let partitions = subscriptions.borrow().fetchable_partitions();
+
+            trace!("fetching records of partitions: {:?}", partitions);
+
+            fetcher.fetch_records(partitions)
+        }))
+    }
+
+    fn retry_update(
+        timer: Rc<Timer>,
+        backoff: Duration,
+        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        fetcher: Rc<Fetcher<'a>>,
+    ) -> Self {
+        State::Fetching(Self::retry(timer, backoff, move || {
+            let partitions = subscriptions.borrow().assigned_partitions();
+
+            trace!("updating postion of partitions: {:?}", partitions);
+
+            fetcher
+                .update_positions(partitions.clone())
+                .and_then(move |_| fetcher.fetch_records(partitions))
+                .static_boxed()
+        }))
+    }
+
+    fn retry_prefetch(
+        timer: Rc<Timer>,
+        backoff: Duration,
+        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        fetcher: Rc<Fetcher<'a>>,
+        records: VecDeque<(ConsumerRecord<'a, K, V>, usize)>,
+    ) -> Self {
+        State::Prefetching(
+            Self::retry(timer, backoff, move || {
+                let partitions = subscriptions.borrow().assigned_partitions();
+
+                trace!("updating postion of partitions: {:?}", partitions);
+
+                fetcher
+                    .update_positions(partitions.clone())
+                    .and_then(move |_| fetcher.fetch_records(partitions))
+                    .static_boxed()
+            }),
+            Cell::new(records),
+        )
+    }
+
     fn fetched<KD, VD>(
         key_deserializer: KD,
         value_deserializer: VD,
@@ -224,53 +306,55 @@ where
         VD: 'static + Deserializer + Clone,
     {
         State::Fetched(
-            Box::new(records.into_iter().flat_map(move |(topic_name, records)| {
-                let key_deserializer = key_deserializer.clone();
-                let value_deserializer = value_deserializer.clone();
-                let subscriptions = subscriptions.clone();
+            Cell::new(
+                records
+                    .into_iter()
+                    .flat_map(move |(topic_name, records)| {
+                        let key_deserializer = key_deserializer.clone();
+                        let value_deserializer = value_deserializer.clone();
+                        let subscriptions = subscriptions.clone();
 
-                records.into_iter().flat_map(move |record| {
-                    let topic_name = topic_name.clone();
-                    let partition_id = record.partition_id;
-                    let tp = topic_partition!(topic_name.clone(), partition_id);
-                    let subscriptions = subscriptions.clone();
-                    let key_deserializer = key_deserializer.clone();
-                    let value_deserializer = value_deserializer.clone();
+                        records.into_iter().flat_map(move |record| {
+                            let topic_name = topic_name.clone();
+                            let partition_id = record.partition_id;
+                            let tp = topic_partition!(topic_name.clone(), partition_id);
+                            let subscriptions = subscriptions.clone();
+                            let key_deserializer = key_deserializer.clone();
+                            let value_deserializer = value_deserializer.clone();
 
-                    record.messages.into_iter().map(move |message| {
-                        if let Some(state) = subscriptions.borrow_mut().assigned_state_mut(&tp) {
-                            state.seek(message.offset + 1);
-                        }
+                            record.messages.into_iter().map(move |message| {
+                                if let Some(state) = subscriptions.borrow_mut().assigned_state_mut(&tp) {
+                                    state.seek(message.offset + 1);
+                                }
 
-                        ConsumerRecord {
-                            topic_name: Cow::from(topic_name.clone()),
-                            partition_id,
-                            offset: message.offset,
-                            key: message.key.as_ref().and_then(|buf| {
-                                key_deserializer
-                                    .clone()
-                                    .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                    .ok()
-                            }),
-                            value: message.value.as_ref().and_then(|buf| {
-                                value_deserializer
-                                    .clone()
-                                    .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                    .ok()
-                            }),
-                            timestamp: message.timestamp.clone(),
-                        }
+                                (
+                                    ConsumerRecord {
+                                        topic_name: Cow::from(topic_name.clone()),
+                                        partition_id,
+                                        offset: message.offset,
+                                        key: message.key.as_ref().and_then(|buf| {
+                                            key_deserializer
+                                                .clone()
+                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                                .ok()
+                                        }),
+                                        value: message.value.as_ref().and_then(|buf| {
+                                            value_deserializer
+                                                .clone()
+                                                .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                                .ok()
+                                        }),
+                                        timestamp: message.timestamp.clone(),
+                                    },
+                                    message.size(Default::default()),
+                                )
+                            })
+                        })
                     })
-                })
-            })),
+                    .collect(),
+            ),
             throttle_time,
         )
-    }
-
-    fn retry(timer: Rc<Timer>, backoff: Duration) -> Self {
-        trace!("request was failed or throttled due to quota violation, {:?}", backoff);
-
-        State::Retry(timer.sleep(backoff))
     }
 }
 
@@ -297,8 +381,10 @@ where
                     }
                 }
                 State::UpdatingOffsets(ref mut updating) => {
-                    debug!("updating offsets from coordinator");
+                    trace!("updating offsets from coordinator");
+
                     try_ready!(updating.poll());
+
                     State::updating(self.subscriptions.clone(), self.fetcher.clone())
                 }
                 State::Updating(ref mut updating) => {
@@ -306,56 +392,98 @@ where
 
                     State::fetching(self.subscriptions.clone(), self.fetcher.clone())
                 }
-                State::Retry(ref mut sleep) => {
-                    try_ready!(sleep.poll());
-
-                    State::updating(self.subscriptions.clone(), self.fetcher.clone())
-                }
                 State::Fetching(ref mut fetching) => match fetching.poll() {
-                    Ok(Async::Ready((throttle_time, ref records)))
-                        if records
-                            .iter()
-                            .flat_map(|(_, records)| records)
-                            .map(|record| record.messages.len())
-                            .sum::<usize>() == 0 =>
-                    {
-                        State::retry(
-                            self.timer.clone(),
-                            cmp::max(throttle_time, self.consumer.config().fetch_error_backoff()),
-                        )
-                    }
-                    Ok(Async::Ready((throttle_time, records))) => {
-                        let key_deserializer = self.consumer.key_deserializer();
-                        let value_deserializer = self.consumer.value_deserializer();
-                        let auto_commit_enabled = self.consumer.config().auto_commit_enabled;
-
-                        State::<K::Item, V::Item>::fetched(
-                            key_deserializer,
-                            value_deserializer,
-                            self.subscriptions.clone(),
-                            auto_commit_enabled,
-                            throttle_time,
-                            records,
-                        )
-                    }
+                    Ok(Async::Ready((throttle_time, records))) => State::<K::Item, V::Item>::fetched(
+                        self.consumer.key_deserializer(),
+                        self.consumer.value_deserializer(),
+                        self.subscriptions.clone(),
+                        self.consumer.config().auto_commit_enabled,
+                        throttle_time,
+                        records,
+                    ),
                     Ok(Async::NotReady) => {
                         return Ok(Async::NotReady);
                     }
                     Err(err) => {
-                        trace!("fail to fetch the records, {}", err);
+                        trace!("fail to fetch records: {}", err);
 
-                        State::retry(self.timer.clone(), self.consumer.config().fetch_error_backoff())
+                        match err {
+                            Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => State::retry_update(
+                                self.timer.clone(),
+                                self.consumer.config().fetch_error_backoff(),
+                                self.subscriptions.clone(),
+                                self.fetcher.clone(),
+                            ),
+                            _ => return Err(err),
+                        }
                     }
                 },
                 State::Fetched(ref mut records, throttle_time) => {
-                    if let Some(record) = records.next() {
+                    if self.consumer.config().prefetch_enabled()
+                        && records.get_mut().iter().map(|&(_, size)| size).sum::<usize>()
+                            < self.consumer.config().prefetch_low_watermark
+                    {
+                        State::prefetch(self.subscriptions.clone(), self.fetcher.clone(), records.take())
+                    } else if let Some((record, _)) = records.get_mut().pop_back() {
                         return Ok(Async::Ready(Some(record)));
                     } else if throttle_time > Duration::default() {
-                        State::retry(self.timer.clone(), throttle_time)
+                        State::retry_fetch(
+                            self.timer.clone(),
+                            cmp::max(throttle_time, self.consumer.config().fetch_error_backoff()),
+                            self.subscriptions.clone(),
+                            self.fetcher.clone(),
+                        )
                     } else {
                         State::fetching(self.subscriptions.clone(), self.fetcher.clone())
                     }
                 }
+                State::Prefetching(ref mut fetching, ref mut records) => match fetching.poll() {
+                    Ok(Async::Ready((throttle_time, prefetched_records))) => {
+                        if let State::Fetched(prefetched_records, throttle_time) = State::<K::Item, V::Item>::fetched(
+                            self.consumer.key_deserializer(),
+                            self.consumer.value_deserializer(),
+                            self.subscriptions.clone(),
+                            self.consumer.config().auto_commit_enabled,
+                            throttle_time,
+                            prefetched_records,
+                        ) {
+                            let mut records = records.take();
+
+                            records.extend(prefetched_records.take());
+
+                            if self.consumer.config().prefetch_enabled()
+                                && records.iter().map(|&(_, size)| size).sum::<usize>()
+                                    > self.consumer.config().prefetch_high_watermark
+                            {
+                                State::Fetched(Cell::new(records), throttle_time)
+                            } else {
+                                State::prefetch(self.subscriptions.clone(), self.fetcher.clone(), records)
+                            }
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                    Ok(Async::NotReady) => {
+                        if let Some((record, _)) = records.get_mut().pop_back() {
+                            return Ok(Async::Ready(Some(record)));
+                        } else {
+                            return Ok(Async::NotReady);
+                        }
+                    }
+                    Err(err) => {
+                        trace!("fail to prefetch records: {}", err);
+
+                        match err {
+                            Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => State::retry_update(
+                                self.timer.clone(),
+                                self.consumer.config().fetch_error_backoff(),
+                                self.subscriptions.clone(),
+                                self.fetcher.clone(),
+                            ),
+                            _ => return Err(err),
+                        }
+                    }
+                },
             };
         }
     }

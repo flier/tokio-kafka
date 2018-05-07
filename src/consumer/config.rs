@@ -177,6 +177,14 @@ pub struct ConsumerConfig {
     /// (broker config) or `max.message.bytes` (topic config).
     #[serde(rename = "max.partition.fetch.bytes")]
     pub partition_fetch_bytes: usize,
+
+    /// The maximum amount of data the consumer should prefetch for records.
+    #[serde(rename = "prefetch.low.watermark.bytes")]
+    pub prefetch_low_watermark: usize,
+
+    /// The maximum amount of data the consumer should prefetch for records.
+    #[serde(rename = "prefetch.high.watermark.bytes")]
+    pub prefetch_high_watermark: usize,
 }
 
 impl Deref for ConsumerConfig {
@@ -211,6 +219,8 @@ impl Default for ConsumerConfig {
             fetch_max_wait: DEFAULT_FETCH_MAX_WAIT_MILLIS,
             fetch_error_backoff: DEFAULT_FETCH_ERROR_BACKOFF_MILLIS,
             partition_fetch_bytes: DEFAULT_PARTITION_FETCH_BYTES,
+            prefetch_low_watermark: 0,
+            prefetch_high_watermark: 0,
         }
     }
 }
@@ -266,6 +276,10 @@ impl ConsumerConfig {
     /// case of a fetch error.
     pub fn fetch_error_backoff(&self) -> Duration {
         Duration::from_millis(self.fetch_error_backoff)
+    }
+
+    pub fn prefetch_enabled(&self) -> bool {
+        self.prefetch_low_watermark > 0 && self.prefetch_high_watermark > self.prefetch_low_watermark
     }
 }
 
@@ -333,7 +347,9 @@ mod tests {
   "fetch.max.bytes": 52428800,
   "fetch.max.wait.ms": 500,
   "fetch.error.backoff.ms": 500,
-  "max.partition.fetch.bytes": 1048576
+  "max.partition.fetch.bytes": 1048576,
+  "prefetch.low.watermark.bytes": 0,
+  "prefetch.high.watermark.bytes": 0
 }"#;
 
         assert_eq!(serde_json::to_string_pretty(&config).unwrap(), json);
