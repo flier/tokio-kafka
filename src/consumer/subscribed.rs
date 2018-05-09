@@ -5,7 +5,6 @@ use std::hash::Hash;
 use std::cmp;
 use std::time::Duration;
 use std::rc::Rc;
-use std::cell::Cell;
 
 use bytes::IntoBuf;
 use futures::{future, Async, Future, Poll, Stream};
@@ -139,7 +138,7 @@ where
         let state = if let Some(ref coordinator) = coordinator {
             State::join_group(coordinator.clone())
         } else {
-            State::update_positions(subscriptions.clone(), fetcher.clone())
+            State::update_positions(&subscriptions.borrow(), &fetcher)
         };
         let prefetch_watermark = if consumer.config().prefetch_enabled() {
             Some(consumer.config().prefetch_low_watermark)
@@ -177,6 +176,8 @@ where
     }
 }
 
+type ConsumerRecordQueue<'a, K, V> = VecDeque<(ConsumerRecord<'a, K, V>, usize)>;
+
 struct Inner<'a, K, V>
 where
     K: Deserializer,
@@ -188,7 +189,7 @@ where
     fetcher: Rc<Fetcher<'a>>,
     timer: Rc<Timer>,
     state: State<'a, K::Item, V::Item>,
-    records: VecDeque<(ConsumerRecord<'a, K::Item, V::Item>, usize)>,
+    records: ConsumerRecordQueue<'a, K::Item, V::Item>,
     prefetch_watermark: Option<usize>,
 }
 
@@ -211,23 +212,23 @@ where
         State::Rebalancing(coordinator, joining)
     }
 
-    fn update_positions(subscriptions: Rc<RefCell<Subscriptions<'a>>>, fetcher: Rc<Fetcher<'a>>) -> Self {
-        let partitions = subscriptions.borrow().assigned_partitions();
+    fn update_positions(subscriptions: &Subscriptions<'a>, fetcher: &Fetcher<'a>) -> Self {
+        let partitions = subscriptions.assigned_partitions();
 
         trace!("updating postion of partitions: {:?}", partitions);
 
         State::Updating(fetcher.update_positions(partitions))
     }
 
-    fn fetch_records(subscriptions: Rc<RefCell<Subscriptions<'a>>>, fetcher: Rc<Fetcher<'a>>) -> Self {
-        let partitions = subscriptions.borrow().fetchable_partitions();
+    fn fetch_records(subscriptions: &Subscriptions<'a>, fetcher: &Fetcher<'a>) -> Self {
+        let partitions = subscriptions.fetchable_partitions();
 
         trace!("fetching records of partitions: {:?}", partitions);
 
         State::Fetching(fetcher.fetch_records(partitions))
     }
 
-    fn retry<A, T>(timer: Rc<Timer>, backoff: Duration, action: A) -> StaticBoxFuture<T>
+    fn retry<A, T>(timer: &Timer, backoff: Duration, action: A) -> StaticBoxFuture<T>
     where
         A: 'static + FnOnce() -> StaticBoxFuture<T>,
     {
@@ -237,7 +238,7 @@ where
     }
 
     fn retry_fetch(
-        timer: Rc<Timer>,
+        timer: &Timer,
         backoff: Duration,
         subscriptions: Rc<RefCell<Subscriptions<'a>>>,
         fetcher: Rc<Fetcher<'a>>,
@@ -252,20 +253,24 @@ where
     }
 
     fn retry_update(
-        timer: Rc<Timer>,
+        timer: &Timer,
         backoff: Duration,
+        coordinator: Option<ConsumerCoordinator<'a, KafkaClient<'a>>>,
         subscriptions: Rc<RefCell<Subscriptions<'a>>>,
         fetcher: Rc<Fetcher<'a>>,
     ) -> Self {
-        State::Fetching(Self::retry(timer, backoff, move || {
-            let partitions = subscriptions.borrow().assigned_partitions();
+        State::Updating(Self::retry(timer, backoff, move || {
+            if let Some(coordinator) = coordinator {
+                trace!("update offsets for group {}", coordinator.group_id());
 
-            trace!("updating postion of partitions: {:?}", partitions);
+                coordinator.update_offsets()
+            } else {
+                let partitions = subscriptions.borrow().assigned_partitions();
 
-            fetcher
-                .update_positions(partitions.clone())
-                .and_then(move |_| fetcher.fetch_records(partitions))
-                .static_boxed()
+                trace!("updating postion of partitions: {:?}", partitions);
+
+                fetcher.update_positions(partitions)
+            }
         }))
     }
 
@@ -343,7 +348,11 @@ where
         loop {
             self.state = match self.state {
                 State::Rebalancing(ref coordinator, ref mut joining) => match joining.poll() {
-                    Ok(Async::Ready(_)) => State::Updating(coordinator.update_offsets()),
+                    Ok(Async::Ready(_)) => {
+                        trace!("update offsets for group {}", coordinator.group_id());
+
+                        State::Updating(coordinator.update_offsets())
+                    }
                     Ok(Async::NotReady) => {
                         if let Some((record, _)) = self.records.pop_front() {
                             return Ok(Async::Ready(Some(record)));
@@ -363,7 +372,7 @@ where
                     }
                 },
                 State::Updating(ref mut updating) => match updating.poll() {
-                    Ok(Async::Ready(_)) => State::fetch_records(self.subscriptions.clone(), self.fetcher.clone()),
+                    Ok(Async::Ready(_)) => State::fetch_records(&self.subscriptions.borrow(), &self.fetcher),
                     Ok(Async::NotReady) => {
                         if let Some((record, _)) = self.records.pop_front() {
                             return Ok(Async::Ready(Some(record)));
@@ -379,7 +388,7 @@ where
                                 if let Some(ref coordinator) = self.coordinator {
                                     State::join_group(coordinator.clone())
                                 } else {
-                                    State::update_positions(self.subscriptions.clone(), self.fetcher.clone())
+                                    State::update_positions(&self.subscriptions.borrow(), &self.fetcher)
                                 }
                             }
                             _ => return Err(err),
@@ -407,8 +416,9 @@ where
 
                         match err {
                             Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => State::retry_update(
-                                self.timer.clone(),
+                                &self.timer,
                                 self.consumer.config().fetch_error_backoff(),
+                                self.coordinator.clone(),
                                 self.subscriptions.clone(),
                                 self.fetcher.clone(),
                             ),
@@ -423,7 +433,7 @@ where
                         Some(watermark) if self.records.iter().map(|&(_, size)| size).sum::<usize>() < watermark => {
                             self.prefetch_watermark = Some(self.consumer.config().prefetch_high_watermark);
 
-                            State::fetch_records(self.subscriptions.clone(), self.fetcher.clone())
+                            State::fetch_records(&self.subscriptions.borrow(), &self.fetcher)
                         }
                         _ => {
                             if let Some((record, _)) = self.records.pop_front() {
@@ -434,13 +444,13 @@ where
                                 return Ok(Async::Ready(Some(record)));
                             } else if throttle_time > Duration::default() {
                                 State::retry_fetch(
-                                    self.timer.clone(),
+                                    &self.timer,
                                     cmp::max(throttle_time, self.consumer.config().fetch_error_backoff()),
                                     self.subscriptions.clone(),
                                     self.fetcher.clone(),
                                 )
                             } else {
-                                State::fetch_records(self.subscriptions.clone(), self.fetcher.clone())
+                                State::fetch_records(&self.subscriptions.borrow(), &self.fetcher)
                             }
                         }
                     }
