@@ -345,7 +345,7 @@ where
                 State::Rebalancing(ref coordinator, ref mut joining) => match joining.poll() {
                     Ok(Async::Ready(_)) => State::Updating(coordinator.update_offsets()),
                     Ok(Async::NotReady) => {
-                        if let Some((record, _)) = self.records.pop_back() {
+                        if let Some((record, _)) = self.records.pop_front() {
                             return Ok(Async::Ready(Some(record)));
                         } else {
                             return Ok(Async::NotReady);
@@ -365,7 +365,7 @@ where
                 State::Updating(ref mut updating) => match updating.poll() {
                     Ok(Async::Ready(_)) => State::fetch_records(self.subscriptions.clone(), self.fetcher.clone()),
                     Ok(Async::NotReady) => {
-                        if let Some((record, _)) = self.records.pop_back() {
+                        if let Some((record, _)) = self.records.pop_front() {
                             return Ok(Async::Ready(Some(record)));
                         } else {
                             return Ok(Async::NotReady);
@@ -396,7 +396,7 @@ where
                         records,
                     ),
                     Ok(Async::NotReady) => {
-                        if let Some((record, _)) = self.records.pop_back() {
+                        if let Some((record, _)) = self.records.pop_front() {
                             return Ok(Async::Ready(Some(record)));
                         } else {
                             return Ok(Async::NotReady);
@@ -426,7 +426,7 @@ where
                             State::fetch_records(self.subscriptions.clone(), self.fetcher.clone())
                         }
                         _ => {
-                            if let Some((record, _)) = self.records.pop_back() {
+                            if let Some((record, _)) = self.records.pop_front() {
                                 if self.prefetch_watermark.is_some() {
                                     self.prefetch_watermark = Some(self.consumer.config().prefetch_low_watermark);
                                 }
