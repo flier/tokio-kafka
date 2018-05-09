@@ -13,7 +13,7 @@ use tokio_timer::Timer;
 use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupMember, ConsumerGroupProtocol,
              Generation, JoinGroup as JoinConsumerGroup, Metadata, OffsetCommit, OffsetFetch, StaticBoxFuture,
              ToStaticBoxFuture};
-use consumer::{Assignment, PartitionAssignor, Subscription, Subscriptions, CONSUMER_PROTOCOL};
+use consumer::{Assignment, PartitionAssignor, SeekTo, Subscription, Subscriptions, CONSUMER_PROTOCOL};
 use errors::{Error, ErrorKind, Result, ResultExt};
 use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
@@ -522,6 +522,33 @@ where
                     })
             })
             .static_boxed()
+    }
+
+    pub fn refresh_committed_offsets_if_needed(&self) -> Option<StaticBoxFuture> {
+        let subscriptions = self.inner.subscriptions.clone();
+        let partitions = subscriptions.borrow().partitions_missing_positions();
+
+        if partitions.is_empty() {
+            None
+        } else {
+            Some(
+                self.fetch_offsets(partitions)
+                    .and_then(move |offsets| {
+                        for (topic_name, partitions) in offsets {
+                            for partition in partitions {
+                                let tp = topic_partition!(topic_name.clone(), partition.partition_id);
+
+                                subscriptions
+                                    .borrow_mut()
+                                    .seek(&tp, SeekTo::Position(partition.offset))?;
+                            }
+                        }
+
+                        Ok(())
+                    })
+                    .static_boxed(),
+            )
+        }
     }
 }
 

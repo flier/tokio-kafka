@@ -121,17 +121,37 @@ impl<'a> Subscriptions<'a> {
         self.assignment
             .get_mut(tp)
             .ok_or_else(|| ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp)).into())
-            .map(|state| match pos {
-                SeekTo::Beginning => {
-                    state.need_offset_reset(OffsetResetStrategy::Earliest);
-                }
-                SeekTo::Position(offset) => {
-                    state.seek(offset);
-                }
-                SeekTo::End => {
-                    state.need_offset_reset(OffsetResetStrategy::Latest);
+            .map(|state| {
+                trace!("seek {} to {:?}", tp, pos);
+
+                match pos {
+                    SeekTo::Beginning => {
+                        state.need_offset_reset(OffsetResetStrategy::Earliest);
+                    }
+                    SeekTo::Position(offset) => {
+                        state.seek(offset);
+                    }
+                    SeekTo::End => {
+                        state.need_offset_reset(OffsetResetStrategy::Latest);
+                    }
                 }
             })
+    }
+
+    pub fn partitions_needing_reset(&self) -> Vec<TopicPartition<'a>> {
+        self.assignment
+            .iter()
+            .filter(|&(_, state)| state.awaiting_reset())
+            .map(|(tp, _)| tp.clone())
+            .collect()
+    }
+
+    pub fn partitions_missing_positions(&self) -> Vec<TopicPartition<'a>> {
+        self.assignment
+            .iter()
+            .filter(|&(_, state)| state.is_missing_position())
+            .map(|(tp, _)| tp.clone())
+            .collect()
     }
 
     pub fn consumed_partitions(&self) -> Vec<(TopicPartition<'a>, OffsetAndMetadata)> {
@@ -226,12 +246,16 @@ impl TopicPartitionState {
         !self.paused && self.position.is_some()
     }
 
+    pub fn awaiting_reset(&self) -> bool {
+        self.reset_strategy.is_some()
+    }
+
     pub fn has_valid_position(&self) -> bool {
         self.position.is_some()
     }
 
-    pub fn is_offset_reset_needed(&self) -> bool {
-        self.reset_strategy.is_some()
+    pub fn is_missing_position(&self) -> bool {
+        !self.has_valid_position() && !self.awaiting_reset()
     }
 
     pub fn has_committed(&self) -> bool {

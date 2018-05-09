@@ -363,152 +363,166 @@ where
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             self.state = match self.state {
-                State::Rebalancing(ref coordinator, ref mut joining) => {
-                    trace!("rebalancing in group {}", coordinator.group_id());
+                State::Rebalancing(ref coordinator, ref mut joining) => match joining.poll() {
+                    Ok(Async::Ready(_)) => {
+                        trace!("update offsets for group {}", coordinator.group_id());
 
-                    match joining.poll() {
-                        Ok(Async::Ready(_)) => {
-                            trace!("update offsets for group {}", coordinator.group_id());
-
-                            State::Updating(coordinator.update_offsets())
-                        }
-                        Ok(Async::NotReady) => {
-                            if let Some((record, _)) = self.records.pop_front() {
-                                return Ok(Async::Ready(Some(record)));
-                            } else {
-                                return Ok(Async::NotReady);
-                            }
-                        }
-                        Err(err) => {
-                            trace!("fail to join group `{}`: {}", coordinator.group_id(), err);
-
-                            match err {
-                                Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => {
-                                    State::join_group(coordinator.clone())
-                                }
-                                _ => return Err(err),
-                            }
+                        State::Updating(coordinator.update_offsets())
+                    }
+                    Ok(Async::NotReady) => {
+                        if let Some((record, _)) = self.records.pop_front() {
+                            return Ok(Async::Ready(Some(record)));
+                        } else {
+                            return Ok(Async::NotReady);
                         }
                     }
-                }
-                State::Updating(ref mut updating) => {
-                    trace!("updating offsets");
+                    Err(err) => {
+                        trace!("fail to join group `{}`: {}", coordinator.group_id(), err);
 
-                    match updating.poll() {
-                        Ok(Async::Ready(_)) => State::fetch_records(
-                            self.consumer.config().fetch_max_wait(),
-                            self.subscriptions.clone(),
-                            self.fetcher.clone(),
-                        ),
-                        Ok(Async::NotReady) => {
-                            if let Some((record, _)) = self.records.pop_front() {
-                                return Ok(Async::Ready(Some(record)));
-                            } else {
-                                return Ok(Async::NotReady);
-                            }
-                        }
-                        Err(err) => {
-                            trace!("fail to update offsets: {}", err);
-
-                            match err {
-                                Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => {
-                                    if let Some(ref coordinator) = self.coordinator {
-                                        State::join_group(coordinator.clone())
-                                    } else {
-                                        State::update_positions(self.subscriptions.clone(), self.fetcher.clone())
-                                    }
-                                }
-                                _ => return Err(err),
-                            }
-                        }
-                    }
-                }
-                State::Fetching(ref mut fetching) => {
-                    trace!("fetching records");
-
-                    match fetching.poll() {
-                        Ok(Async::Ready((throttle_time, records))) => State::<K::Item, V::Item>::fetched(
-                            self.consumer.key_deserializer(),
-                            self.consumer.value_deserializer(),
-                            self.subscriptions.clone(),
-                            self.consumer.config().auto_commit_enabled,
-                            throttle_time,
-                            records,
-                        ),
-                        Ok(Async::NotReady) => {
-                            if let Some((record, _)) = self.records.pop_front() {
-                                return Ok(Async::Ready(Some(record)));
-                            } else {
-                                return Ok(Async::NotReady);
-                            }
-                        }
-                        Err(err) => match err {
-                            Error(ErrorKind::TimeoutError(reason), _) => {
-                                trace!("fetch request timeout, retry later, {}", reason);
-
-                                State::retry_fetch(
-                                    self.timer.clone(),
-                                    self.consumer.config().fetch_error_backoff(),
-                                    self.consumer.config().fetch_max_wait(),
-                                    self.subscriptions.clone(),
-                                    self.fetcher.clone(),
-                                )
-                            }
+                        match err {
                             Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => {
-                                trace!("fail to fetch records, retry later, {}", code.reason());
-
-                                State::retry_update(
-                                    self.timer.clone(),
-                                    self.consumer.config().fetch_error_backoff(),
-                                    self.coordinator.clone(),
-                                    self.subscriptions.clone(),
-                                    self.fetcher.clone(),
-                                )
+                                State::join_group(coordinator.clone())
                             }
-                            _ => {
-                                trace!("fail to fetch records: {}", err);
-
-                                return Err(err);
-                            }
-                        },
+                            _ => return Err(err),
+                        }
                     }
-                }
-                State::Fetched(ref mut records, throttle_time) => {
-                    trace!("fetched records");
+                },
+                State::Updating(ref mut updating) => match updating.poll() {
+                    Ok(Async::Ready(_)) => {
+                        let updating = if let Some(ref coordinator) = self.coordinator {
+                            coordinator.refresh_committed_offsets_if_needed()
+                        } else {
+                            self.fetcher.reset_offsets_if_needed()
+                        };
 
-                    self.records.extend(records);
+                        if let Some(updating) = updating {
+                            trace!("updating outdated offsets");
 
-                    match self.prefetch_watermark {
-                        Some(watermark) if self.records.iter().map(|&(_, size)| size).sum::<usize>() < watermark => {
-                            self.prefetch_watermark = Some(self.consumer.config().prefetch_high_watermark);
-
+                            State::Updating(updating)
+                        } else {
                             State::fetch_records(
                                 self.consumer.config().fetch_max_wait(),
                                 self.subscriptions.clone(),
                                 self.fetcher.clone(),
                             )
                         }
-                        _ => {
-                            if let Some((record, _)) = self.records.pop_front() {
-                                if self.prefetch_watermark.is_some() {
-                                    self.prefetch_watermark = Some(self.consumer.config().prefetch_low_watermark);
-                                }
+                    }
+                    Ok(Async::NotReady) => {
+                        if let Some((record, _)) = self.records.pop_front() {
+                            return Ok(Async::Ready(Some(record)));
+                        } else {
+                            return Ok(Async::NotReady);
+                        }
+                    }
+                    Err(err) => {
+                        trace!("fail to update offsets: {}", err);
 
-                                return Ok(Async::Ready(Some(record)));
-                            } else if throttle_time > Duration::default() {
-                                State::retry_fetch(
-                                    self.timer.clone(),
-                                    cmp::max(throttle_time, self.consumer.config().fetch_error_backoff()),
-                                    self.consumer.config().fetch_max_wait(),
-                                    self.subscriptions.clone(),
-                                    self.fetcher.clone(),
-                                )
-                            } else {
+                        match err {
+                            Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => {
+                                if let Some(ref coordinator) = self.coordinator {
+                                    State::join_group(coordinator.clone())
+                                } else {
+                                    State::update_positions(self.subscriptions.clone(), self.fetcher.clone())
+                                }
+                            }
+                            _ => return Err(err),
+                        }
+                    }
+                },
+                State::Fetching(ref mut fetching) => match fetching.poll() {
+                    Ok(Async::Ready((throttle_time, records))) => State::<K::Item, V::Item>::fetched(
+                        self.consumer.key_deserializer(),
+                        self.consumer.value_deserializer(),
+                        self.subscriptions.clone(),
+                        self.consumer.config().auto_commit_enabled,
+                        throttle_time,
+                        records,
+                    ),
+                    Ok(Async::NotReady) => {
+                        if let Some((record, _)) = self.records.pop_front() {
+                            return Ok(Async::Ready(Some(record)));
+                        } else {
+                            return Ok(Async::NotReady);
+                        }
+                    }
+                    Err(err) => match err {
+                        Error(ErrorKind::TimeoutError(reason), _) => {
+                            trace!("fetch request timeout, retry later, {}", reason);
+
+                            State::retry_fetch(
+                                self.timer.clone(),
+                                self.consumer.config().fetch_error_backoff(),
+                                self.consumer.config().fetch_max_wait(),
+                                self.subscriptions.clone(),
+                                self.fetcher.clone(),
+                            )
+                        }
+                        Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => {
+                            trace!("fail to fetch records, retry later, {}", code.reason());
+
+                            State::retry_update(
+                                self.timer.clone(),
+                                self.consumer.config().fetch_error_backoff(),
+                                self.coordinator.clone(),
+                                self.subscriptions.clone(),
+                                self.fetcher.clone(),
+                            )
+                        }
+                        _ => {
+                            trace!("fail to fetch records: {}", err);
+
+                            return Err(err);
+                        }
+                    },
+                },
+                State::Fetched(ref mut records, throttle_time) => {
+                    self.records.extend(records);
+
+                    let updating = if let Some(ref coordinator) = self.coordinator {
+                        coordinator.refresh_committed_offsets_if_needed()
+                    } else {
+                        self.fetcher.reset_offsets_if_needed()
+                    };
+
+                    if let Some(updating) = updating {
+                        trace!("updating outdated offsets");
+
+                        State::Updating(updating)
+                    } else {
+                        match self.prefetch_watermark {
+                            Some(watermark)
+                                if self.records.iter().map(|&(_, size)| size).sum::<usize>() < watermark =>
+                            {
+                                self.prefetch_watermark = Some(self.consumer.config().prefetch_high_watermark);
+
                                 State::fetch_records(
                                     self.consumer.config().fetch_max_wait(),
                                     self.subscriptions.clone(),
                                     self.fetcher.clone(),
                                 )
+                            }
+                            _ => {
+                                if let Some((record, _)) = self.records.pop_front() {
+                                    if self.prefetch_watermark.is_some() {
+                                        self.prefetch_watermark = Some(self.consumer.config().prefetch_low_watermark);
+                                    }
+
+                                    return Ok(Async::Ready(Some(record)));
+                                } else if throttle_time > Duration::default() {
+                                    State::retry_fetch(
+                                        self.timer.clone(),
+                                        cmp::max(throttle_time, self.consumer.config().fetch_error_backoff()),
+                                        self.consumer.config().fetch_max_wait(),
+                                        self.subscriptions.clone(),
+                                        self.fetcher.clone(),
+                                    )
+                                } else {
+                                    State::fetch_records(
+                                        self.consumer.config().fetch_max_wait(),
+                                        self.subscriptions.clone(),
+                                        self.fetcher.clone(),
+                                    )
+                                }
                             }
                         }
                     }
