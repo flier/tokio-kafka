@@ -260,7 +260,7 @@ impl MessageSetEncoder {
 
 named!(pub parse_message_set<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
-        map!(many1!(parse_message), |messages| MessageSet { messages })
+        map!(many0!(parse_message), |messages| MessageSet { messages })
     )
 );
 
@@ -479,7 +479,7 @@ impl MessageSetBuilder {
 
 #[cfg(test)]
 mod tests {
-    use nom::{IResult, Needed};
+    use nom::IResult;
 
     use super::*;
     use protocol::*;
@@ -490,7 +490,7 @@ mod tests {
             vec![
                 (
                     b"",
-                    IResult::Incomplete(Needed::Size(8))
+                    IResult::Done(&[][..], MessageSet { messages: vec![] })
                 ), (&[
                     // messages: [Message]
                     0, 0, 0, 0, 0, 0, 0, 0, // offset

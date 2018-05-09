@@ -79,19 +79,24 @@ impl<'a> Subscriptions<'a> {
 
     /// Change the assignment to the specified partitions returned from the
     /// coordinator
-    pub fn assign_from_subscribed(&mut self, partitions: Vec<TopicPartition<'a>>) -> Result<()> {
-        if let Some(tp) = partitions
-            .iter()
-            .find(|tp| !self.subscription.contains(&String::from(tp.topic_name.to_owned())))
-        {
-            bail!(ErrorKind::IllegalArgument(format!(
-                "assigned partition {}#{} for non-subscribed topic",
-                tp.topic_name, tp.partition_id
-            )))
-        }
+    pub fn assign_from_subscribed<I>(&mut self, assignments: I) -> Result<()>
+    where
+        I: IntoIterator<Item = TopicPartition<'a>>,
+    {
+        self.assignment = HashMap::new();
 
-        self.assignment = HashMap::from_iter(partitions.into_iter()
-                .map(|tp| (tp.clone(), self.assignment.get(&tp).cloned().unwrap_or(TopicPartitionState::default()))));
+        for tp in assignments {
+            if !self.subscription.contains(&*tp.topic_name) {
+                bail!(ErrorKind::IllegalArgument(format!(
+                    "assigned partition {}#{} for non-subscribed topic",
+                    tp.topic_name, tp.partition_id
+                )))
+            }
+
+            let state = self.assignment.remove(&tp).unwrap_or_default();
+
+            self.assignment.insert(tp, state);
+        }
 
         Ok(())
     }

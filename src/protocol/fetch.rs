@@ -612,6 +612,46 @@ mod tests {
             (
                 0,
                 FetchResponse {
+                    header: ResponseHeader { correlation_id: 2 },
+                    throttle_time: None,
+                    error_code: None,
+                    session_id: None,
+                    topics: vec![
+                        FetchTopicData {
+                            topic_name: "foo".to_owned(),
+                            partitions: vec![
+                                FetchPartitionData {
+                                    partition_id: 0,
+                                    error_code: 0,
+                                    high_watermark: 10,
+                                    last_stable_offset: None,
+                                    log_start_offset: None,
+                                    aborted_transactions: None,
+                                    message_set: MessageSet {
+                                        messages: vec![],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }, &[
+                    // ResponseHeader
+                    0, 0, 0, 2,   // correlation_id
+                    // FetchResponse
+                    // topics: [TopicData]
+                    0, 0, 0, 1,
+                        0, 3, b'f', b'o', b'o',     // topic_name
+                        // partitions: [PartitionData]
+                        0, 0, 0, 1,
+                            0, 0, 0, 0,             // partition
+                            0, 0,                   // error_code
+                            0, 0, 0, 0, 0, 0, 0, 10,// highwater_mark
+                            // MessageSet
+                            0, 0, 0, 0,             // size
+                ]
+            ), (
+                0,
+                FetchResponse {
                     header: ResponseHeader { correlation_id: 123 },
                     throttle_time: None,
                     error_code: None,

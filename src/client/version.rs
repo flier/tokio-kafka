@@ -162,7 +162,9 @@ named!(
         tag!("0.8.0")       => { |_| KafkaVersion::KAFKA_0_8_0 } |
         tag!("0.8.1")       => { |_| KafkaVersion::KAFKA_0_8_1 } |
         tag!("0.8.2")       => { |_| KafkaVersion::KAFKA_0_8_2 } |
+        tag!("0.8")         => { |_| KafkaVersion::KAFKA_0_8_2 } |
         tag!("0.9.0")       => { |_| KafkaVersion::KAFKA_0_9_0 } |
+        tag!("0.9")         => { |_| KafkaVersion::KAFKA_0_9_0 } |
         tag!("0.10.0-IV0")  => { |_| KafkaVersion::KAFKA_0_10_0_IV0 } |
         tag!("0.10.0-IV1")  => { |_| KafkaVersion::KAFKA_0_10_0_IV1 } |
         tag!("0.10.0")      => { |_| KafkaVersion::KAFKA_0_10_0_IV1 } |
@@ -172,10 +174,12 @@ named!(
         tag!("0.10.1")      => { |_| KafkaVersion::KAFKA_0_10_1_IV2 } |
         tag!("0.10.2-IV0")  => { |_| KafkaVersion::KAFKA_0_10_2_IV0 } |
         tag!("0.10.2")      => { |_| KafkaVersion::KAFKA_0_10_2_IV0 } |
+        tag!("0.10")        => { |_| KafkaVersion::KAFKA_0_10_2_IV0 } |
         tag!("0.11.0-IV0")  => { |_| KafkaVersion::KAFKA_0_11_0_IV0 } |
         tag!("0.11.0-IV1")  => { |_| KafkaVersion::KAFKA_0_11_0_IV1 } |
         tag!("0.11.0-IV2")  => { |_| KafkaVersion::KAFKA_0_11_0_IV2 } |
         tag!("0.11.0")      => { |_| KafkaVersion::KAFKA_0_11_0_IV2 } |
+        tag!("0.11")        => { |_| KafkaVersion::KAFKA_0_11_0_IV2 } |
         tag!("1.0-IV0")     => { |_| KafkaVersion::KAFKA_1_0_IV0 } |
         tag!("1.0")         => { |_| KafkaVersion::KAFKA_1_0_IV0 } |
         tag!("1.1-IV0")     => { |_| KafkaVersion::KAFKA_1_1_IV0 } |

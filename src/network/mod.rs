@@ -35,6 +35,15 @@ impl<'a> fmt::Display for TopicPartition<'a> {
     }
 }
 
+impl<'a> TopicPartition<'a> {
+    fn to_owned(&self) -> Self {
+        TopicPartition {
+            topic_name: self.topic_name.to_owned(),
+            partition_id: self.partition_id,
+        }
+    }
+}
+
 /// A container class for offset and metadata
 ///
 /// The Kafka offset commit API allows users to provide additional metadata (in the form of a

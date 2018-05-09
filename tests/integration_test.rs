@@ -92,7 +92,11 @@ mod tests {
             consumer
                 .subscribe(vec!["foo", "bar"])
                 .and_then(move |topics| {
-                    assert_eq!(topics.subscription(), vec!["foo", "bar"]);
+                    let mut subscription = topics.subscription();
+
+                    subscription.sort();
+
+                    assert_eq!(subscription, vec!["bar", "foo"]);
 
                     for partition in topics.assigment() {
                         topics.seek(&partition, SeekTo::Beginning)?;

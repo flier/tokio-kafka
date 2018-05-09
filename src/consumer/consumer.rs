@@ -174,10 +174,32 @@ where
                     bail!(ErrorKind::TopicNotFound(not_found.clone()))
                 }
 
+                debug!(
+                    "subscribe topics {:?} with reset strategy: {:?}",
+                    topic_names, default_reset_strategy
+                );
+
                 let subscriptions = Rc::new(RefCell::new(Subscriptions::with_topics(
-                    topic_names,
+                    topic_names.clone(),
                     default_reset_strategy,
                 )));
+
+                if group_id.is_none() {
+                    let topics = metadata.topics();
+                    let mut assignments = Vec::new();
+
+                    for topic_name in topic_names {
+                        if let Some(partitions) = topics.get(&*topic_name) {
+                            assignments.extend(
+                                partitions
+                                    .into_iter()
+                                    .map(|partition| topic_partition!(topic_name.clone(), partition.partition_id)),
+                            )
+                        }
+                    }
+
+                    subscriptions.borrow_mut().assign_from_subscribed(assignments)?;
+                }
 
                 let coordinator = group_id.map(|group_id| {
                     ConsumerCoordinator::new(

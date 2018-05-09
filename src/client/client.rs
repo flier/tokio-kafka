@@ -713,8 +713,16 @@ where
         self.router
             .resolve_auto(host, DEFAULT_PORT)
             .from_err()
-            .map(|addrs| addrs.pick_one().unwrap())
-            .and_then(move |addr| service.call((addr, req)))
+            .map(|addrs| {
+                trace!("host resolved to addresses: {:?}", addrs);
+
+                addrs.pick_one().unwrap()
+            })
+            .and_then(move |addr| {
+                trace!("send request to {:?}: {:#?}", addr, req);
+
+                service.call((addr, req))
+            })
             .static_boxed()
     }
 
@@ -1536,15 +1544,13 @@ where
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
-            let state;
-
-            match self.state {
+            self.state = match self.state {
                 Loading::Metadata(ref mut future) => match future.poll() {
                     Ok(Async::Ready(metadata)) => {
                         let inner = self.inner.clone();
 
                         if inner.config.api_version_request {
-                            state = Loading::ApiVersions(metadata.clone(), inner.load_api_versions(&metadata));
+                            Loading::ApiVersions(metadata.clone(), inner.load_api_versions(&metadata))
                         } else {
                             let fallback_api_versions = inner.config.broker_version_fallback.api_versions();
 
@@ -1556,7 +1562,7 @@ where
                                 fallback_api_versions
                             );
 
-                            state = Loading::Finished(metadata);
+                            Loading::Finished(metadata)
                         }
                     }
                     Ok(Async::NotReady) => return Ok(Async::NotReady),
@@ -1566,7 +1572,7 @@ where
                     Ok(Async::Ready(api_versions)) => {
                         let metadata = Rc::new(metadata.with_api_versions(&api_versions));
 
-                        state = Loading::Finished(metadata);
+                        Loading::Finished(metadata)
                     }
                     Ok(Async::NotReady) => return Ok(Async::NotReady),
                     Err(err) => return Err(err),
@@ -1576,9 +1582,7 @@ where
 
                     return Ok(Async::Ready(metadata.clone()));
                 }
-            }
-
-            self.state = state;
+            };
         }
     }
 }
