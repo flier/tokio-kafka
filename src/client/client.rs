@@ -8,7 +8,7 @@ use std::cmp;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::Deref;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::usize;
 
 use bytes::Bytes;
@@ -713,16 +713,8 @@ where
         self.router
             .resolve_auto(host, DEFAULT_PORT)
             .from_err()
-            .map(|addrs| {
-                trace!("host resolved to addresses: {:?}", addrs);
-
-                addrs.pick_one().unwrap()
-            })
-            .and_then(move |addr| {
-                trace!("send request to {:?}: {:#?}", addr, req);
-
-                service.call((addr, req))
-            })
+            .map(|addrs| addrs.pick_one().unwrap())
+            .and_then(move |addr| service.call((addr, req)))
             .static_boxed()
     }
 
@@ -1648,4 +1640,24 @@ where
     fn static_boxed(self) -> StaticBoxFuture<T, E> {
         StaticBoxFuture::new(self)
     }
+}
+
+pub fn simple_timeout<F, T>(timeout: Duration, future: F) -> StaticBoxFuture<T, Error>
+where
+    F: 'static + Future<Item = T, Error = Error>,
+{
+    let start_time = Instant::now();
+
+    StaticBoxFuture::new(
+        future
+            .select(future::poll_fn(move || {
+                if start_time.elapsed() > timeout {
+                    bail!(ErrorKind::TimeoutError(format!("future timeout")))
+                } else {
+                    Ok(Async::NotReady)
+                }
+            }))
+            .map(|(result, _)| result)
+            .map_err(|(err, _)| err),
+    )
 }

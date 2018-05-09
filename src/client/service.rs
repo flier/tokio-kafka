@@ -109,12 +109,14 @@ where
 
         let metrics = self.metrics.clone();
 
-        race.and_then(move |client| client.call(Message::WithoutBody(request)))
-            .map(|msg| {
-                trace!("received message: {:#?}", msg);
+        trace!("send request to {:?}: {:#?}", addr, request);
 
-                match msg {
-                    Message::WithoutBody(res) | Message::WithBody(res, _) => res,
+        race.and_then(move |client| client.call(Message::WithoutBody(request)))
+            .map(move |msg| match msg {
+                Message::WithoutBody(response) | Message::WithBody(response, _) => {
+                    trace!("received response from {:?}: {:#?}", addr, response);
+
+                    response
                 }
             })
             .map(move |response| {
