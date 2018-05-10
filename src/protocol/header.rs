@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use nom::be_i32;
 
 use errors::Result;
-use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, ParseTag, WriteExt, STR_LEN_SIZE};
+use protocol::{ApiKey, ApiKeys, ApiVersion, CorrelationId, Encodable, ParseTag, WriteExt, STR_LEN_SIZE};
 
 const API_KEY_SIZE: usize = 2;
 const API_VERSION_SIZE: usize = 2;
@@ -20,6 +20,10 @@ pub struct RequestHeader<'a> {
 }
 
 impl<'a> RequestHeader<'a> {
+    pub fn api_key(&self) -> ApiKeys {
+        ApiKeys::from(self.api_key)
+    }
+
     pub fn size(&self, _api_version: ApiVersion) -> usize {
         HEADER_OVERHEAD + STR_LEN_SIZE + self.client_id.as_ref().map_or(0, |s| s.len())
     }

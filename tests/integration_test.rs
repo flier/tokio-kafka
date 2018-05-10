@@ -105,7 +105,13 @@ mod tests {
                     Ok(topics)
                 })
                 .and_then(|topics| {
-                    assert_eq!(topics.collect().wait()?, vec![]);
+                    assert_eq!(
+                        topics
+                            .take(TOPIC_FOO_MESSAGE_COUNT + TOPIC_BAR_MESSAGE_COUNT)
+                            .collect()
+                            .wait()?,
+                        vec![]
+                    );
 
                     Ok(())
                 })
