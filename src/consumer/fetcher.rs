@@ -193,10 +193,17 @@ where
                                     KafkaCode::None => {
                                         if state.position != Some(record.fetch_offset) {
                                             debug!("discarding stale fetch response for {} since its offset {} does not match the expected offset {:?}", tp, record.fetch_offset, state.position);
-                                            continue;
-                                        }
+                                        } else {
+                                            if let Some(next_offset) =
+                                                record.messages.last().map(|message| message.offset + 1)
+                                            {
+                                                debug!("returning fetched records at offset {:?} for assigned partition {} and update position to {:?}", state.position, tp, next_offset);
 
-                                        state.high_watermark = record.high_watermark;
+                                                state.position = Some(next_offset);
+                                            }
+
+                                            state.high_watermark = record.high_watermark;
+                                        }
                                     }
                                     KafkaCode::OffsetOutOfRange => {
                                         if state.position != Some(record.fetch_offset) {

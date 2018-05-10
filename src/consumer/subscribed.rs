@@ -293,7 +293,7 @@ where
     fn fetched<KD, VD>(
         key_deserializer: KD,
         value_deserializer: VD,
-        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        _subscriptions: Rc<RefCell<Subscriptions<'a>>>,
         _auto_commit_enabled: bool,
         throttle_time: Duration,
         records: HashMap<String, Vec<FetchedRecords>>,
@@ -306,21 +306,14 @@ where
             Box::new(records.into_iter().flat_map(move |(topic_name, records)| {
                 let key_deserializer = key_deserializer.clone();
                 let value_deserializer = value_deserializer.clone();
-                let subscriptions = subscriptions.clone();
 
                 records.into_iter().flat_map(move |record| {
                     let topic_name = topic_name.clone();
                     let partition_id = record.partition_id;
-                    let tp = topic_partition!(topic_name.clone(), partition_id);
-                    let subscriptions = subscriptions.clone();
                     let key_deserializer = key_deserializer.clone();
                     let value_deserializer = value_deserializer.clone();
 
                     record.messages.into_iter().map(move |message| {
-                        if let Some(state) = subscriptions.borrow_mut().assigned_state_mut(&tp) {
-                            state.seek(message.offset + 1);
-                        }
-
                         (
                             ConsumerRecord {
                                 topic_name: Cow::from(topic_name.clone()),
