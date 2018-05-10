@@ -548,7 +548,11 @@ where
     }
 
     fn commit(&self) -> Commit {
-        self.commit_offsets(self.subscriptions.borrow().consumed_partitions())
+        let partitions = self.subscriptions.borrow().consumed_partitions();
+
+        debug!("commit offsets for partitions: {:?}", partitions);
+
+        self.commit_offsets(partitions)
     }
 
     fn commit_offsets<I>(&self, offsets: I) -> Commit

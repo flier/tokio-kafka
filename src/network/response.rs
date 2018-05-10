@@ -77,8 +77,6 @@ impl KafkaResponse {
 
         match res {
             IResult::Done(remaining, res) => {
-                trace!("parsed response: {:#?}", res);
-
                 if !remaining.is_empty() {
                     warn!("remaining {} bytes not parsed", remaining.len());
                 }

@@ -105,16 +105,34 @@ mod tests {
                     Ok(topics)
                 })
                 .and_then(|topics| {
-                    assert_eq!(
-                        topics
-                            .take(TOPIC_FOO_MESSAGE_COUNT + TOPIC_BAR_MESSAGE_COUNT)
-                            .collect()
-                            .wait()?,
-                        vec![]
-                    );
+                    topics
+                        .clone()
+                        .take((TOPIC_FOO_MESSAGE_COUNT + TOPIC_BAR_MESSAGE_COUNT) as u64)
+                        .collect()
+                        .and_then(|records| {
+                            trace!("received {} records: {:?}", records.len(), records);
 
-                    Ok(())
+                            let mut values = records
+                                .into_iter()
+                                .map(|record| record.value.unwrap())
+                                .collect::<Vec<_>>();
+
+                            values.sort();
+
+                            assert_eq!(
+                                values,
+                                (0..10)
+                                    .zip(0..10)
+                                    .flat_map(|(l, r)| vec![l, r])
+                                    .map(|n| n.to_string())
+                                    .collect::<Vec<_>>()
+                            );
+
+                            Ok(())
+                        })
+                        .and_then(move |_| topics.commit())
                 })
+                .map(|_| ())
         }).unwrap()
     }
 }
