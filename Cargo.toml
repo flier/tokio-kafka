@@ -27,7 +27,7 @@ hexplay = "0.2"
 byteorder = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
-prometheus = "0.4"
+prometheus = { git = "https://github.com/flier/rust-prometheus.git", branch = "protobuf-1.6" }
 semver = "0.9"
 
 futures = "0.1"
