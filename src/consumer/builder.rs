@@ -202,6 +202,27 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
+    /// Sets how long to postpone the next fetch request for a topic+partition in
+    /// case of a fetch error.
+    pub fn with_error_backoff(mut self, backoff: Duration) -> Self {
+        self.config.fetch_error_backoff = backoff.as_millis();
+        self
+    }
+
+    /// Sets the maximum amount of time the server will block before answering the fetch request
+    /// if there isn't sufficient data to immediately satisfy the requirement given by
+    /// `fetch.min.bytes`.
+    pub fn with_fetch_max_wait(mut self, timeout: Duration) -> Self {
+        self.config.fetch_max_wait = timeout.as_millis();
+        self
+    }
+
+    /// The minimum amount of data the server should return for a fetch request.
+    pub fn with_fetch_min_bytes(mut self, bytes: usize) -> Self {
+        self.config.fetch_min_bytes = bytes;
+        self
+    }
+
     /// Sets the maximum amount of data per-partition the server will return.
     pub fn with_partition_max_bytes(mut self, bytes: usize) -> Self {
         self.config.partition_fetch_bytes = bytes;
