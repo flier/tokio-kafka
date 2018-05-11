@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::cmp;
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::iter::{self, FromIterator};
 use std::mem;
-use std::cmp;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -15,20 +15,20 @@ use bytes::Bytes;
 
 use rand::{self, Rng};
 
+use abstract_ns::HostResolve;
 use futures::unsync::oneshot;
 use futures::{future, Async, Future, IntoFuture, Poll};
+use ns_router::{AutoName, Config as RouterConfig, Router, SubscribeExt};
+use ns_std_threaded::ThreadedResolver;
 use tokio_core::reactor::{Handle, Timeout};
 use tokio_service::Service;
 use tokio_timer::Timer;
-use ns_router::{AutoName, Config as RouterConfig, Router, SubscribeExt};
-use ns_std_threaded::ThreadedResolver;
-use abstract_ns::HostResolve;
 
 use client::middleware::Timeout as TimeoutMiddleware;
 use client::{Broker, BrokerRef, ClientBuilder, ClientConfig, Cluster, FutureResponse, InFlightMiddleware,
              KafkaService, Metadata, Metrics};
-use errors::{Error, Result};
 use errors::ErrorKind::{self, *};
+use errors::{Error, Result};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition, DEFAULT_PORT};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
                GenerationId, IsolationLevel, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, Offset,
@@ -44,8 +44,8 @@ pub trait Client<'a>: 'static {
     /// The retry strategy when request failed
     fn retry_strategy(&self) -> Vec<Duration>;
 
-    /// Send the given record asynchronously and return a future which will eventually contain
-    /// the response information.
+    /// Send the given record asynchronously and return a future which will
+    /// eventually contain the response information.
     fn produce_records<I, M>(
         &self,
         acks: RequiredAcks,
@@ -68,14 +68,15 @@ pub trait Client<'a>: 'static {
         partitions: Vec<(TopicPartition<'a>, PartitionData)>,
     ) -> FetchRecords;
 
-    /// Search the offsets by target times for the specified topics and return a future which
-    /// will eventually contain the partition offset information.
+    /// Search the offsets by target times for the specified topics and return
+    /// a future which will eventually contain the partition offset
+    /// information.
     fn list_offsets<I>(&self, partitions: I) -> ListOffsets
     where
         I: 'static + IntoIterator<Item = (TopicPartition<'a>, FetchOffset)>;
 
-    /// Load metadata of the Kafka cluster and return a future which will eventually contain
-    /// the metadata information.
+    /// Load metadata of the Kafka cluster and return a future which will
+    /// eventually contain the metadata information.
     fn load_metadata(&mut self) -> LoadMetadata<'a>;
 
     /// Commit the specified offsets for the specified list of topics and
@@ -718,8 +719,8 @@ where
             .static_boxed()
     }
 
-    /// Choose the node with the fewest outstanding requests which is at least eligible for
-    /// connection.
+    /// Choose the node with the fewest outstanding requests which is at least
+    /// eligible for connection.
     pub fn least_loaded_broker(&self, metadata: &Metadata) -> Result<(SocketAddr, BrokerRef)> {
         let mut brokers = metadata.brokers().to_vec();
 
@@ -1544,7 +1545,10 @@ where
                         if inner.config.api_version_request {
                             Loading::ApiVersions(metadata.clone(), inner.load_api_versions(&metadata))
                         } else {
-                            let fallback_api_versions = inner.config.broker_version_fallback.api_versions();
+                            let fallback_api_versions = inner
+                                .config
+                                .broker_version_fallback
+                                .and_then(|version| version.api_versions());
 
                             let metadata = Rc::new(metadata.with_fallback_api_versions(fallback_api_versions));
 

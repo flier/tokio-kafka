@@ -243,6 +243,7 @@ where
 
     let mut builder = KafkaProducer::with_bootstrap_servers(config.brokers, handle.clone())
         .with_client_id(config.client_id)
+        .with_api_version_request(config.api_version_request)
         .with_max_connection_idle(config.idle_timeout)
         .with_required_acks(config.required_acks)
         .with_compression(config.compression)
@@ -254,9 +255,6 @@ where
         .with_default_partitioner()
         .with_interceptor(LogInterceptor {});
 
-    if config.api_version_request {
-        builder = builder.with_api_version_request()
-    }
     if let Some(version) = config.broker_version {
         builder = builder.with_broker_version_fallback(version)
     }

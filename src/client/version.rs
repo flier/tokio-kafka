@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
-use std::str::FromStr;
 use std::iter::FromIterator;
+use std::str::FromStr;
 
 use semver::{Identifier, Version as SemVersion};
 
@@ -9,8 +9,8 @@ use protocol::{ApiKeys, RecordFormat, UsableApiVersion, UsableApiVersions};
 
 /// Kafka version for API requests version
 ///
-/// See [`ClientConfig::broker_version_fallback`](struct.ClientConfig.html#broker_version_fallback.
-/// v)
+/// See [`ClientConfig::broker_version_fallback`](struct.ClientConfig.
+/// html#broker_version_fallback. v)
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[repr(u32)]
@@ -55,8 +55,8 @@ pub enum KafkaVersion {
     /// FetchRequest V6 via KIP-112
     #[serde(rename = "1.0")]
     KAFKA_1_0_IV0,
-    /// Introduced DeleteGroupsRequest V0 via KIP-229, plus KIP-227 incremental fetch requests,
-    /// and KafkaStorageException for fetch requests.
+    /// Introduced DeleteGroupsRequest V0 via KIP-229, plus KIP-227 incremental
+    /// fetch requests, and KafkaStorageException for fetch requests.
     #[serde(rename = "1.1")]
     KAFKA_1_1_IV0,
     #[serde(rename = "2.0")]
@@ -68,7 +68,7 @@ impl KafkaVersion {
         &*SUPPORTED_API_VERSIONS
     }
 
-    pub fn api_versions(&self) -> Option<&UsableApiVersions> {
+    pub fn api_versions(&self) -> Option<&'static UsableApiVersions> {
         match *self {
             KafkaVersion::KAFKA_0_8_0 => Some(&*KAFKA_0_8_0_VERSIONS),
             KafkaVersion::KAFKA_0_8_1 => Some(&*KAFKA_0_8_1_VERSIONS),

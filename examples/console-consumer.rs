@@ -40,6 +40,8 @@ error_chain!{
 struct Config {
     brokers: Vec<String>,
     client_id: String,
+    api_version_request: bool,
+    broker_version: Option<KafkaVersion>,
     topics: Vec<String>,
     group_id: Option<String>,
     offset: SeekTo,
@@ -62,6 +64,12 @@ impl Config {
             "HOSTS",
         );
         opts.optopt("", "client-id", "Specify the client id.", "ID");
+        opts.optopt(
+            "",
+            "broker-version",
+            "Specify broker versions [0.8.0, 0.8.1, 0.8.2, 0.9.0, auto].",
+            "VERSION",
+        );
         opts.optopt("g", "group-id", "Specify the consumer group.", "NAME");
         opts.optopt("t", "topics", "The topic id to consume on (comma separated).", "NAMES");
         opts.optopt("o", "offset", "The offset id to consume from (a non-negative number), or 'earliest' which means from beginning, or 'latest' which means from end (default: latest).", "OFFSET");
@@ -89,12 +97,22 @@ impl Config {
             process::exit(0);
         }
 
+        let (api_version_request, broker_version) = m.opt_str("broker-version").map_or((false, None), |s| {
+            if s == "auto" {
+                (true, None)
+            } else {
+                (false, Some(s.parse().unwrap()))
+            }
+        });
+
         Ok(Config {
             brokers: m.opt_str("b").map_or_else(
                 || vec![DEFAULT_BROKER.to_owned()],
                 |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
             ),
             client_id: m.opt_str("client-id").unwrap_or(DEFAULT_CLIENT_ID.to_owned()),
+            api_version_request,
+            broker_version,
             topics: m.opt_str("t").map_or_else(
                 || vec![DEFAULT_TOPIC.to_owned()],
                 |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
@@ -138,9 +156,14 @@ fn run(config: Config) -> Result<()> {
 
     let mut builder = KafkaConsumer::with_bootstrap_servers(config.brokers, handle)
         .with_client_id(config.client_id)
+        .with_api_version_request(config.api_version_request)
         .with_broker_version_fallback(config.broker_fallback_version)
         .with_key_deserializer(StringDeserializer::default())
         .with_value_deserializer(StringDeserializer::default());
+
+    if let Some(version) = config.broker_version {
+        builder = builder.with_broker_version_fallback(version)
+    }
 
     if let Some(group_id) = config.group_id {
         builder = builder.with_group_id(group_id);

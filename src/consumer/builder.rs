@@ -105,16 +105,16 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the request broker's supported API versions to adjust functionality to available
-    /// protocol features.
-    pub fn with_api_version_request(mut self) -> Self {
-        self.config.api_version_request = true;
+    /// Sets the request broker's supported API versions to adjust
+    /// functionality to available protocol features.
+    pub fn with_api_version_request(mut self, api_version_request: bool) -> Self {
+        self.config.api_version_request = api_version_request;
         self
     }
 
     /// Sets the fallback broker version will be used
     pub fn with_broker_version_fallback(mut self, version: KafkaVersion) -> Self {
-        self.config.broker_version_fallback = version;
+        self.config.broker_version_fallback = Some(version);
         self
     }
 
@@ -155,15 +155,15 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the frequency in milliseconds that the consumer offsets are auto-committed to
-    /// Kafka.
+    /// Sets the frequency in milliseconds that the consumer offsets are
+    /// auto-committed to Kafka.
     pub fn with_auto_commit_interval(mut self, auto_commit_interval: Duration) -> Self {
         self.config.auto_commit_interval = auto_commit_interval.as_millis();
         self
     }
 
-    /// Sets the expected time between heartbeats to the consumer coordinator when using
-    /// Kafka's group management facilities.
+    /// Sets the expected time between heartbeats to the consumer coordinator
+    /// when using Kafka's group management facilities.
     pub fn with_heartbeat_interval(mut self, heartbeat_interval: Duration) -> Self {
         self.config.heartbeat_interval = heartbeat_interval.as_millis();
         self
@@ -175,43 +175,44 @@ impl<'a, K, V> ConsumerBuilder<'a, K, V> {
         self
     }
 
-    /// Sets the partition assignment strategy to use when elected group leader assigns
-    /// partitions to group members.
+    /// Sets the partition assignment strategy to use when elected group leader
+    /// assigns partitions to group members.
     pub fn with_assignment_strategy(mut self, assignment_strategy: Vec<AssignmentStrategy>) -> Self {
         self.config.assignment_strategy = assignment_strategy;
         self
     }
 
-    /// Sets timeout used to detect consumer failures when using Kafka's group management
-    /// facility.
+    /// Sets timeout used to detect consumer failures when using Kafka's group
+    /// management facility.
     pub fn with_session_timeout(mut self, session_timeout: Duration) -> Self {
         self.config.session_timeout = session_timeout.as_millis();
         self
     }
 
-    /// Sets the maximum delay between invocations of poll() when using consumer group
-    /// management.
+    /// Sets the maximum delay between invocations of poll() when using
+    /// consumer group management.
     pub fn with_rebalance_timeout(mut self, rebalance_timeout: Duration) -> Self {
         self.config.rebalance_timeout = rebalance_timeout.as_millis();
         self
     }
 
-    /// Sets the maximum amount of data the server should return for a fetch request.
+    /// Sets the maximum amount of data the server should return for a fetch
+    /// request.
     pub fn with_fetch_max_bytes(mut self, bytes: usize) -> Self {
         self.config.fetch_max_bytes = bytes;
         self
     }
 
-    /// Sets how long to postpone the next fetch request for a topic+partition in
-    /// case of a fetch error.
+    /// Sets how long to postpone the next fetch request for a topic+partition
+    /// in case of a fetch error.
     pub fn with_error_backoff(mut self, backoff: Duration) -> Self {
         self.config.fetch_error_backoff = backoff.as_millis();
         self
     }
 
-    /// Sets the maximum amount of time the server will block before answering the fetch request
-    /// if there isn't sufficient data to immediately satisfy the requirement given by
-    /// `fetch.min.bytes`.
+    /// Sets the maximum amount of time the server will block before answering
+    /// the fetch request if there isn't sufficient data to immediately
+    /// satisfy the requirement given by `fetch.min.bytes`.
     pub fn with_fetch_max_wait(mut self, timeout: Duration) -> Self {
         self.config.fetch_max_wait = timeout.as_millis();
         self

@@ -114,11 +114,9 @@ fn main() {
 
     let mut core = Core::new().unwrap();
 
-    let mut builder = KafkaClient::with_bootstrap_servers(config.brokers.clone(), core.handle());
+    let mut builder = KafkaClient::with_bootstrap_servers(config.brokers.clone(), core.handle())
+        .with_api_version_request(config.api_version_request);
 
-    if config.api_version_request {
-        builder = builder.with_api_version_request()
-    }
     if let Some(version) = config.broker_version {
         builder = builder.with_broker_version_fallback(version)
     }
@@ -167,19 +165,17 @@ fn dump_metadata<'a>(
     topics: Vec<String>,
     offsets: HashMap<String, Vec<ListedOffset>>,
 ) {
-    let host_width = 2
-        + metadata
-            .brokers()
-            .iter()
-            .map(|broker| broker.addr())
-            .fold(0, |width, (host, port)| {
-                cmp::max(width, format!("{}:{}", host, port).len())
-            });
-    let topic_width = 2
-        + metadata
-            .topic_names()
-            .iter()
-            .fold(0, |width, topic_name| cmp::max(width, topic_name.len()));
+    let host_width = 2 + metadata
+        .brokers()
+        .iter()
+        .map(|broker| broker.addr())
+        .fold(0, |width, (host, port)| {
+            cmp::max(width, format!("{}:{}", host, port).len())
+        });
+    let topic_width = 2 + metadata
+        .topic_names()
+        .iter()
+        .fold(0, |width, topic_name| cmp::max(width, topic_name.len()));
 
     if config.show_header {
         print!("{1:0$} {2:4} {3:4}", topic_width, "topic", "p-id", "l-id");

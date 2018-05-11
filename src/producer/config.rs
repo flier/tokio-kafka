@@ -11,21 +11,25 @@ use protocol::RequiredAcks;
 /// [`ProducerConfig::ack_timeout`](struct.ProducerConfig.html#ack_timeout.v)
 pub const DEFAULT_ACK_TIMEOUT_MILLIS: u64 = 30_000;
 
-/// The default bytes that producer will attempt to batch records together into fewer requests
+/// The default bytes that producer will attempt to batch records together into
+/// fewer requests
 ///
-/// Defaults to 16 KB, see [`ProducerConfig::batch_size`](struct.ProducerConfig.html#batch_size.v)
+/// Defaults to 16 KB, see
+/// [`ProducerConfig::batch_size`](struct.ProducerConfig.html#batch_size.v)
 pub const DEFAULT_BATCH_SIZE: usize = 16 * 1024;
 
 /// The default maximum size of a request in bytes.
 ///
 /// Defaults to 1 MB, see
-/// [`ProducerConfig::max_request_size`](struct.ProducerConfig.html#max_request_size.v)
+/// [`ProducerConfig::max_request_size`](struct.ProducerConfig.
+/// html#max_request_size.v)
 pub const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
 
 /// The default millionseconds that producer groups together any records
 /// that arrive in between request transmissions into a single batched request.
 ///
-/// Defaults to 0 ms, see [`ProducerConfig::linger`](struct.ProducerConfig.html#linger.v)
+/// Defaults to 0 ms, see
+/// [`ProducerConfig::linger`](struct.ProducerConfig.html#linger.v)
 pub const DEFAULT_LINGER_MILLIS: u64 = 0;
 
 /// Configuration for the `KafkaProducer`.
@@ -57,7 +61,8 @@ pub struct ProducerConfig {
     pub max_request_size: usize,
 
     /// The producer groups together any records
-    /// that arrive in between request transmissions into a single batched request.
+    /// that arrive in between request transmissions into a single batched
+    /// request.
     #[serde(rename = "linger.ms")]
     pub linger: u64,
 }
@@ -103,7 +108,8 @@ impl ProducerConfig {
     }
 
     /// The producer groups together any records
-    /// that arrive in between request transmissions into a single batched request.
+    /// that arrive in between request transmissions into a single batched
+    /// request.
     pub fn linger(&self) -> Duration {
         Duration::from_millis(self.linger)
     }
@@ -138,7 +144,7 @@ mod tests {
     "client.id": null,
     "connection.max.idle.ms": 5000,
     "request.timeout.ms": 30000,
-    "api.version.request": false,
+    "api.version.request": true,
     "broker.version.fallback": "0.9.0",
     "metadata.max.age.ms": 300000,
     "metrics": false,

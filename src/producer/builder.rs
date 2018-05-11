@@ -157,16 +157,16 @@ where
         self
     }
 
-    /// Sets the request broker's supported API versions to adjust functionality to available
-    /// protocol features.
-    pub fn with_api_version_request(mut self) -> Self {
-        self.config.api_version_request = true;
+    /// Sets the request broker's supported API versions to adjust
+    /// functionality to available protocol features.
+    pub fn with_api_version_request(mut self, api_version_request: bool) -> Self {
+        self.config.api_version_request = api_version_request;
         self
     }
 
     /// Sets the fallback broker version will be used
     pub fn with_broker_version_fallback(mut self, version: KafkaVersion) -> Self {
-        self.config.broker_version_fallback = version;
+        self.config.broker_version_fallback = Some(version);
         self
     }
 
@@ -196,8 +196,9 @@ where
         self
     }
 
-    /// Sets the size in bytes that the producer will attempt to batch records together
-    /// into fewer requests whenever multiple records are being sent to the same partition.
+    /// Sets the size in bytes that the producer will attempt to batch records
+    /// together into fewer requests whenever multiple records are being
+    /// sent to the same partition.
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
         self.config.batch_size = batch_size;
         self
@@ -211,7 +212,8 @@ where
     }
 
     /// Sets the time that the producer groups together any records
-    /// that arrive in between request transmissions into a single batched request.
+    /// that arrive in between request transmissions into a single batched
+    /// request.
     pub fn with_linger(mut self, linger: Duration) -> Self {
         self.config.linger = linger.as_millis();
         self
