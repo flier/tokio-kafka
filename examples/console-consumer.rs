@@ -4,7 +4,6 @@ extern crate error_chain;
 extern crate log;
 extern crate getopts;
 extern crate pretty_env_logger;
-extern crate rand;
 
 extern crate futures;
 extern crate tokio_core;
@@ -17,12 +16,11 @@ use std::path::Path;
 use std::process;
 
 use getopts::Options;
-use rand::Rng;
 
 use futures::{Future, Stream};
 use tokio_core::reactor::Core;
 
-use tokio_kafka::{Consumer, KafkaConsumer, SeekTo, StringDeserializer, Subscribed};
+use tokio_kafka::{Consumer, KafkaConsumer, KafkaVersion, SeekTo, StringDeserializer, Subscribed};
 
 const DEFAULT_BROKER: &str = "localhost:9092";
 const DEFAULT_CLIENT_ID: &str = "consumer-1";
@@ -43,10 +41,11 @@ struct Config {
     brokers: Vec<String>,
     client_id: String,
     topics: Vec<String>,
-    group_id: String,
+    group_id: Option<String>,
     offset: SeekTo,
     no_commit: bool,
     skip_message_on_error: bool,
+    broker_fallback_version: KafkaVersion,
 }
 
 impl Config {
@@ -73,6 +72,12 @@ impl Config {
             "skip-message-on-error",
             "If there is an error when processing a message, skip it instead of halt.",
         );
+        opts.optopt(
+            "v",
+            "broker-fallback-version",
+            "what version the broker is running.",
+            "VERSION",
+        );
 
         let m = opts.parse(&args[1..])?;
 
@@ -94,8 +99,7 @@ impl Config {
                 || vec![DEFAULT_TOPIC.to_owned()],
                 |s| s.split(',').map(|s| s.trim().to_owned()).collect(),
             ),
-            group_id: m.opt_str("g")
-                .unwrap_or_else(|| format!("console-consumer-{}", rand::thread_rng().gen_range(1, 100000))),
+            group_id: m.opt_str("g"),
             offset: m.opt_str("o").map_or_else(
                 || {
                     if m.opt_present("from-beginning") {
@@ -108,6 +112,11 @@ impl Config {
             ),
             no_commit: m.opt_present("no-commit"),
             skip_message_on_error: m.opt_present("skip-message-on-error"),
+            broker_fallback_version: if let Some(s) = m.opt_str("broker-fallback-version") {
+                s.parse()?
+            } else {
+                KafkaVersion::default()
+            },
         })
     }
 }
@@ -127,13 +136,17 @@ fn run(config: Config) -> Result<()> {
 
     let handle = core.handle();
 
-    let builder = KafkaConsumer::with_bootstrap_servers(config.brokers, handle)
+    let mut builder = KafkaConsumer::with_bootstrap_servers(config.brokers, handle)
         .with_client_id(config.client_id)
-        .with_group_id(config.group_id)
+        .with_broker_version_fallback(config.broker_fallback_version)
         .with_key_deserializer(StringDeserializer::default())
         .with_value_deserializer(StringDeserializer::default());
 
-    let mut consumer = builder.build()?;
+    if let Some(group_id) = config.group_id {
+        builder = builder.with_group_id(group_id);
+    }
+
+    let consumer = builder.build()?;
     let offset = config.offset;
 
     let work = consumer

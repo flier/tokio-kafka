@@ -1,10 +1,10 @@
-use bytes::{BufMut, ByteOrder, BytesMut};
+use bytes::BufMut;
 use std::borrow::Cow;
 
 use nom::be_i32;
 
 use errors::Result;
-use protocol::{ApiKey, ApiVersion, CorrelationId, Encodable, ParseTag, Record, WriteExt, STR_LEN_SIZE};
+use protocol::{ApiKey, ApiKeys, ApiVersion, CorrelationId, Encodable, ParseTag, WriteExt, STR_LEN_SIZE};
 
 const API_KEY_SIZE: usize = 2;
 const API_VERSION_SIZE: usize = 2;
@@ -19,18 +19,22 @@ pub struct RequestHeader<'a> {
     pub client_id: Option<Cow<'a, str>>,
 }
 
-impl<'a> Record for RequestHeader<'a> {
-    fn size(&self, _api_version: ApiVersion) -> usize {
+impl<'a> RequestHeader<'a> {
+    pub fn api_key(&self) -> ApiKeys {
+        ApiKeys::from(self.api_key)
+    }
+
+    pub fn size(&self, _api_version: ApiVersion) -> usize {
         HEADER_OVERHEAD + STR_LEN_SIZE + self.client_id.as_ref().map_or(0, |s| s.len())
     }
 }
 
 impl<'a> Encodable for RequestHeader<'a> {
-    fn encode<T: ByteOrder>(&self, buf: &mut BytesMut) -> Result<()> {
-        buf.put_i16::<T>(self.api_key);
-        buf.put_i16::<T>(self.api_version);
-        buf.put_i32::<T>(self.correlation_id);
-        buf.put_str::<T, _>(self.client_id.as_ref())
+    fn encode<T: BufMut>(&self, buf: &mut T) -> Result<()> {
+        buf.put_i16_be(self.api_key);
+        buf.put_i16_be(self.api_version);
+        buf.put_i32_be(self.correlation_id);
+        buf.put_str(self.client_id.as_ref())
     }
 }
 
@@ -52,7 +56,7 @@ named!(pub parse_response_header<ResponseHeader>,
 mod tests {
 
     use super::*;
-    use bytes::BigEndian;
+    use bytes::BytesMut;
     use protocol::*;
 
     #[test]
@@ -66,7 +70,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(64);
 
-        hdr.encode::<BigEndian>(&mut buf).unwrap();
+        hdr.encode(&mut buf).unwrap();
 
         assert_eq!(hdr.size(hdr.api_version), buf.len());
 

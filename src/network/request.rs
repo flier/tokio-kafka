@@ -2,18 +2,18 @@ use std::borrow::{Cow, ToOwned};
 use std::collections::HashMap;
 use std::time::Duration;
 
-use bytes::{ByteOrder, BytesMut};
+use bytes::BufMut;
 
 use errors::Result;
 use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{ApiKey, ApiKeys, ApiVersion, ApiVersionsRequest, CorrelationId, DescribeGroupsRequest, Encodable,
                FetchOffset, FetchRequest, FetchTopic, GenerationId, GroupCoordinatorRequest, HeartbeatRequest,
-               JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest, ListOffsetRequest,
-               ListPartitionOffset, ListTopicOffset, MessageSet, MetadataRequest, OffsetCommitPartition,
-               OffsetCommitRequest, OffsetCommitTopic, OffsetFetchPartition, OffsetFetchRequest, OffsetFetchTopic,
-               PartitionId, ProducePartitionData, ProduceRequest, ProduceTopicData, Record, RequestHeader,
-               RequiredAck, RequiredAcks, SyncGroupAssignment, SyncGroupRequest, ToMilliseconds, CONSUMER_REPLICA_ID,
-               DEFAULT_TIMESTAMP};
+               IsolationLevel, JoinGroupProtocol, JoinGroupRequest, LeaveGroupRequest, ListGroupsRequest,
+               ListOffsetRequest, ListPartitionOffset, ListTopicOffset, Message, MessageSet, MetadataRequest,
+               OffsetCommitPartition, OffsetCommitRequest, OffsetCommitTopic, OffsetFetchPartition,
+               OffsetFetchRequest, OffsetFetchTopic, PartitionId, ProducePartitionData, ProduceRequest,
+               ProduceTopicData, Request, RequestHeader, RequiredAck, RequiredAcks, SyncGroupAssignment,
+               SyncGroupRequest, ToMilliseconds, CONSUMER_REPLICA_ID, DEFAULT_TIMESTAMP};
 
 #[derive(Debug)]
 pub enum KafkaRequest<'a> {
@@ -53,28 +53,20 @@ impl<'a> KafkaRequest<'a> {
         }
     }
 
-    pub fn produce_records(
+    pub fn produce_records<I, M>(
         api_version: ApiVersion,
         correlation_id: CorrelationId,
         client_id: Option<Cow<'a, str>>,
+        transactional_id: Option<Cow<'a, str>>,
         required_acks: RequiredAcks,
         ack_timeout: Duration,
         tp: &TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> KafkaRequest<'a> {
-        let topics = records
-            .into_iter()
-            .map(move |message_set| ProduceTopicData {
-                topic_name: tp.topic_name.to_owned(),
-                partitions: vec![
-                    ProducePartitionData {
-                        partition_id: tp.partition_id,
-                        message_set,
-                    },
-                ],
-            })
-            .collect();
-
+        records: I,
+    ) -> KafkaRequest<'a>
+    where
+        I: IntoIterator<Item = M>,
+        M: Into<Message>,
+    {
         let request = ProduceRequest {
             header: RequestHeader {
                 api_key: ApiKeys::Produce as ApiKey,
@@ -82,9 +74,25 @@ impl<'a> KafkaRequest<'a> {
                 correlation_id,
                 client_id,
             },
+            transactional_id,
             required_acks: required_acks as RequiredAck,
             ack_timeout: ack_timeout.as_millis() as i32,
-            topics,
+            topics: vec![
+                ProduceTopicData {
+                    topic_name: tp.topic_name.to_owned(),
+                    partitions: vec![
+                        ProducePartitionData {
+                            partition_id: tp.partition_id,
+                            message_set: Cow::Owned(MessageSet {
+                                messages: records
+                                    .into_iter()
+                                    .map(|record| record.into())
+                                    .collect::<Vec<Message>>(),
+                            }),
+                        },
+                    ],
+                },
+            ],
         };
 
         KafkaRequest::Produce(request)
@@ -97,6 +105,7 @@ impl<'a> KafkaRequest<'a> {
         max_wait_time: Duration,
         min_bytes: i32,
         max_bytes: i32,
+        isolation_level: IsolationLevel,
         topics: Vec<FetchTopic<'a>>,
     ) -> KafkaRequest<'a> {
         let request = FetchRequest {
@@ -110,7 +119,9 @@ impl<'a> KafkaRequest<'a> {
             max_wait_time: max_wait_time.as_millis() as i32,
             min_bytes,
             max_bytes,
+            isolation_level,
             topics,
+            session: None,
         };
 
         KafkaRequest::Fetch(request)
@@ -390,7 +401,7 @@ impl<'a> KafkaRequest<'a> {
     }
 }
 
-impl<'a> Record for KafkaRequest<'a> {
+impl<'a> Request for KafkaRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         match *self {
             KafkaRequest::Produce(ref req) => req.size(api_version),
@@ -412,22 +423,22 @@ impl<'a> Record for KafkaRequest<'a> {
 }
 
 impl<'a> Encodable for KafkaRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         match *self {
-            KafkaRequest::Produce(ref req) => req.encode::<T>(dst),
-            KafkaRequest::Fetch(ref req) => req.encode::<T>(dst),
-            KafkaRequest::ListOffsets(ref req) => req.encode::<T>(dst),
-            KafkaRequest::Metadata(ref req) => req.encode::<T>(dst),
-            KafkaRequest::OffsetCommit(ref req) => req.encode::<T>(dst),
-            KafkaRequest::OffsetFetch(ref req) => req.encode::<T>(dst),
-            KafkaRequest::GroupCoordinator(ref req) => req.encode::<T>(dst),
-            KafkaRequest::JoinGroup(ref req) => req.encode::<T>(dst),
-            KafkaRequest::Heartbeat(ref req) => req.encode::<T>(dst),
-            KafkaRequest::LeaveGroup(ref req) => req.encode::<T>(dst),
-            KafkaRequest::SyncGroup(ref req) => req.encode::<T>(dst),
-            KafkaRequest::DescribeGroups(ref req) => req.encode::<T>(dst),
-            KafkaRequest::ListGroups(ref req) => req.encode::<T>(dst),
-            KafkaRequest::ApiVersions(ref req) => req.encode::<T>(dst),
+            KafkaRequest::Produce(ref req) => req.encode(dst),
+            KafkaRequest::Fetch(ref req) => req.encode(dst),
+            KafkaRequest::ListOffsets(ref req) => req.encode(dst),
+            KafkaRequest::Metadata(ref req) => req.encode(dst),
+            KafkaRequest::OffsetCommit(ref req) => req.encode(dst),
+            KafkaRequest::OffsetFetch(ref req) => req.encode(dst),
+            KafkaRequest::GroupCoordinator(ref req) => req.encode(dst),
+            KafkaRequest::JoinGroup(ref req) => req.encode(dst),
+            KafkaRequest::Heartbeat(ref req) => req.encode(dst),
+            KafkaRequest::LeaveGroup(ref req) => req.encode(dst),
+            KafkaRequest::SyncGroup(ref req) => req.encode(dst),
+            KafkaRequest::DescribeGroups(ref req) => req.encode(dst),
+            KafkaRequest::ListGroups(ref req) => req.encode(dst),
+            KafkaRequest::ApiVersions(ref req) => req.encode(dst),
         }
     }
 }

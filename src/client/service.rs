@@ -72,9 +72,9 @@ where
     fn call(&self, req: Self::Request) -> Self::Future {
         let (addr, request) = req;
 
-        self.metrics
-            .as_ref()
-            .map(|metrics| metrics.send_request(&addr, &request));
+        if let Some(ref metrics) = self.metrics {
+            metrics.send_request(&addr, &request);
+        }
 
         let checkout = self.pool.checkout(addr);
         let connect = {
@@ -109,16 +109,20 @@ where
 
         let metrics = self.metrics.clone();
 
-        race.and_then(move |client| client.call(Message::WithoutBody(request)))
-            .map(|msg| {
-                debug!("received message: {:?}", msg);
+        trace!("send request to {:?}: {:#?}", addr, request);
 
-                match msg {
-                    Message::WithoutBody(res) | Message::WithBody(res, _) => res,
+        race.and_then(move |client| client.call(Message::WithoutBody(request)))
+            .map(move |msg| match msg {
+                Message::WithoutBody(response) | Message::WithBody(response, _) => {
+                    trace!("received response from {:?}: {:#?}", addr, response);
+
+                    response
                 }
             })
             .map(move |response| {
-                metrics.map(|metrics| metrics.received_response(&addr, &response));
+                if let Some(ref metrics) = metrics {
+                    metrics.received_response(&addr, &response);
+                }
 
                 response
             })

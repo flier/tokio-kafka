@@ -136,13 +136,20 @@ where
     type SinkError = io::Error;
 
     fn start_send(&mut self, frame: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        trace!("send request: {:?}", frame);
-
         match frame {
-            Frame::Message { message: request, body } => self.stream.start_send(request).map(|async| match async {
-                AsyncSink::Ready => AsyncSink::Ready,
-                AsyncSink::NotReady(request) => AsyncSink::NotReady(Frame::Message { message: request, body }),
-            }),
+            Frame::Message { message: request, body } => {
+                trace!(
+                    "send {:?} request (api version: {}) @ connection #{}",
+                    request.header().api_key(),
+                    request.header().api_version,
+                    self.id
+                );
+
+                self.stream.start_send(request).map(|async| match async {
+                    AsyncSink::Ready => AsyncSink::Ready,
+                    AsyncSink::NotReady(request) => AsyncSink::NotReady(Frame::Message { message: request, body }),
+                })
+            }
             Frame::Body { .. } | Frame::Error { .. } => Ok(AsyncSink::Ready),
         }
     }

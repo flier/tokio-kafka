@@ -1,22 +1,18 @@
 use std::fmt;
 use std::mem;
 use std::ops::Deref;
+use std::io::Cursor;
+use std::rc::Rc;
 
-use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
-
-use nom::{be_i32, be_i64, be_i8};
-
+use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
+use nom::{self, be_i32, be_i64, be_u32, be_u8};
 use time;
-
 use crc::crc32;
 
 use compression::Compression;
 use errors::{ErrorKind, Result};
-use protocol::{parse_opt_bytes, ApiVersion, Offset, ParseTag, Record, Timestamp, WriteExt, BYTES_LEN_SIZE,
-               OFFSET_SIZE, TIMESTAMP_SIZE};
-
-pub const TIMESTAMP_TYPE_MASK: i8 = 0x08;
-pub const COMPRESSION_CODEC_MASK: i8 = 0x07;
+use protocol::{parse_opt_bytes, Encodable, Offset, OffsetAssigner, ParseTag, Record, RecordBatch, RecordHeader,
+               Timestamp, WriteExt, BYTES_LEN_SIZE, OFFSET_SIZE, TIMESTAMP_SIZE};
 
 const MSG_SIZE: usize = 4;
 const CRC_SIZE: usize = 4;
@@ -26,11 +22,47 @@ const RECORD_HEADER_SIZE: usize = OFFSET_SIZE + MSG_SIZE + CRC_SIZE + MAGIC_SIZE
 
 const COMPRESSION_RATE_ESTIMATION_FACTOR: f32 = 1.05;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[repr(u8)]
 pub enum RecordFormat {
     V0,
     V1,
     V2,
+}
+
+impl From<u8> for RecordFormat {
+    fn from(n: u8) -> Self {
+        unsafe { mem::transmute(n) }
+    }
+}
+
+bitflags! {
+    pub struct MessageAttributes: u8 {
+        /// the compression codec used for the message.
+        const COMPRESSION_CODEC_MASK = 0x07;
+        // the timestamp type.
+        const TIMESTAMP_TYPE_MASK = 0x08;
+    }
+}
+
+impl From<Compression> for MessageAttributes {
+    fn from(compression: Compression) -> Self {
+        MessageAttributes::from_bits_truncate(compression as i8 as u8)
+    }
+}
+
+impl MessageAttributes {
+    pub fn compression(&self) -> Compression {
+        Compression::from((*self & MessageAttributes::COMPRESSION_CODEC_MASK).bits() as i8)
+    }
+
+    pub fn is_log_append_time(&self) -> bool {
+        self.contains(MessageAttributes::TIMESTAMP_TYPE_MASK)
+    }
+
+    pub fn with_log_append_time(self) -> Self {
+        self | MessageAttributes::TIMESTAMP_TYPE_MASK
+    }
 }
 
 /// Message sets
@@ -44,7 +76,7 @@ pub enum RecordFormat {
 /// `MessageSet` => [Offset `MessageSize` Message]
 ///   Offset => int64
 ///   `MessageSize` => int32
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MessageSet {
     pub messages: Vec<Message>,
 }
@@ -58,57 +90,54 @@ impl Deref for MessageSet {
 }
 
 impl Record for MessageSet {
-    fn size(&self, api_version: ApiVersion) -> usize {
-        self.messages.iter().map(|message| message.size(api_version)).sum()
+    fn size(&self, record_format: RecordFormat) -> usize {
+        match record_format {
+            RecordFormat::V0 | RecordFormat::V1 => {
+                self.messages.iter().map(|message| message.size(record_format)).sum()
+            }
+            RecordFormat::V2 => RecordBatch::from(self.clone()).size(RecordFormat::V2),
+        }
     }
 }
 
-/// Message format
-///
-/// v0
-/// Message => Crc `MagicByte` Attributes Key Value
-///   Crc => int32
-///   `MagicByte` => int8
-///   Attributes => int8
-///   Key => bytes
-///   Value => bytes
-///
-/// v1 (supported since 0.10.0)
-/// Message => Crc `MagicByte` Attributes Key Value
-///   Crc => int32
-///   `MagicByte` => int8
-///   Attributes => int8
-///   Timestamp => int64
-///   Key => bytes
-///   Value => bytes
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Message {
     pub offset: Offset,
     pub timestamp: Option<MessageTimestamp>,
     pub compression: Compression,
     pub key: Option<Bytes>,
     pub value: Option<Bytes>,
+    pub headers: Vec<RecordHeader>,
 }
 
 impl Record for Message {
-    fn size(&self, api_version: ApiVersion) -> usize {
-        let record_overhead_size = RECORD_HEADER_SIZE + if api_version > 0 { TIMESTAMP_SIZE } else { 0 };
-        let key_size = BYTES_LEN_SIZE + self.key.as_ref().map_or(0, |b| b.len());
-        let value_size = BYTES_LEN_SIZE + self.value.as_ref().map_or(0, |b| b.len());
+    fn size(&self, record_format: RecordFormat) -> usize {
+        match record_format {
+            RecordFormat::V0 | RecordFormat::V1 => {
+                let record_overhead_size = RECORD_HEADER_SIZE + if record_format == RecordFormat::V1 {
+                    TIMESTAMP_SIZE
+                } else {
+                    0
+                };
+                let key_size = BYTES_LEN_SIZE + self.key.as_ref().map_or(0, |b| b.len());
+                let value_size = BYTES_LEN_SIZE + self.value.as_ref().map_or(0, |b| b.len());
 
-        record_overhead_size + key_size + value_size
+                record_overhead_size + key_size + value_size
+            }
+            RecordFormat::V2 => unreachable!(),
+        }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MessageTimestamp {
     CreateTime(Timestamp),
     LogAppendTime(Timestamp),
 }
 
-impl MessageTimestamp {
-    pub fn value(&self) -> Timestamp {
-        match *self {
+impl From<MessageTimestamp> for Timestamp {
+    fn from(ts: MessageTimestamp) -> Timestamp {
+        match ts {
             MessageTimestamp::CreateTime(v) | MessageTimestamp::LogAppendTime(v) => v,
         }
     }
@@ -132,121 +161,148 @@ impl fmt::Display for MessageTimestamp {
 }
 
 pub struct MessageSetEncoder {
-    api_version: ApiVersion,
+    record_format: RecordFormat,
     compression: Option<Compression>,
+    offset_assigner: Rc<OffsetAssigner>,
 }
 
 impl MessageSetEncoder {
-    pub fn new(api_version: ApiVersion, compression: Option<Compression>) -> Self {
+    pub fn new(
+        record_format: RecordFormat,
+        compression: Option<Compression>,
+        offset_assigner: Rc<OffsetAssigner>,
+    ) -> Self {
         MessageSetEncoder {
-            api_version,
+            record_format,
             compression,
+            offset_assigner,
         }
     }
 
-    pub fn encode<T: ByteOrder>(&self, message_set: &MessageSet, buf: &mut BytesMut) -> Result<()> {
-        let mut offset: Offset = 0;
+    pub fn encode<T: BufMut>(&self, message_set: &MessageSet, buf: &mut T) -> Result<()> {
+        match self.record_format {
+            RecordFormat::V0 | RecordFormat::V1 => {
+                for message in &message_set.messages {
+                    self.encode_message(message, self.offset_assigner.next(), buf)?;
+                }
 
-        buf.reserve(message_set.size(self.api_version));
+                Ok(())
+            }
+            RecordFormat::V2 => {
+                let record_batch = RecordBatch::from(message_set.clone());
 
-        for message in &message_set.messages {
-            let offset = if self.compression.unwrap_or(message.compression) == Compression::None {
-                message.offset
-            } else {
-                offset = offset.wrapping_add(1);
-                offset - 1
+                trace!("convert message set to record batch: {:#?}", record_batch);
+
+                record_batch.encode(buf)
+            }
+        }
+    }
+
+    /// Message format
+    ///
+    /// v0
+    /// Message => Crc `MagicByte` Attributes Key Value
+    ///   Crc => int32
+    ///   `MagicByte` => int8
+    ///   Attributes => int8
+    ///   Key => bytes
+    ///   Value => bytes
+    ///
+    /// v1 (supported since 0.10.0)
+    /// Message => Crc `MagicByte` Attributes Key Value
+    ///   Crc => int32
+    ///   `MagicByte` => int8
+    ///   Attributes => int8
+    ///   Timestamp => int64
+    ///   Key => bytes
+    ///   Value => bytes
+    fn encode_message<T: BufMut>(&self, message: &Message, offset: Offset, buf: &mut T) -> Result<()> {
+        let message_size = {
+            let mut cur = Cursor::new(unsafe { buf.bytes_mut() });
+            cur.put_i64_be(offset);
+            let size_off = cur.position() as usize;
+            cur.put_i32_be(0);
+            let crc_off = cur.position() as usize;
+            cur.put_i32_be(0);
+            let magic_off = cur.position() as usize;
+            cur.put_i8(self.record_format as i8);
+
+            let mut attrs = MessageAttributes::from(self.compression.unwrap_or(message.compression));
+
+            if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
+                attrs |= MessageAttributes::TIMESTAMP_TYPE_MASK
             };
 
-            self.encode_message::<T>(message, offset, buf)?;
-        }
+            cur.put_u8(attrs.bits());
 
-        Ok(())
-    }
+            if self.record_format == RecordFormat::V1 {
+                cur.put_i64_be(message.timestamp.map(Timestamp::from).unwrap_or_default() as i64);
+            }
 
-    fn encode_message<T: ByteOrder>(&self, message: &Message, offset: Offset, buf: &mut BytesMut) -> Result<()> {
-        buf.put_i64::<T>(offset);
-        let size_off = buf.len();
-        buf.put_i32::<T>(0);
-        let crc_off = buf.len();
-        buf.put_i32::<T>(0);
-        let data_off = buf.len();
-        buf.put_i8(self.api_version as i8);
-        buf.put_i8(
-            (self.compression.unwrap_or(message.compression) as i8 & COMPRESSION_CODEC_MASK)
-                | if let Some(MessageTimestamp::LogAppendTime(_)) = message.timestamp {
-                    TIMESTAMP_TYPE_MASK
-                } else {
-                    0
-                },
-        );
+            cur.put_bytes(message.key.as_ref())?;
+            cur.put_bytes(message.value.as_ref())?;
 
-        if self.api_version > 0 {
-            buf.put_i64::<T>(
-                message
-                    .timestamp
-                    .as_ref()
-                    .map(|timestamp| timestamp.value())
-                    .unwrap_or_default(),
-            );
-        }
+            let size = cur.position() as usize;
+            let bytes = cur.into_inner();
+            let crc = crc32::checksum_ieee(&bytes[magic_off..size]);
 
-        buf.put_bytes::<T, _>(message.key.as_ref())?;
-        buf.put_bytes::<T, _>(message.value.as_ref())?;
+            BigEndian::write_i32(&mut bytes[size_off..], (size - crc_off) as i32);
+            BigEndian::write_i32(&mut bytes[crc_off..], crc as i32);
 
-        let size = buf.len() - crc_off;
-        let crc = crc32::checksum_ieee(&buf[data_off..]);
+            size
+        };
 
-        T::write_i32(&mut buf[size_off..], size as i32);
-        T::write_i32(&mut buf[crc_off..], crc as i32);
+        unsafe { buf.advance_mut(message_size) };
 
         Ok(())
     }
 }
 
-named_args!(pub parse_message_set(api_version: ApiVersion)<MessageSet>,
+named!(pub parse_message_set<MessageSet>,
     parse_tag!(ParseTag::MessageSet,
+        map!(many0!(parse_message), |messages| MessageSet { messages })
+    )
+);
+
+#[cfg_attr(rustfmt, rustfmt_skip)]
+named!(parse_message<Message>,
+    parse_tag!(
+        ParseTag::Message,
         do_parse!(
-            messages: many0!(apply!(parse_message, api_version))
-         >> (MessageSet {
-                messages,
-            })
+            offset: be_i64
+         >> message: length_value!(be_i32, apply!(parse_message_body, offset))
+         >> (
+                message
+            )
         )
     )
 );
 
-named_args!(parse_message(_api_version: ApiVersion)<Message>,
-    parse_tag!(ParseTag::Message,
-        do_parse!(
-            offset: be_i64
-         >> size: be_i32
-         >> data: peek!(take!(size))
-         >> _crc: parse_tag!(ParseTag::MessageCrc,
-            verify!(be_i32, |checksum: i32| {
-                let crc = crc32::checksum_ieee(&data[mem::size_of::<i32>()..]);
-
-                if crc != checksum as u32 {
-                    trace!("message checksum mismatched, expected={}, current={}", crc, checksum as u32);
-                }
-
-                crc == checksum as u32
-            }))
-         >> magic: be_i8
-         >> attrs: be_i8
-         >> timestamp: cond!(magic > 0, be_i64)
-         >> key: parse_opt_bytes
-         >> value: parse_opt_bytes
-         >> ({
+named_args!(
+    parse_message_body(offset: Offset)<Message>,
+    do_parse!(
+        crc: be_u32
+     >> verify!(peek!(nom::rest), |remaining| crc == crc32::checksum_ieee(remaining))
+     >> record_format: verify!(map!(be_u8, RecordFormat::from), |record_format| record_format < RecordFormat::V2)
+     >> attrs: map!(be_u8, MessageAttributes::from_bits_truncate)
+     >> timestamp: cond!(record_format > RecordFormat::V0, be_i64)
+     >> key: parse_opt_bytes
+     >> value: parse_opt_bytes
+     >> (
             Message {
                 offset,
-                timestamp: timestamp.map(|ts| if (attrs & TIMESTAMP_TYPE_MASK) == 0 {
-                    MessageTimestamp::CreateTime(ts)
-                }else {
-                    MessageTimestamp::LogAppendTime(ts)
+                timestamp: timestamp.map(|ts| {
+                    if attrs.is_log_append_time() {
+                        MessageTimestamp::LogAppendTime(ts)
+                    } else {
+                        MessageTimestamp::CreateTime(ts)
+                    }
                 }),
-                compression: Compression::from(attrs & COMPRESSION_CODEC_MASK),
+                compression: attrs.compression(),
                 key,
                 value,
-            }})
+                headers: Vec::new(),
+            }
         )
     )
 );
@@ -254,8 +310,9 @@ named_args!(parse_message(_api_version: ApiVersion)<Message>,
 /// This class is used to write new log data in memory, i.e.
 #[derive(Debug)]
 pub struct MessageSetBuilder {
-    api_version: ApiVersion,
+    record_format: RecordFormat,
     compression: Compression,
+    offset_assigner: Rc<OffsetAssigner>,
     write_limit: usize,
     written_uncompressed: usize,
     base_offset: Offset,
@@ -265,21 +322,28 @@ pub struct MessageSetBuilder {
 }
 
 impl MessageSetBuilder {
-    pub fn new(api_version: ApiVersion, compression: Compression, write_limit: usize, base_offset: Offset) -> Self {
+    pub fn new(
+        record_format: RecordFormat,
+        compression: Compression,
+        offset_assigner: Rc<OffsetAssigner>,
+        write_limit: usize,
+        base_offset: Offset,
+    ) -> Self {
         MessageSetBuilder {
-            api_version,
+            record_format,
             compression,
+            offset_assigner,
             write_limit,
             written_uncompressed: 0,
             base_offset,
             last_offset: None,
             base_timestamp: None,
-            message_set: MessageSet { messages: vec![] },
+            message_set: Default::default(),
         }
     }
 
-    pub fn api_version(&self) -> ApiVersion {
-        self.api_version
+    pub fn record_format(&self) -> RecordFormat {
+        self.record_format
     }
 
     pub fn is_full(&self) -> bool {
@@ -301,7 +365,11 @@ impl MessageSetBuilder {
     }
 
     fn record_size(&self, _timestamp: Timestamp, key: Option<&Bytes>, value: Option<&Bytes>) -> usize {
-        let record_overhead_size = RECORD_HEADER_SIZE + if self.api_version > 0 { TIMESTAMP_SIZE } else { 0 };
+        let record_overhead_size = RECORD_HEADER_SIZE + if self.record_format == RecordFormat::V1 {
+            TIMESTAMP_SIZE
+        } else {
+            0
+        };
         let key_size = BYTES_LEN_SIZE + key.map_or(0, |b| b.len());
         let value_size = BYTES_LEN_SIZE + value.map_or(0, |b| b.len());
 
@@ -310,10 +378,14 @@ impl MessageSetBuilder {
 
     #[cfg(any(feature = "gzip", feature = "snappy", feature = "lz4"))]
     fn wrap<T: ByteOrder>(&self, compression: Compression) -> Result<MessageSet> {
-        let mut buf = BytesMut::with_capacity((self.message_set.size(self.api_version) * 6 / 5).next_power_of_two());
-        let encoder = MessageSetEncoder::new(self.api_version, Some(Compression::None));
-        encoder.encode::<T>(&self.message_set, &mut buf)?;
-        let compressed = compression.compress(self.api_version, &buf)?;
+        let mut buf = BytesMut::with_capacity((self.message_set.size(self.record_format) * 6 / 5).next_power_of_two());
+        let encoder = MessageSetEncoder::new(
+            self.record_format,
+            Some(Compression::None),
+            self.offset_assigner.clone(),
+        );
+        encoder.encode(&self.message_set, &mut buf)?;
+        let compressed = compression.compress(self.record_format, &buf)?;
         Ok(MessageSet {
             messages: vec![
                 Message {
@@ -322,6 +394,7 @@ impl MessageSetBuilder {
                     compression,
                     key: None,
                     value: Some(Bytes::from(compressed)),
+                    headers: Vec::new(),
                 },
             ],
         })
@@ -343,10 +416,16 @@ impl MessageSetBuilder {
         self.last_offset.map_or(self.base_offset, |off| off + 1)
     }
 
-    pub fn push(&mut self, timestamp: Timestamp, key: Option<Bytes>, value: Option<Bytes>) -> Result<Offset> {
+    pub fn push(
+        &mut self,
+        timestamp: Timestamp,
+        key: Option<Bytes>,
+        value: Option<Bytes>,
+        headers: Vec<RecordHeader>,
+    ) -> Result<Offset> {
         let offset = self.next_offset();
 
-        self.push_with_offset(offset, timestamp, key, value)
+        self.push_with_offset(offset, timestamp, key, value, headers)
     }
 
     pub fn push_with_offset(
@@ -355,6 +434,7 @@ impl MessageSetBuilder {
         timestamp: Timestamp,
         key: Option<Bytes>,
         value: Option<Bytes>,
+        headers: Vec<RecordHeader>,
     ) -> Result<Offset> {
         if let Some(last_offset) = self.last_offset {
             if offset <= last_offset {
@@ -382,6 +462,7 @@ impl MessageSetBuilder {
             compression: self.compression,
             key,
             value,
+            headers,
         });
 
         self.last_offset = Some(offset);
@@ -403,66 +484,65 @@ mod tests {
     use super::*;
     use protocol::*;
 
-    #[test]
-    fn parse_empty_message_set() {
-        assert_eq!(
-            parse_message_set(&[][..], 0),
-            IResult::Done(&[][..], MessageSet { messages: vec![] })
-        );
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    lazy_static! {
+        static ref TEST_MESSAGE_SET: Vec<(&'static [u8], IResult<&'static [u8], MessageSet>)> =
+            vec![
+                (
+                    b"",
+                    IResult::Done(&[][..], MessageSet { messages: vec![] })
+                ), (&[
+                    // messages: [Message]
+                    0, 0, 0, 0, 0, 0, 0, 0, // offset
+                    0, 0, 0, 22,            // size
+                    197, 70, 142, 169,      // crc
+                    0,                      // magic
+                    8,                      // attributes
+                    0, 0, 0, 3, b'k', b'e', b'y',
+                    0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
+                ][..], IResult::Done(&[][..], MessageSet {
+                    messages: vec![
+                        Message {
+                            offset: 0,
+                            compression: Compression::None,
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
+                            timestamp: None,
+                            headers: Vec::new(),
+                        },
+                    ],
+                })), (&[
+                    // messages: [Message]
+                    0, 0, 0, 0, 0, 0, 0, 0,     // offset
+                    0, 0, 0, 30,                // size
+                    206, 63, 210, 11,           // crc
+                    1,                          // magic
+                    8,                          // attributes
+                    0, 0, 0, 0, 0, 0, 1, 200,   // timestamp
+                    0, 0, 0, 3, b'k', b'e', b'y',
+                    0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e',
+                ][..], IResult::Done(&[][..], MessageSet {
+                    messages: vec![
+                        Message {
+                            offset: 0,
+                            compression: Compression::None,
+                            key: Some(Bytes::from(&b"key"[..])),
+                            value: Some(Bytes::from(&b"value"[..])),
+                            timestamp: Some(MessageTimestamp::LogAppendTime(456)),
+                            headers: Vec::new(),
+                        },
+                    ],
+                }))];
     }
 
     #[test]
-    fn parse_message_set_v0() {
-        let data = vec![
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 22 /* size */, 197,
-            70, 142, 169 /* crc */, 0 /* magic */, 8 /* attributes */, 0, 0, 0, 3, b'k', b'e',
-            b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u', b'e' /* value */,
-        ];
+    fn test_parse_message_set() {
+        for &(data, ref result) in TEST_MESSAGE_SET.iter() {
+            let res = parse_message_set(&data);
 
-        let message_set = MessageSet {
-            messages: vec![
-                Message {
-                    offset: 0,
-                    compression: Compression::None,
-                    key: Some(Bytes::from(&b"key"[..])),
-                    value: Some(Bytes::from(&b"value"[..])),
-                    timestamp: None,
-                },
-            ],
-        };
+            display_parse_error::<_>(&data, res.clone());
 
-        let res = parse_message_set(&data[..], 0);
-
-        display_parse_error::<_>(&data[..], res.clone());
-
-        assert_eq!(res, IResult::Done(&[][..], message_set));
-    }
-
-    #[test]
-    fn parse_message_set_v1() {
-        let data = vec![
-            /* messages: [Message] */ 0, 0, 0, 0, 0, 0, 0, 0 /* offset */, 0, 0, 0, 30 /* size */, 206,
-            63, 210, 11 /* crc */, 1 /* magic */, 8 /* attributes */, 0, 0, 0, 0, 0, 0, 1,
-            200 /* timestamp */, 0, 0, 0, 3, b'k', b'e', b'y' /* key */, 0, 0, 0, 5, b'v', b'a', b'l', b'u',
-            b'e' /* value */,
-        ];
-
-        let message_set = MessageSet {
-            messages: vec![
-                Message {
-                    offset: 0,
-                    compression: Compression::None,
-                    key: Some(Bytes::from(&b"key"[..])),
-                    value: Some(Bytes::from(&b"value"[..])),
-                    timestamp: Some(MessageTimestamp::LogAppendTime(456)),
-                },
-            ],
-        };
-
-        let res = parse_message_set(&data[..], 1);
-
-        display_parse_error::<_>(&data[..], res.clone());
-
-        assert_eq!(res, IResult::Done(&[][..], message_set));
+            assert_eq!(res, result.clone());
+        }
     }
 }

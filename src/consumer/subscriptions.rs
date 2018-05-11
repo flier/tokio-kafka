@@ -79,19 +79,24 @@ impl<'a> Subscriptions<'a> {
 
     /// Change the assignment to the specified partitions returned from the
     /// coordinator
-    pub fn assign_from_subscribed(&mut self, partitions: Vec<TopicPartition<'a>>) -> Result<()> {
-        if let Some(tp) = partitions
-            .iter()
-            .find(|tp| !self.subscription.contains(&String::from(tp.topic_name.to_owned())))
-        {
-            bail!(ErrorKind::IllegalArgument(format!(
-                "assigned partition {}#{} for non-subscribed topic",
-                tp.topic_name, tp.partition_id
-            )))
-        }
+    pub fn assign_from_subscribed<I>(&mut self, assignments: I) -> Result<()>
+    where
+        I: IntoIterator<Item = TopicPartition<'a>>,
+    {
+        self.assignment = HashMap::new();
 
-        self.assignment = HashMap::from_iter(partitions.into_iter()
-                .map(|tp| (tp.clone(), self.assignment.get(&tp).cloned().unwrap_or(TopicPartitionState::default()))));
+        for tp in assignments {
+            if !self.subscription.contains(&*tp.topic_name) {
+                bail!(ErrorKind::IllegalArgument(format!(
+                    "assigned partition {}#{} for non-subscribed topic",
+                    tp.topic_name, tp.partition_id
+                )))
+            }
+
+            let state = self.assignment.remove(&tp).unwrap_or_default();
+
+            self.assignment.insert(tp, state);
+        }
 
         Ok(())
     }
@@ -116,17 +121,37 @@ impl<'a> Subscriptions<'a> {
         self.assignment
             .get_mut(tp)
             .ok_or_else(|| ErrorKind::IllegalArgument(format!("No current assignment for partition {}", tp)).into())
-            .map(|state| match pos {
-                SeekTo::Beginning => {
-                    state.need_offset_reset(OffsetResetStrategy::Earliest);
-                }
-                SeekTo::Position(offset) => {
-                    state.seek(offset);
-                }
-                SeekTo::End => {
-                    state.need_offset_reset(OffsetResetStrategy::Latest);
+            .map(|state| {
+                trace!("seek {} to {:?}", tp, pos);
+
+                match pos {
+                    SeekTo::Beginning => {
+                        state.need_offset_reset(OffsetResetStrategy::Earliest);
+                    }
+                    SeekTo::Position(offset) => {
+                        state.seek(offset);
+                    }
+                    SeekTo::End => {
+                        state.need_offset_reset(OffsetResetStrategy::Latest);
+                    }
                 }
             })
+    }
+
+    pub fn partitions_needing_reset(&self) -> Vec<TopicPartition<'a>> {
+        self.assignment
+            .iter()
+            .filter(|&(_, state)| state.awaiting_reset())
+            .map(|(tp, _)| tp.clone())
+            .collect()
+    }
+
+    pub fn partitions_missing_positions(&self) -> Vec<TopicPartition<'a>> {
+        self.assignment
+            .iter()
+            .filter(|&(_, state)| state.is_missing_position())
+            .map(|(tp, _)| tp.clone())
+            .collect()
     }
 
     pub fn consumed_partitions(&self) -> Vec<(TopicPartition<'a>, OffsetAndMetadata)> {
@@ -221,12 +246,16 @@ impl TopicPartitionState {
         !self.paused && self.position.is_some()
     }
 
+    pub fn awaiting_reset(&self) -> bool {
+        self.reset_strategy.is_some()
+    }
+
     pub fn has_valid_position(&self) -> bool {
         self.position.is_some()
     }
 
-    pub fn is_offset_reset_needed(&self) -> bool {
-        self.reset_strategy.is_some()
+    pub fn is_missing_position(&self) -> bool {
+        !self.has_valid_position() && !self.awaiting_reset()
     }
 
     pub fn has_committed(&self) -> bool {

@@ -8,7 +8,7 @@ use std::cmp;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::Deref;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::usize;
 
 use bytes::Bytes;
@@ -31,8 +31,9 @@ use errors::{Error, Result};
 use errors::ErrorKind::{self, *};
 use network::{KafkaRequest, KafkaResponse, OffsetAndMetadata, TopicPartition, DEFAULT_PORT};
 use protocol::{ApiKeys, ApiVersion, CorrelationId, ErrorCode, FetchOffset, FetchPartition, FetchTopic, FetchTopicData,
-               GenerationId, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, MessageSet, Offset, PartitionId,
-               RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions, DEFAULT_RESPONSE_MAX_BYTES};
+               GenerationId, IsolationLevel, JoinGroupMember, JoinGroupProtocol, KafkaCode, Message, Offset,
+               PartitionId, RequiredAcks, SyncGroupAssignment, Timestamp, UsableApiVersions,
+               DEFAULT_RESPONSE_MAX_BYTES};
 
 /// A trait for communicating with the Kafka cluster.
 pub trait Client<'a>: 'static {
@@ -45,13 +46,16 @@ pub trait Client<'a>: 'static {
 
     /// Send the given record asynchronously and return a future which will eventually contain
     /// the response information.
-    fn produce_records(
+    fn produce_records<I, M>(
         &self,
         acks: RequiredAcks,
         timeout: Duration,
         topic_partition: TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> ProduceRecords;
+        records: I,
+    ) -> ProduceRecords
+    where
+        I: 'static + IntoIterator<Item = M>,
+        M: Into<Message>;
 
     /// Fetch records of partitions for all nodes for which we have assigned
     /// partitions.
@@ -60,6 +64,7 @@ pub trait Client<'a>: 'static {
         fetch_max_wait: Duration,
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
+        isolation_level: IsolationLevel,
         partitions: Vec<(TopicPartition<'a>, PartitionData)>,
     ) -> FetchRecords;
 
@@ -450,13 +455,17 @@ where
         self.inner.config.retry_strategy()
     }
 
-    fn produce_records(
+    fn produce_records<I, M>(
         &self,
         required_acks: RequiredAcks,
         timeout: Duration,
         tp: TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> ProduceRecords {
+        records: I,
+    ) -> ProduceRecords
+    where
+        I: 'static + IntoIterator<Item = M>,
+        M: Into<Message>,
+    {
         let inner = self.inner.clone();
         self.metadata()
             .and_then(move |metadata| inner.produce_records(&metadata, required_acks, timeout, &tp, records))
@@ -468,6 +477,7 @@ where
         fetch_max_wait: Duration,
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
+        isolation_level: IsolationLevel,
         partitions: Vec<(TopicPartition<'a>, PartitionData)>,
     ) -> FetchRecords {
         let inner = self.inner.clone();
@@ -477,7 +487,13 @@ where
                     .topics_by_broker(ApiKeys::Fetch, &metadata, partitions)
                     .into_future()
                     .and_then(move |topics| {
-                        inner.fetch_records(fetch_max_wait, fetch_min_bytes, fetch_max_bytes, topics)
+                        inner.fetch_records(
+                            fetch_max_wait,
+                            fetch_min_bytes,
+                            fetch_max_bytes,
+                            isolation_level,
+                            topics,
+                        )
                     })
             })
             .static_boxed()
@@ -821,7 +837,7 @@ where
         self.send_request(AutoName::HostPort(broker.host(), broker.port()), request)
             .and_then(|res| {
                 if let KafkaResponse::ApiVersions(res) = res {
-                    Ok(UsableApiVersions::new(res.api_versions))
+                    Ok(res.api_versions.into_iter().collect())
                 } else {
                     bail!(UnexpectedResponse(res.api_key()))
                 }
@@ -849,14 +865,18 @@ where
         future::join_all(responses).map(HashMap::from_iter).static_boxed()
     }
 
-    fn produce_records(
+    fn produce_records<I, M>(
         &self,
         metadata: &Metadata,
         required_acks: RequiredAcks,
         timeout: Duration,
         tp: &TopicPartition<'a>,
-        records: Vec<Cow<'a, MessageSet>>,
-    ) -> ProduceRecords {
+        records: I,
+    ) -> ProduceRecords
+    where
+        I: 'static + IntoIterator<Item = M>,
+        M: Into<Message>,
+    {
         let (api_version, addr) = metadata.leader_for(tp).map_or_else(
             || (0, AutoName::Auto(self.config.hosts.first().unwrap())),
             |broker| {
@@ -871,6 +891,7 @@ where
             api_version,
             self.next_correlation_id(),
             self.client_id(),
+            None,
             required_acks,
             timeout,
             tp,
@@ -940,6 +961,7 @@ where
         fetch_max_wait: Duration,
         fetch_min_bytes: usize,
         fetch_max_bytes: usize,
+        isolation_level: IsolationLevel,
         topics: TopicsByBroker<'a, PartitionData>,
     ) -> FetchRecords {
         let requests = {
@@ -955,6 +977,7 @@ where
                             .map(|&(partition_id, ref fetch_data)| FetchPartition {
                                 partition_id,
                                 fetch_offset: fetch_data.offset,
+                                log_start_offset: None,
                                 max_bytes: fetch_data.max_bytes.unwrap_or(DEFAULT_RESPONSE_MAX_BYTES),
                             })
                             .collect(),
@@ -968,6 +991,7 @@ where
                     fetch_max_wait,
                     fetch_min_bytes as i32,
                     fetch_max_bytes as i32,
+                    isolation_level,
                     fetch_topics,
                 );
                 let request = self.send_request(AutoName::HostPort(&host, port), request)
@@ -1512,15 +1536,13 @@ where
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
-            let state;
-
-            match self.state {
+            self.state = match self.state {
                 Loading::Metadata(ref mut future) => match future.poll() {
                     Ok(Async::Ready(metadata)) => {
                         let inner = self.inner.clone();
 
                         if inner.config.api_version_request {
-                            state = Loading::ApiVersions(metadata.clone(), inner.load_api_versions(&metadata));
+                            Loading::ApiVersions(metadata.clone(), inner.load_api_versions(&metadata))
                         } else {
                             let fallback_api_versions = inner.config.broker_version_fallback.api_versions();
 
@@ -1532,7 +1554,7 @@ where
                                 fallback_api_versions
                             );
 
-                            state = Loading::Finished(metadata);
+                            Loading::Finished(metadata)
                         }
                     }
                     Ok(Async::NotReady) => return Ok(Async::NotReady),
@@ -1542,7 +1564,7 @@ where
                     Ok(Async::Ready(api_versions)) => {
                         let metadata = Rc::new(metadata.with_api_versions(&api_versions));
 
-                        state = Loading::Finished(metadata);
+                        Loading::Finished(metadata)
                     }
                     Ok(Async::NotReady) => return Ok(Async::NotReady),
                     Err(err) => return Err(err),
@@ -1552,9 +1574,7 @@ where
 
                     return Ok(Async::Ready(metadata.clone()));
                 }
-            }
-
-            self.state = state;
+            };
         }
     }
 }
@@ -1620,4 +1640,24 @@ where
     fn static_boxed(self) -> StaticBoxFuture<T, E> {
         StaticBoxFuture::new(self)
     }
+}
+
+pub fn simple_timeout<F, T>(timeout: Duration, future: F) -> StaticBoxFuture<T, Error>
+where
+    F: 'static + Future<Item = T, Error = Error>,
+{
+    let start_time = Instant::now();
+
+    StaticBoxFuture::new(
+        future
+            .select(future::poll_fn(move || {
+                if start_time.elapsed() > timeout {
+                    bail!(ErrorKind::TimeoutError(format!("future timeout")))
+                } else {
+                    Ok(Async::NotReady)
+                }
+            }))
+            .map(|(result, _)| result)
+            .map_err(|(err, _)| err),
+    )
 }

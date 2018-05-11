@@ -11,7 +11,7 @@ use client::{Client, FetchRecords, KafkaClient, ListOffsets, PartitionData, Stat
 use consumer::{OffsetResetStrategy, SeekTo, Subscriptions};
 use errors::{Error, ErrorKind};
 use network::TopicPartition;
-use protocol::{FetchOffset, KafkaCode, Offset};
+use protocol::{FetchOffset, IsolationLevel, KafkaCode, Offset};
 
 pub struct Fetcher<'a> {
     client: KafkaClient<'a>,
@@ -20,6 +20,7 @@ pub struct Fetcher<'a> {
     fetch_max_bytes: usize,
     fetch_max_wait: Duration,
     partition_fetch_bytes: usize,
+    isolation_level: IsolationLevel,
 }
 
 impl<'a> Fetcher<'a>
@@ -33,6 +34,7 @@ where
         fetch_max_bytes: usize,
         fetch_max_wait: Duration,
         partition_fetch_bytes: usize,
+        isolation_level: IsolationLevel,
     ) -> Self {
         Fetcher {
             client,
@@ -41,6 +43,7 @@ where
             fetch_max_bytes,
             fetch_max_wait,
             partition_fetch_bytes,
+            isolation_level,
         }
     }
 
@@ -111,13 +114,19 @@ where
             .and_then(move |offsets| {
                 for (topic_name, partitions) in offsets {
                     for partition in partitions {
-                        if let Some(offset) = partition.offset() {
-                            match partition.error_code {
-                                KafkaCode::None => {
-                                    let tp = topic_partition!(topic_name.clone(), partition.partition_id);
+                        let tp = topic_partition!(topic_name.clone(), partition.partition_id);
 
-                                    subscriptions.borrow_mut().seek(&tp, SeekTo::Position(offset))?
-                                }
+                        let partition_offset = subscriptions.borrow().assigned_state(&tp).and_then(|state| match state
+                            .reset_strategy
+                        {
+                            Some(OffsetResetStrategy::Earliest) => partition.earliest(),
+                            Some(OffsetResetStrategy::Latest) => partition.latest(),
+                            _ => partition.offset(),
+                        });
+
+                        if let Some(offset) = partition_offset {
+                            match partition.error_code {
+                                KafkaCode::None => subscriptions.borrow_mut().seek(&tp, SeekTo::Position(offset))?,
                                 _ => bail!(ErrorKind::KafkaError(partition.error_code)),
                             }
                         } else {
@@ -129,6 +138,16 @@ where
                 Ok(())
             })
             .static_boxed()
+    }
+
+    pub fn reset_offsets_if_needed(&self) -> Option<ResetOffsets> {
+        let partitions = self.subscriptions.borrow().partitions_needing_reset();
+
+        if partitions.is_empty() {
+            None
+        } else {
+            Some(self.reset_offsets(partitions))
+        }
     }
 
     /// Set-up a fetch request for any node that we have assigned partitions.
@@ -158,6 +177,7 @@ where
                 self.fetch_max_wait,
                 self.fetch_min_bytes,
                 self.fetch_max_bytes,
+                self.isolation_level,
                 fetch_partitions,
             )
             .and_then(move |(throttle_time, records)| {
@@ -173,10 +193,17 @@ where
                                     KafkaCode::None => {
                                         if state.position != Some(record.fetch_offset) {
                                             debug!("discarding stale fetch response for {} since its offset {} does not match the expected offset {:?}", tp, record.fetch_offset, state.position);
-                                            continue;
-                                        }
+                                        } else {
+                                            if let Some(next_offset) =
+                                                record.messages.last().map(|message| message.offset + 1)
+                                            {
+                                                debug!("returning fetched records at offset {:?} for assigned partition {} and update position to {:?}", state.position, tp, next_offset);
 
-                                        state.high_watermark = record.high_watermark;
+                                                state.position = Some(next_offset);
+                                            }
+
+                                            state.high_watermark = record.high_watermark;
+                                        }
                                     }
                                     KafkaCode::OffsetOutOfRange => {
                                         if state.position != Some(record.fetch_offset) {

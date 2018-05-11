@@ -51,7 +51,7 @@ impl KafkaResponse {
         let buf = src.as_ref();
 
         debug!(
-            "parsing {:?} response (api_version = {:?}) with {} bytes",
+            "parsing {:?} response (api version: {}) with {} bytes",
             api_key,
             api_version,
             buf.len(),
@@ -77,8 +77,6 @@ impl KafkaResponse {
 
         match res {
             IResult::Done(remaining, res) => {
-                debug!("parsed response: {:?}", res);
-
                 if !remaining.is_empty() {
                     warn!("remaining {} bytes not parsed", remaining.len());
                 }

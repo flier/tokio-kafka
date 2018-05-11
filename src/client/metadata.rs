@@ -60,11 +60,11 @@ impl Metadata {
     }
 
     /// Create a new Metadata with the given fallback API versions
-    pub fn with_fallback_api_versions(&self, api_versions: &UsableApiVersions) -> Self {
+    pub fn with_fallback_api_versions(&self, api_versions: Option<&UsableApiVersions>) -> Self {
         Metadata {
             brokers: self.brokers
                 .iter()
-                .map(|broker| broker.with_api_versions(Some(api_versions.clone())))
+                .map(|broker| broker.with_api_versions(api_versions.cloned()))
                 .collect(),
             topic_partitions: self.topic_partitions.clone(),
             group_coordinators: self.group_coordinators.clone(),

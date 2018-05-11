@@ -10,6 +10,8 @@ extern crate log;
 extern crate error_chain;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate bitflags;
 extern crate bytes;
 #[macro_use]
 extern crate nom;
@@ -18,6 +20,7 @@ extern crate crc;
 #[cfg(feature = "encoding")]
 extern crate encoding;
 extern crate hexplay;
+extern crate num;
 extern crate rand;
 extern crate serde;
 extern crate time;
@@ -31,6 +34,7 @@ extern crate prometheus;
 extern crate abstract_ns;
 extern crate ns_router;
 extern crate ns_std_threaded;
+extern crate semver;
 
 #[macro_use]
 extern crate futures;
@@ -76,7 +80,7 @@ pub use client::{Broker, BrokerRef, Client, ClientBuilder, ClientConfig, Cluster
                  ToStaticBoxFuture, TopicRecord, DEFAULT_MAX_CONNECTION_IDLE_TIMEOUT_MILLIS,
                  DEFAULT_METADATA_MAX_AGE_MILLS, DEFAULT_REQUEST_TIMEOUT_MILLS, DEFAULT_RETRY_BACKOFF_MILLIS};
 pub use compression::Compression;
-pub use consumer::{Consumer, ConsumerBuilder, KafkaConsumer, OffsetResetStrategy, SeekTo, Subscribed};
+pub use consumer::{Consumer, ConsumerBuilder, ConsumerConfig, KafkaConsumer, OffsetResetStrategy, SeekTo, Subscribed};
 pub use errors::{Error, ErrorKind, Result};
 pub use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition, DEFAULT_PORT};
 pub use producer::{DefaultPartitioner, GetTopic, KafkaProducer, Partitioner, Producer, ProducerBuilder,

@@ -1,11 +1,11 @@
-use bytes::{BufMut, ByteOrder, BytesMut};
+use bytes::BufMut;
 use std::borrow::Cow;
 
 use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{parse_opt_string, parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, Offset,
-               ParseTag, PartitionId, Record, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE,
+               ParseTag, PartitionId, Request, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE,
                PARTITION_ID_SIZE, STR_LEN_SIZE};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,7 +58,7 @@ pub struct OffsetFetchPartitionStatus {
     pub error_code: ErrorCode,
 }
 
-impl<'a> Record for OffsetFetchRequest<'a> {
+impl<'a> Request for OffsetFetchRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
             + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
@@ -72,14 +72,14 @@ impl<'a> Record for OffsetFetchRequest<'a> {
 }
 
 impl<'a> Encodable for OffsetFetchRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        self.header.encode::<T>(dst)?;
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        self.header.encode(dst)?;
 
-        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
-        dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
-            buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
-            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition_id);
+        dst.put_str(Some(self.group_id.as_ref()))?;
+        dst.put_array(&self.topics, |buf, topic| {
+            buf.put_str(Some(topic.topic_name.as_ref()))?;
+            buf.put_array(&topic.partitions, |buf, partition| {
+                buf.put_i32_be(partition.partition_id);
                 Ok(())
             })
         })
@@ -133,7 +133,7 @@ named!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::BigEndian;
+    use bytes::BytesMut;
 
     use nom::IResult;
     use protocol::*;
@@ -168,7 +168,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 

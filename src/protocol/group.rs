@@ -1,12 +1,13 @@
 use std::borrow::Cow;
 
-use bytes::{BufMut, ByteOrder, Bytes, BytesMut};
+use bytes::{BufMut, Bytes};
 
 use nom::{IResult, be_i16, be_i32};
 
 use errors::Result;
 use protocol::{parse_bytes, parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, GenerationId,
-               ParseTag, Record, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE, STR_LEN_SIZE};
+               ParseTag, Request, RequestHeader, ResponseHeader, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE,
+               STR_LEN_SIZE};
 
 const SESSION_TIMEOUT_SIZE: usize = 4;
 const REBALANCE_TIMEOUT_SIZE: usize = 4;
@@ -219,21 +220,21 @@ pub struct ListGroupsGroupStatus {
     pub protocol_type: String,
 }
 
-impl<'a> Record for GroupCoordinatorRequest<'a> {
+impl<'a> Request for GroupCoordinatorRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + STR_LEN_SIZE + self.group_id.len()
     }
 }
 
 impl<'a> Encodable for GroupCoordinatorRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        self.header.encode::<T>(dst)?;
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        self.header.encode(dst)?;
 
-        dst.put_str::<T, _>(Some(self.group_id.as_ref()))
+        dst.put_str(Some(self.group_id.as_ref()))
     }
 }
 
-impl<'a> Record for JoinGroupRequest<'a> {
+impl<'a> Request for JoinGroupRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + { STR_LEN_SIZE + self.group_id.len() } + SESSION_TIMEOUT_SIZE
             + if api_version > 0 { REBALANCE_TIMEOUT_SIZE } else { 0 } + { STR_LEN_SIZE + self.member_id.len() }
@@ -247,27 +248,27 @@ impl<'a> Record for JoinGroupRequest<'a> {
 }
 
 impl<'a> Encodable for JoinGroupRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         let api_version = self.header.api_version;
 
-        self.header.encode::<T>(dst)?;
+        self.header.encode(dst)?;
 
-        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
-        dst.put_i32::<T>(self.session_timeout);
+        dst.put_str(Some(self.group_id.as_ref()))?;
+        dst.put_i32_be(self.session_timeout);
         if api_version > 0 {
-            dst.put_i32::<T>(self.rebalance_timeout);
+            dst.put_i32_be(self.rebalance_timeout);
         }
-        dst.put_str::<T, _>(Some(self.member_id.as_ref()))?;
-        dst.put_str::<T, _>(Some(self.protocol_type.as_ref()))?;
+        dst.put_str(Some(self.member_id.as_ref()))?;
+        dst.put_str(Some(self.protocol_type.as_ref()))?;
 
-        dst.put_array::<T, _, _>(&self.protocols, |buf, protocol| {
-            buf.put_str::<T, _>(Some(protocol.protocol_name.as_ref()))?;
-            buf.put_bytes::<T, _>(Some(protocol.protocol_metadata.as_ref()))
+        dst.put_array(&self.protocols, |buf, protocol| {
+            buf.put_str(Some(protocol.protocol_name.as_ref()))?;
+            buf.put_bytes(Some(protocol.protocol_metadata.as_ref()))
         })
     }
 }
 
-impl<'a> Record for HeartbeatRequest<'a> {
+impl<'a> Request for HeartbeatRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + { STR_LEN_SIZE + self.group_id.len() } + GROUP_GENERATION_ID_SIZE + {
             STR_LEN_SIZE + self.member_id.len()
@@ -276,31 +277,31 @@ impl<'a> Record for HeartbeatRequest<'a> {
 }
 
 impl<'a> Encodable for HeartbeatRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        self.header.encode::<T>(dst)?;
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        self.header.encode(dst)?;
 
-        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
-        dst.put_i32::<T>(self.group_generation_id);
-        dst.put_str::<T, _>(Some(self.member_id.as_ref()))
+        dst.put_str(Some(self.group_id.as_ref()))?;
+        dst.put_i32_be(self.group_generation_id);
+        dst.put_str(Some(self.member_id.as_ref()))
     }
 }
 
-impl<'a> Record for LeaveGroupRequest<'a> {
+impl<'a> Request for LeaveGroupRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + { STR_LEN_SIZE + self.group_id.len() } + { STR_LEN_SIZE + self.member_id.len() }
     }
 }
 
 impl<'a> Encodable for LeaveGroupRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        self.header.encode::<T>(dst)?;
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        self.header.encode(dst)?;
 
-        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
-        dst.put_str::<T, _>(Some(self.member_id.as_ref()))
+        dst.put_str(Some(self.group_id.as_ref()))?;
+        dst.put_str(Some(self.member_id.as_ref()))
     }
 }
 
-impl<'a> Record for SyncGroupRequest<'a> {
+impl<'a> Request for SyncGroupRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + { STR_LEN_SIZE + self.group_id.len() } + GROUP_GENERATION_ID_SIZE + {
             STR_LEN_SIZE + self.member_id.len()
@@ -311,21 +312,21 @@ impl<'a> Record for SyncGroupRequest<'a> {
 }
 
 impl<'a> Encodable for SyncGroupRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        self.header.encode::<T>(dst)?;
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        self.header.encode(dst)?;
 
-        dst.put_str::<T, _>(Some(self.group_id.as_ref()))?;
-        dst.put_i32::<T>(self.group_generation_id);
-        dst.put_str::<T, _>(Some(self.member_id.as_ref()))?;
+        dst.put_str(Some(self.group_id.as_ref()))?;
+        dst.put_i32_be(self.group_generation_id);
+        dst.put_str(Some(self.member_id.as_ref()))?;
 
-        dst.put_array::<T, _, _>(&self.group_assignment, |buf, assignment| {
-            buf.put_str::<T, _>(Some(assignment.member_id.as_ref()))?;
-            buf.put_bytes::<T, _>(Some(assignment.member_assignment.as_ref()))
+        dst.put_array(&self.group_assignment, |buf, assignment| {
+            buf.put_str(Some(assignment.member_id.as_ref()))?;
+            buf.put_bytes(Some(assignment.member_assignment.as_ref()))
         })
     }
 }
 
-impl<'a> Record for DescribeGroupsRequest<'a> {
+impl<'a> Request for DescribeGroupsRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version)
             + self.groups
@@ -335,22 +336,22 @@ impl<'a> Record for DescribeGroupsRequest<'a> {
 }
 
 impl<'a> Encodable for DescribeGroupsRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        self.header.encode::<T>(dst)?;
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        self.header.encode(dst)?;
 
-        dst.put_array::<T, _, _>(&self.groups, |buf, group| buf.put_str::<T, _>(Some(group.as_ref())))
+        dst.put_array(&self.groups, |buf, group| buf.put_str(Some(group.as_ref())))
     }
 }
 
-impl<'a> Record for ListGroupsRequest<'a> {
+impl<'a> Request for ListGroupsRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version)
     }
 }
 
 impl<'a> Encodable for ListGroupsRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
-        self.header.encode::<T>(dst)
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
+        self.header.encode(dst)
     }
 }
 
@@ -557,7 +558,7 @@ named!(
 
 #[cfg(test)]
 mod tests {
-    use bytes::BigEndian;
+    use bytes::BytesMut;
 
     use nom::IResult;
 
@@ -586,7 +587,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -651,7 +652,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -694,7 +695,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -758,7 +759,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -802,7 +803,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -856,7 +857,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -901,7 +902,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -973,7 +974,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 

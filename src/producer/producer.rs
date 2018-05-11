@@ -1,9 +1,9 @@
 use std::borrow::{Borrow, Cow};
 use std::cell::RefCell;
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::hash::Hash;
 use std::mem;
+use std::ops::Deref;
 use std::rc::Rc;
 
 use time;
@@ -16,7 +16,7 @@ use client::{Client, Cluster, KafkaClient, Metadata, PartitionRecord, StaticBoxF
 use errors::{Error, ErrorKind};
 use producer::{Accumulator, Interceptors, Partitioner, ProducerBuilder, ProducerConfig, ProducerInterceptor,
                ProducerInterceptors, ProducerRecord, PushRecord, RecordAccumulator, RecordMetadata, Sender};
-use protocol::{ApiKeys, PartitionId, ToMilliseconds};
+use protocol::{ApiKeys, PartitionId, ProduceRequest, ToMilliseconds};
 use serialization::Serializer;
 
 /// A trait for publishing records to the Kafka cluster.
@@ -247,6 +247,7 @@ where
             key,
             value,
             timestamp,
+            headers,
         } = record;
 
         let partition = self.partitioner
@@ -268,7 +269,14 @@ where
 
         trace!("use API version {} for {:?}", api_version, tp);
 
-        self.accumulator.push_record(tp, timestamp, key, value, api_version)
+        self.accumulator.push_record(
+            tp,
+            timestamp,
+            key,
+            value,
+            headers,
+            ProduceRequest::required_record_format(api_version),
+        )
     }
 
     /// Flush full or expired batches

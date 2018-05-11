@@ -7,19 +7,21 @@ use std::time::{Duration, Instant};
 
 use futures::future::Either;
 use futures::{future, Future, Stream};
-use tokio_retry::{Retry, Error as RetryError};
+use tokio_retry::{Error as RetryError, Retry};
 use tokio_timer::Timer;
 
 use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupMember, ConsumerGroupProtocol,
              Generation, JoinGroup as JoinConsumerGroup, Metadata, OffsetCommit, OffsetFetch, StaticBoxFuture,
              ToStaticBoxFuture};
-use consumer::{Assignment, PartitionAssignor, Subscription, Subscriptions, CONSUMER_PROTOCOL};
+use consumer::{Assignment, PartitionAssignor, SeekTo, Subscription, Subscriptions, CONSUMER_PROTOCOL};
 use errors::{Error, ErrorKind, Result, ResultExt};
 use network::{OffsetAndMetadata, TopicPartition};
 use protocol::{KafkaCode, Schema, ToMilliseconds};
 
 /// Manages the coordination process with the consumer coordinator.
 pub trait Coordinator<'a> {
+    fn group_id(&self) -> &str;
+
     /// Join the consumer group.
     fn join_group(&self) -> JoinGroup;
 
@@ -51,6 +53,7 @@ pub type UpdateOffsets = StaticBoxFuture;
 pub type FetchOffsets = OffsetFetch;
 
 /// Manages the coordination process with the consumer coordinator.
+#[derive(Clone)]
 pub struct ConsumerCoordinator<'a, C> {
     inner: Rc<Inner<'a, C>>,
 }
@@ -359,7 +362,7 @@ where
                                 }
                                 _ => warn!("unknown error, {}", err),
                             },
-                            RetryError::TimerError(_) => {},
+                            RetryError::TimerError(_) => {}
                         }
 
                         err.into()
@@ -520,6 +523,33 @@ where
             })
             .static_boxed()
     }
+
+    pub fn refresh_committed_offsets_if_needed(&self) -> Option<StaticBoxFuture> {
+        let subscriptions = self.inner.subscriptions.clone();
+        let partitions = subscriptions.borrow().partitions_missing_positions();
+
+        if partitions.is_empty() {
+            None
+        } else {
+            Some(
+                self.fetch_offsets(partitions)
+                    .and_then(move |offsets| {
+                        for (topic_name, partitions) in offsets {
+                            for partition in partitions {
+                                let tp = topic_partition!(topic_name.clone(), partition.partition_id);
+
+                                subscriptions
+                                    .borrow_mut()
+                                    .seek(&tp, SeekTo::Position(partition.offset))?;
+                            }
+                        }
+
+                        Ok(())
+                    })
+                    .static_boxed(),
+            )
+        }
+    }
 }
 
 pub type GroupCoordinator = StaticBoxFuture<BrokerRef>;
@@ -533,6 +563,10 @@ where
     C: Client<'a> + Clone,
     Self: 'static,
 {
+    fn group_id(&self) -> &str {
+        self.inner.group_id.as_str()
+    }
+
     fn join_group(&self) -> JoinGroup {
         let group_id = self.inner.group_id.clone();
 

@@ -35,6 +35,12 @@ function test {
 
     docker-compose exec kafka /tmp/setup-topics.sh
 
+    for i in {1..5}
+    do
+        sleep 1
+        echo '.'
+    done
+
     RUST_LOG=tokio KAFKA_BROKERS=$IP_ADDRESS:9092 cargo test --features "integration_test"
 
     docker-compose down

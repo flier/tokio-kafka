@@ -3,6 +3,7 @@
 use std::mem;
 use std::str::FromStr;
 use std::time::Duration;
+use std::sync::atomic::{AtomicIsize, Ordering};
 
 use time::Timespec;
 
@@ -11,6 +12,7 @@ use errors::{Error, ErrorKind, Result};
 mod api_key;
 mod code;
 mod encode;
+mod zigzag;
 #[macro_use]
 mod parse;
 mod api_versions;
@@ -23,14 +25,15 @@ mod metadata;
 mod offset_commit;
 mod offset_fetch;
 mod produce;
+mod record;
 mod schema;
 
 pub use self::api_key::{ApiKey, ApiKeys};
-pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion, UsableApiVersions, SUPPORTED_API_VERSIONS};
+pub use self::api_versions::{ApiVersionsRequest, ApiVersionsResponse, UsableApiVersion, UsableApiVersions};
 pub use self::code::{ErrorCode, KafkaCode};
 pub use self::encode::{Encodable, WriteExt, ARRAY_LEN_SIZE, BYTES_LEN_SIZE, OFFSET_SIZE, PARTITION_ID_SIZE,
                        REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
-pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic, FetchTopicData,
+pub use self::fetch::{FetchPartition, FetchRequest, FetchResponse, FetchTopic, FetchTopicData, IsolationLevel,
                       DEFAULT_RESPONSE_MAX_BYTES};
 pub use self::group::{DescribeGroupsRequest, DescribeGroupsResponse, GroupCoordinatorRequest,
                       GroupCoordinatorResponse, HeartbeatRequest, HeartbeatResponse, JoinGroupMember,
@@ -47,7 +50,9 @@ pub use self::offset_fetch::{OffsetFetchPartition, OffsetFetchRequest, OffsetFet
 pub use self::parse::{display_parse_error, parse_bytes, parse_opt_bytes, parse_opt_str, parse_opt_string, parse_str,
                       parse_string, ParseTag, PARSE_TAGS};
 pub use self::produce::{ProducePartitionData, ProduceRequest, ProduceResponse, ProduceTopicData};
+pub use self::record::{RecordBatch, RecordBatchAttributes, RecordBody, RecordHeader};
 pub use self::schema::{Nullable, Schema, SchemaType, VarInt, VarLong};
+pub use self::zigzag::{parse_varint, parse_varlong, VarIntExt, ZigZag, NULL_VARINT_SIZE_BYTES};
 
 /// Normal client consumers should always specify this as -1 as they have no
 /// node id.
@@ -77,6 +82,15 @@ pub type PartitionId = i32;
 /// This is the offset used in kafka as the log sequence number.
 pub type Offset = i64;
 
+#[derive(Debug, Default)]
+pub struct OffsetAssigner(AtomicIsize);
+
+impl OffsetAssigner {
+    pub fn next(&self) -> Offset {
+        self.0.fetch_add(1, Ordering::Relaxed) as Offset
+    }
+}
+
 /// This is the timestamp of the message.
 ///
 /// The timestamp type is indicated in the attributes.
@@ -95,6 +109,12 @@ pub type RequiredAck = i16;
 
 /// The generation of the group.
 pub type GenerationId = i32;
+
+/// The fetch session ID
+pub type SessionId = i32;
+
+/// The producer ID
+pub type ProducerId = i64;
 
 /// Possible choices on acknowledgement requirements when producing/sending
 /// messages to Kafka.
@@ -141,8 +161,12 @@ impl FromStr for RequiredAcks {
     }
 }
 
-pub trait Record {
+pub trait Request {
     fn size(&self, api_version: ApiVersion) -> usize;
+}
+
+pub trait Record {
+    fn size(&self, record_format: RecordFormat) -> usize;
 }
 
 /// A trait for converting a value to a milliseconds.

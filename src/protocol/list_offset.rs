@@ -1,11 +1,11 @@
-use bytes::{BufMut, ByteOrder, BytesMut};
+use bytes::BufMut;
 use std::borrow::Cow;
 
 use nom::{IResult, be_i16, be_i32, be_i64};
 
 use errors::Result;
 use protocol::{parse_response_header, parse_string, ApiVersion, Encodable, ErrorCode, Offset, ParseTag, PartitionId,
-               Record, ReplicaId, RequestHeader, ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE,
+               ReplicaId, Request, RequestHeader, ResponseHeader, Timestamp, WriteExt, ARRAY_LEN_SIZE,
                PARTITION_ID_SIZE, REPLICA_ID_SIZE, STR_LEN_SIZE, TIMESTAMP_SIZE};
 
 const MAX_NUMBER_OF_OFFSETS_SIZE: usize = 4;
@@ -64,7 +64,7 @@ pub struct ListPartitionOffset {
     pub max_number_of_offsets: i32,
 }
 
-impl<'a> Record for ListOffsetRequest<'a> {
+impl<'a> Request for ListOffsetRequest<'a> {
     fn size(&self, api_version: ApiVersion) -> usize {
         self.header.size(api_version) + REPLICA_ID_SIZE + self.topics.iter().fold(ARRAY_LEN_SIZE, |size, topic| {
             size + STR_LEN_SIZE + topic.topic_name.len() + topic.partitions.iter().fold(ARRAY_LEN_SIZE, |size, _| {
@@ -79,19 +79,19 @@ impl<'a> Record for ListOffsetRequest<'a> {
 }
 
 impl<'a> Encodable for ListOffsetRequest<'a> {
-    fn encode<T: ByteOrder>(&self, dst: &mut BytesMut) -> Result<()> {
+    fn encode<T: BufMut>(&self, dst: &mut T) -> Result<()> {
         let api_version = self.header.api_version;
 
-        self.header.encode::<T>(dst)?;
+        self.header.encode(dst)?;
 
-        dst.put_i32::<T>(self.replica_id);
-        dst.put_array::<T, _, _>(&self.topics, |buf, topic| {
-            buf.put_str::<T, _>(Some(topic.topic_name.as_ref()))?;
-            buf.put_array::<T, _, _>(&topic.partitions, |buf, partition| {
-                buf.put_i32::<T>(partition.partition_id);
-                buf.put_i64::<T>(partition.timestamp);
+        dst.put_i32_be(self.replica_id);
+        dst.put_array(&self.topics, |buf, topic| {
+            buf.put_str(Some(topic.topic_name.as_ref()))?;
+            buf.put_array(&topic.partitions, |buf, partition| {
+                buf.put_i32_be(partition.partition_id);
+                buf.put_i64_be(partition.timestamp);
                 if api_version == 0 {
-                    buf.put_i32::<T>(partition.max_number_of_offsets);
+                    buf.put_i32_be(partition.max_number_of_offsets);
                 }
                 Ok(())
             })
@@ -178,7 +178,7 @@ named_args!(parse_list_offset_partition_status(api_version: ApiVersion)<ListOffs
 mod tests {
 
     use super::*;
-    use bytes::BigEndian;
+    use bytes::BytesMut;
 
     use nom::IResult;
     use protocol::*;
@@ -220,7 +220,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
@@ -263,7 +263,7 @@ mod tests {
 
         let mut buf = BytesMut::with_capacity(128);
 
-        req.encode::<BigEndian>(&mut buf).unwrap();
+        req.encode(&mut buf).unwrap();
 
         assert_eq!(req.size(req.header.api_version), buf.len());
 
