@@ -72,9 +72,9 @@ where
     fn call(&self, req: Self::Request) -> Self::Future {
         let (addr, request) = req;
 
-        self.metrics
-            .as_ref()
-            .map(|metrics| metrics.send_request(&addr, &request));
+        if let Some(ref metrics) = self.metrics {
+            metrics.send_request(&addr, &request);
+        }
 
         let checkout = self.pool.checkout(addr);
         let connect = {
@@ -118,7 +118,9 @@ where
                 }
             })
             .map(move |response| {
-                metrics.map(|metrics| metrics.received_response(&addr, &response));
+                if let Some(ref metrics) = metrics {
+                    metrics.received_response(&addr, &response);
+                }
 
                 response
             })

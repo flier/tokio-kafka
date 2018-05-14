@@ -90,8 +90,11 @@ impl<'a> Subscriptions<'a> {
             )))
         }
 
-        self.assignment = HashMap::from_iter(partitions.into_iter()
-                .map(|tp| (tp.clone(), self.assignment.get(&tp).cloned().unwrap_or(TopicPartitionState::default()))));
+        self.assignment = HashMap::from_iter(
+            partitions
+                .into_iter()
+                .map(|tp| (tp.clone(), self.assignment.get(&tp).cloned().unwrap_or_default())),
+        );
 
         Ok(())
     }

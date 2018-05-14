@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::cmp;
 use std::time::Duration;
@@ -8,14 +8,14 @@ use std::rc::Rc;
 
 use bytes::IntoBuf;
 use futures::{future, Async, Future, Poll, Stream};
-use tokio_timer::{Sleep, Timer};
+use tokio_timer::Timer;
 
 use client::{Client, FetchRecords, FetchedRecords, KafkaClient, StaticBoxFuture, ToStaticBoxFuture};
 use consumer::{CommitOffset, ConsumerCoordinator, ConsumerRecord, Coordinator, Fetcher, JoinGroup, KafkaConsumer,
                LeaveGroup, RetrieveOffsets, SeekTo, Subscriptions, UpdatePositions};
 use errors::{Error, ErrorKind, Result};
 use network::{OffsetAndMetadata, OffsetAndTimestamp, TopicPartition};
-use protocol::{FetchOffset, Offset, Timestamp};
+use protocol::{FetchOffset, Offset, Record, Timestamp};
 use serialization::Deserializer;
 
 /// A trait for to the subscribed list of topics.
@@ -136,9 +136,14 @@ where
         timer: Rc<Timer>,
     ) -> Result<SubscribedTopics<'a, K, V>> {
         let state = if let Some(ref coordinator) = coordinator {
-            State::Joining(coordinator.join_group())
+            State::join_group(coordinator.clone())
         } else {
-            State::fetching(subscriptions.clone(), fetcher.clone())
+            State::update_positions(&subscriptions.borrow(), &fetcher)
+        };
+        let prefetch_watermark = if consumer.config().prefetch_enabled() {
+            Some(consumer.config().prefetch_low_watermark)
+        } else {
+            None
         };
 
         Ok(SubscribedTopics {
@@ -149,6 +154,8 @@ where
                 fetcher,
                 timer,
                 state,
+                records: Default::default(),
+                prefetch_watermark,
             })),
         })
     }
@@ -169,6 +176,8 @@ where
     }
 }
 
+type ConsumerRecordQueue<'a, K, V> = VecDeque<(ConsumerRecord<'a, K, V>, usize)>;
+
 struct Inner<'a, K, V>
 where
     K: Deserializer,
@@ -180,35 +189,89 @@ where
     fetcher: Rc<Fetcher<'a>>,
     timer: Rc<Timer>,
     state: State<'a, K::Item, V::Item>,
+    records: ConsumerRecordQueue<'a, K::Item, V::Item>,
+    prefetch_watermark: Option<usize>,
 }
 
 enum State<'a, K, V> {
-    Joining(JoinGroup),
-    UpdatingOffsets(StaticBoxFuture),
+    Rebalancing(ConsumerCoordinator<'a, KafkaClient<'a>>, JoinGroup),
     Updating(UpdatePositions),
     Fetching(FetchRecords),
-    Retry(Sleep),
-    Fetched(Box<Iterator<Item = ConsumerRecord<'a, K, V>>>, Duration),
+    Fetched(Box<Iterator<Item = (ConsumerRecord<'a, K, V>, usize)>>, Duration),
 }
 
 impl<'a, K, V> State<'a, K, V>
 where
     Self: 'static,
 {
-    fn updating(subscriptions: Rc<RefCell<Subscriptions<'a>>>, fetcher: Rc<Fetcher<'a>>) -> Self {
-        let partitions = subscriptions.borrow().assigned_partitions();
+    fn join_group(coordinator: ConsumerCoordinator<'a, KafkaClient<'a>>) -> Self {
+        let joining = coordinator.join_group();
+
+        trace!("join group {} of coordinator", coordinator.group_id());
+
+        State::Rebalancing(coordinator, joining)
+    }
+
+    fn update_positions(subscriptions: &Subscriptions<'a>, fetcher: &Fetcher<'a>) -> Self {
+        let partitions = subscriptions.assigned_partitions();
 
         trace!("updating postion of partitions: {:?}", partitions);
 
         State::Updating(fetcher.update_positions(partitions))
     }
 
-    fn fetching(subscriptions: Rc<RefCell<Subscriptions<'a>>>, fetcher: Rc<Fetcher<'a>>) -> Self {
-        let partitions = subscriptions.borrow().fetchable_partitions();
+    fn fetch_records(subscriptions: &Subscriptions<'a>, fetcher: &Fetcher<'a>) -> Self {
+        let partitions = subscriptions.fetchable_partitions();
 
         trace!("fetching records of partitions: {:?}", partitions);
 
         State::Fetching(fetcher.fetch_records(partitions))
+    }
+
+    fn retry<A, T>(timer: &Timer, backoff: Duration, action: A) -> StaticBoxFuture<T>
+    where
+        A: 'static + FnOnce() -> StaticBoxFuture<T>,
+    {
+        trace!("request was failed or throttled due to quota violation, {:?}", backoff);
+
+        timer.sleep(backoff).from_err().and_then(|_| action()).static_boxed()
+    }
+
+    fn retry_fetch(
+        timer: &Timer,
+        backoff: Duration,
+        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        fetcher: Rc<Fetcher<'a>>,
+    ) -> Self {
+        State::Fetching(Self::retry(timer, backoff, move || {
+            let partitions = subscriptions.borrow().fetchable_partitions();
+
+            trace!("fetching records of partitions: {:?}", partitions);
+
+            fetcher.fetch_records(partitions)
+        }))
+    }
+
+    fn retry_update(
+        timer: &Timer,
+        backoff: Duration,
+        coordinator: Option<ConsumerCoordinator<'a, KafkaClient<'a>>>,
+        subscriptions: Rc<RefCell<Subscriptions<'a>>>,
+        fetcher: Rc<Fetcher<'a>>,
+    ) -> Self {
+        State::Updating(Self::retry(timer, backoff, move || {
+            if let Some(coordinator) = coordinator {
+                trace!("update offsets for group {}", coordinator.group_id());
+
+                coordinator.update_offsets()
+            } else {
+                let partitions = subscriptions.borrow().assigned_partitions();
+
+                trace!("updating postion of partitions: {:?}", partitions);
+
+                fetcher.update_positions(partitions)
+            }
+        }))
     }
 
     fn fetched<KD, VD>(
@@ -242,35 +305,32 @@ where
                             state.seek(message.offset + 1);
                         }
 
-                        ConsumerRecord {
-                            topic_name: Cow::from(topic_name.clone()),
-                            partition_id,
-                            offset: message.offset,
-                            key: message.key.as_ref().and_then(|buf| {
-                                key_deserializer
-                                    .clone()
-                                    .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                    .ok()
-                            }),
-                            value: message.value.as_ref().and_then(|buf| {
-                                value_deserializer
-                                    .clone()
-                                    .deserialize(topic_name.as_ref(), &mut buf.into_buf())
-                                    .ok()
-                            }),
-                            timestamp: message.timestamp.clone(),
-                        }
+                        (
+                            ConsumerRecord {
+                                topic_name: Cow::from(topic_name.clone()),
+                                partition_id,
+                                offset: message.offset,
+                                key: message.key.as_ref().and_then(|buf| {
+                                    key_deserializer
+                                        .clone()
+                                        .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                        .ok()
+                                }),
+                                value: message.value.as_ref().and_then(|buf| {
+                                    value_deserializer
+                                        .clone()
+                                        .deserialize(topic_name.as_ref(), &mut buf.into_buf())
+                                        .ok()
+                                }),
+                                timestamp: message.timestamp.clone(),
+                            },
+                            message.size(Default::default()),
+                        )
                     })
                 })
             })),
             throttle_time,
         )
-    }
-
-    fn retry(timer: Rc<Timer>, backoff: Duration) -> Self {
-        trace!("request was failed or throttled due to quota violation, {:?}", backoff);
-
-        State::Retry(timer.sleep(backoff))
     }
 }
 
@@ -287,73 +347,112 @@ where
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             self.state = match self.state {
-                State::Joining(ref mut join_group) => {
-                    try_ready!(join_group.poll());
+                State::Rebalancing(ref coordinator, ref mut joining) => match joining.poll() {
+                    Ok(Async::Ready(_)) => {
+                        trace!("update offsets for group {}", coordinator.group_id());
 
-                    if let Some(ref coordinator) = self.coordinator {
-                        State::UpdatingOffsets(coordinator.update_offsets())
-                    } else {
-                        State::updating(self.subscriptions.clone(), self.fetcher.clone())
-                    }
-                }
-                State::UpdatingOffsets(ref mut updating) => {
-                    debug!("updating offsets from coordinator");
-                    try_ready!(updating.poll());
-                    State::updating(self.subscriptions.clone(), self.fetcher.clone())
-                }
-                State::Updating(ref mut updating) => {
-                    try_ready!(updating.poll());
-
-                    State::fetching(self.subscriptions.clone(), self.fetcher.clone())
-                }
-                State::Retry(ref mut sleep) => {
-                    try_ready!(sleep.poll());
-
-                    State::updating(self.subscriptions.clone(), self.fetcher.clone())
-                }
-                State::Fetching(ref mut fetching) => match fetching.poll() {
-                    Ok(Async::Ready((throttle_time, ref records)))
-                        if records
-                            .iter()
-                            .flat_map(|(_, records)| records)
-                            .map(|record| record.messages.len())
-                            .sum::<usize>() == 0 =>
-                    {
-                        State::retry(
-                            self.timer.clone(),
-                            cmp::max(throttle_time, self.consumer.config().fetch_error_backoff()),
-                        )
-                    }
-                    Ok(Async::Ready((throttle_time, records))) => {
-                        let key_deserializer = self.consumer.key_deserializer();
-                        let value_deserializer = self.consumer.value_deserializer();
-                        let auto_commit_enabled = self.consumer.config().auto_commit_enabled;
-
-                        State::<K::Item, V::Item>::fetched(
-                            key_deserializer,
-                            value_deserializer,
-                            self.subscriptions.clone(),
-                            auto_commit_enabled,
-                            throttle_time,
-                            records,
-                        )
+                        State::Updating(coordinator.update_offsets())
                     }
                     Ok(Async::NotReady) => {
-                        return Ok(Async::NotReady);
+                        if let Some((record, _)) = self.records.pop_front() {
+                            return Ok(Async::Ready(Some(record)));
+                        } else {
+                            return Ok(Async::NotReady);
+                        }
                     }
                     Err(err) => {
-                        trace!("fail to fetch the records, {}", err);
+                        trace!("fail to join group `{}`: {}", coordinator.group_id(), err);
 
-                        State::retry(self.timer.clone(), self.consumer.config().fetch_error_backoff())
+                        match err {
+                            Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => {
+                                State::join_group(coordinator.clone())
+                            }
+                            _ => return Err(err),
+                        }
+                    }
+                },
+                State::Updating(ref mut updating) => match updating.poll() {
+                    Ok(Async::Ready(_)) => State::fetch_records(&self.subscriptions.borrow(), &self.fetcher),
+                    Ok(Async::NotReady) => {
+                        if let Some((record, _)) = self.records.pop_front() {
+                            return Ok(Async::Ready(Some(record)));
+                        } else {
+                            return Ok(Async::NotReady);
+                        }
+                    }
+                    Err(err) => {
+                        trace!("fail to update offsets: {}", err);
+
+                        match err {
+                            Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => {
+                                if let Some(ref coordinator) = self.coordinator {
+                                    State::join_group(coordinator.clone())
+                                } else {
+                                    State::update_positions(&self.subscriptions.borrow(), &self.fetcher)
+                                }
+                            }
+                            _ => return Err(err),
+                        }
+                    }
+                },
+                State::Fetching(ref mut fetching) => match fetching.poll() {
+                    Ok(Async::Ready((throttle_time, records))) => State::<K::Item, V::Item>::fetched(
+                        self.consumer.key_deserializer(),
+                        self.consumer.value_deserializer(),
+                        self.subscriptions.clone(),
+                        self.consumer.config().auto_commit_enabled,
+                        throttle_time,
+                        records,
+                    ),
+                    Ok(Async::NotReady) => {
+                        if let Some((record, _)) = self.records.pop_front() {
+                            return Ok(Async::Ready(Some(record)));
+                        } else {
+                            return Ok(Async::NotReady);
+                        }
+                    }
+                    Err(err) => {
+                        trace!("fail to fetch records: {}", err);
+
+                        match err {
+                            Error(ErrorKind::KafkaError(code), _) if code.is_retriable() => State::retry_update(
+                                &self.timer,
+                                self.consumer.config().fetch_error_backoff(),
+                                self.coordinator.clone(),
+                                self.subscriptions.clone(),
+                                self.fetcher.clone(),
+                            ),
+                            _ => return Err(err),
+                        }
                     }
                 },
                 State::Fetched(ref mut records, throttle_time) => {
-                    if let Some(record) = records.next() {
-                        return Ok(Async::Ready(Some(record)));
-                    } else if throttle_time > Duration::default() {
-                        State::retry(self.timer.clone(), throttle_time)
-                    } else {
-                        State::fetching(self.subscriptions.clone(), self.fetcher.clone())
+                    self.records.extend(records);
+
+                    match self.prefetch_watermark {
+                        Some(watermark) if self.records.iter().map(|&(_, size)| size).sum::<usize>() < watermark => {
+                            self.prefetch_watermark = Some(self.consumer.config().prefetch_high_watermark);
+
+                            State::fetch_records(&self.subscriptions.borrow(), &self.fetcher)
+                        }
+                        _ => {
+                            if let Some((record, _)) = self.records.pop_front() {
+                                if self.prefetch_watermark.is_some() {
+                                    self.prefetch_watermark = Some(self.consumer.config().prefetch_low_watermark);
+                                }
+
+                                return Ok(Async::Ready(Some(record)));
+                            } else if throttle_time > Duration::default() {
+                                State::retry_fetch(
+                                    &self.timer,
+                                    cmp::max(throttle_time, self.consumer.config().fetch_error_backoff()),
+                                    self.subscriptions.clone(),
+                                    self.fetcher.clone(),
+                                )
+                            } else {
+                                State::fetch_records(&self.subscriptions.borrow(), &self.fetcher)
+                            }
+                        }
                     }
                 }
             };

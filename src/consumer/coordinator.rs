@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use futures::future::Either;
 use futures::{future, Future, Stream};
-use tokio_retry::{Retry, Error as RetryError};
+use tokio_retry::{Error as RetryError, Retry};
 use tokio_timer::Timer;
 
 use client::{BrokerRef, Client, Cluster, ConsumerGroupAssignment, ConsumerGroupMember, ConsumerGroupProtocol,
@@ -20,6 +20,8 @@ use protocol::{KafkaCode, Schema, ToMilliseconds};
 
 /// Manages the coordination process with the consumer coordinator.
 pub trait Coordinator<'a> {
+    fn group_id(&self) -> &str;
+
     /// Join the consumer group.
     fn join_group(&self) -> JoinGroup;
 
@@ -51,6 +53,7 @@ pub type UpdateOffsets = StaticBoxFuture;
 pub type FetchOffsets = OffsetFetch;
 
 /// Manages the coordination process with the consumer coordinator.
+#[derive(Clone)]
 pub struct ConsumerCoordinator<'a, C> {
     inner: Rc<Inner<'a, C>>,
 }
@@ -359,7 +362,7 @@ where
                                 }
                                 _ => warn!("unknown error, {}", err),
                             },
-                            RetryError::TimerError(_) => {},
+                            RetryError::TimerError(_) => {}
                         }
 
                         err.into()
@@ -533,6 +536,10 @@ where
     C: Client<'a> + Clone,
     Self: 'static,
 {
+    fn group_id(&self) -> &str {
+        self.inner.group_id.as_str()
+    }
+
     fn join_group(&self) -> JoinGroup {
         let group_id = self.inner.group_id.clone();
 
