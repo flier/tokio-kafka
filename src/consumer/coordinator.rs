@@ -357,9 +357,20 @@ where
 
                                     state.borrow_mut().leaved();
                                 }
-                                _ => warn!("unknown error, {}", err),
+                                Error(ErrorKind::TimeoutError(_), _) => {
+                                    info!("heartbeat timeout error");
+
+                                    state.borrow_mut().leaved();
+                                }
+                                _ => {
+                                    warn!("unknown error, {}", err);
+                                    state.borrow_mut().leaved();
+                                }
                             },
-                            RetryError::TimerError(_) => {},
+                            RetryError::TimerError(_) => {
+                                warn!("timer error");
+                                state.borrow_mut().leaved();
+                            },
                         }
 
                         err.into()
